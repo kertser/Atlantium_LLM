@@ -76,8 +76,18 @@ def create_vector_store(model, processor, device, index, metadata, path="Raw Doc
                 except Exception as e:
                     print(f"Error adding text embedding for chunk {chunk_idx} in {doc_path}: {e}")
 
-            # Optionally handle images
-            # For now, skip adding image embeddings
+            # Encode images with CLIP and add to FAISS
+            if images:
+                _, image_embeddings = LLM_utils.encode_with_clip([], images, model, processor, device)
+                print(f" - Encoded {len(image_embeddings)} images.")
+
+                for img_idx, image_embedding in enumerate(image_embeddings):
+                    try:
+                        FAISS_utils.add_to_faiss(np.array(image_embedding), doc_path, "image", f"Image {img_idx + 1}", index, metadata)
+                        print(f" - Added image {img_idx + 1} to FAISS.")
+                    except Exception as e:
+                        print(f"Error adding image embedding for image {img_idx + 1} in {doc_path}: {e}")
+
         except Exception as e:
             print(f"Error processing document {doc_path}: {e}")
 

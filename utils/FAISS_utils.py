@@ -80,7 +80,7 @@ def query_with_context(index, metadata, model, processor, device="cpu", text_que
     if image_query:
         if image_query.mode != "RGB":
             image_query = image_query.convert("RGB")
-        image_input = processorr(images=image_query, return_tensors="pt").to(device)
+        image_input = processor(images=image_query, return_tensors="pt").to(device)
         image_embedding = model.get_image_features(**image_input)
         image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
         query_embeddings.append(image_embedding.cpu().detach().numpy())

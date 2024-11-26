@@ -71,6 +71,7 @@ def process_image_for_clip(image):
         print(f"Error processing image: {e}")
         return None
 
+
 def encode_with_clip(texts, images, model, processor, device):
     """
     Encodes text and images using CLIP.
