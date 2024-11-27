@@ -9,4 +9,7 @@ requests
 PyMuPDF
 python-docx
 openpyxl
+fastapi
+python-multipart
+uvicorn
 

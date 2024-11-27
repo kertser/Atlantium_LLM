@@ -1,4 +1,3 @@
-# Set OpenMP environment variable before any other imports
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -9,6 +8,11 @@ from typing import Optional, Union
 import base64
 from io import BytesIO
 from openai import OpenAI
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List
+import json
 
 from config import CONFIG
 from utils.FAISS_utils import load_faiss_index, load_metadata, query_with_context
@@ -22,6 +26,25 @@ logging.basicConfig(
         logging.StreamHandler(),
         logging.FileHandler(CONFIG.LOG_PATH)
     ]
+)
+
+# Define data models
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatHistory(BaseModel):
+    messages: List[ChatMessage]
+
+app = FastAPI(title="Atlantium RAG API")
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 class RAGQueryServer:
@@ -44,79 +67,117 @@ class RAGQueryServer:
         self.metadata = load_metadata(CONFIG.METADATA_PATH)
         logging.info("FAISS index and metadata loaded successfully")
 
-    def process_query(self,
-                     input_data: Union[str, Image.Image],
-                     query_text: Optional[str] = None,
-                     top_k: int = CONFIG.DEFAULT_TOP_K) -> str:
-        """Process a query using the RAG system."""
-        try:
-            # Handle image input differently
-            if isinstance(input_data, Image.Image):
-                return self._process_image_query(input_data, query_text)
-            else:
-                return self._process_text_query(input_data, query_text, top_k)
-        except Exception as e:
-            logging.error(f"Error processing query: {e}")
-            return f"Error processing query: {str(e)}"
+        # Initialize empty chat history
+        self.reset_chat()
 
-    def _process_text_query(self, input_text: str, query_text: Optional[str], top_k: int) -> str:
+    def reset_chat(self):
+        """Reset the chat history"""
+        self.chat_history = []
+        logging.info("Chat history has been reset")
+        return {"status": "success", "message": "Chat history cleared"}
+
+    def get_chat_history(self):
+        """Return the chat history"""
+        return self.chat_history
+
+    def get_conversation_context(self, last_n=10) -> str:
+        """Get the last N messages as context"""
+        if not self.chat_history:
+            return ""
+
+        # Get last N messages
+        recent_messages = self.chat_history[-last_n:] if len(self.chat_history) > last_n else self.chat_history
+
+        # Format messages into a conversation string
+        conversation = "\nPrevious conversation context:\n"
+        for msg in recent_messages:
+            conversation += f"{msg['role'].capitalize()}: {msg['content']}\n"
+
+        return conversation
+
+    async def process_text_query(self, query_text: str, top_k: int = CONFIG.DEFAULT_TOP_K) -> str:
         """Handle text-based queries"""
-        # Get relevant context from FAISS
-        results = query_with_context(
-            index=self.index,
-            metadata=self.metadata,
-            model=self.model,
-            processor=self.processor,
-            device=self.device,
-            text_query=input_text,
-            top_k=top_k
-        )
+        try:
+            # Get relevant context from FAISS
+            results = query_with_context(
+                index=self.index,
+                metadata=self.metadata,
+                model=self.model,
+                processor=self.processor,
+                device=self.device,
+                text_query=query_text,
+                top_k=top_k
+            )
 
-        if not results or not results[0]:
-            return "No relevant context found for the query."
+            if not results or not results[0]:
+                context = "No relevant context found in the knowledge base."
+            else:
+                context = "\n\n".join([
+                    res['metadata'].get('content', '')
+                    for res in results[0]
+                    if res['metadata'].get('content')
+                ])
 
-        # Prepare context from results
-        context = "\n\n".join([
-            res['metadata'].get('content', '')
-            for res in results[0]
-            if res['metadata'].get('content')
-        ])
+            # Add conversation history to context
+            conversation_context = self.get_conversation_context()
+            full_context = f"{context}\n\n{conversation_context}"
 
-        # Prepare prompt
-        prompt = (
-            f"Technical Information Extraction Task:\n\n"
-            f"Context:\n{context}\n\n"
-            f"Query: {query_text or input_text}\n\n"
-            f"Instructions:\n"
-            "1. Analyze the provided context\n"
-            "2. Extract relevant information for the query\n"
-            "3. Provide a clear, concise response\n\n"
-            "Response:"
-        )
+            prompt = (
+                f"Technical Information Extraction Task:\n\n"
+                f"Context:\n{full_context}\n\n"
+                f"Query: {query_text}\n\n"
+                f"Instructions:\n"
+                "1. Analyze the provided context and previous conversation\n"
+                "2. Extract relevant information for the query\n"
+                "3. Provide a clear, concise response\n"
+                "4. Reference previous conversation when relevant\n\n"
+                "Response:"
+            )
 
-        # Get response from OpenAI
-        messages = [
-            {"role": "system", "content": "You are a precise technical information extraction assistant."},
-            {"role": "user", "content": prompt}
-        ]
+            messages = [
+                {"role": "system", "content": "You are a precise technical information extraction assistant."},
+                {"role": "user", "content": prompt}
+            ]
 
-        response = openai_post_request(
-            messages=messages,
-            model_name=CONFIG.GPT_MODEL,
-            max_tokens=CONFIG.MAX_TOKENS,
-            temperature=CONFIG.TEMPERATURE,
-            api_key=self.openai_api_key
-        )
+            response = openai_post_request(
+                messages=messages,
+                model_name=CONFIG.GPT_MODEL,
+                max_tokens=CONFIG.MAX_TOKENS,
+                temperature=CONFIG.TEMPERATURE,
+                api_key=self.openai_api_key
+            )
 
-        return response['choices'][0]['message']['content'].strip()
+            answer = response['choices'][0]['message']['content'].strip()
 
-    def _process_image_query(self, image: Image.Image, query_text: Optional[str]) -> str:
+            # Update chat history
+            self.chat_history.append({"role": "user", "content": query_text})
+            self.chat_history.append({"role": "assistant", "content": answer})
+
+            return answer
+
+        except Exception as e:
+            logging.error(f"Error processing text query: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def process_image_query(self, image: Union[Image.Image, bytes], query_text: Optional[str] = None) -> str:
         """Handle image-based queries"""
         try:
+            # Convert bytes to PIL Image if necessary
+            if isinstance(image, bytes):
+                image = Image.open(BytesIO(image))
+
             # Convert PIL Image to base64
             buffered = BytesIO()
             image.save(buffered, format="PNG")
             base64_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+            # Add conversation history to context
+            conversation_context = self.get_conversation_context()
+
+            # Prepare the prompt with conversation context
+            prompt = query_text or "Describe the contents and details of this image in a technical manner."
+            if conversation_context:
+                prompt = f"{prompt}\n\nConsider this conversation context when analyzing the image:{conversation_context}"
 
             # Image Analysis with OpenAI
             response = self.client.chat.completions.create(
@@ -125,7 +186,7 @@ class RAGQueryServer:
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": query_text or "Describe the contents and details of this image in a technical manner."},
+                            {"type": "text", "text": prompt},
                             {
                                 "type": "image_url",
                                 "image_url": {"url": f"data:image/png;base64,{base64_image}"}
@@ -136,43 +197,43 @@ class RAGQueryServer:
                 max_tokens=CONFIG.MAX_TOKENS
             )
 
-            return response.choices[0].message.content.strip()
+            answer = response.choices[0].message.content.strip()
+
+            # Update chat history
+            self.chat_history.append(
+                {"role": "user", "content": f"[Image Query] {query_text or 'Analyze this image'}"})
+            self.chat_history.append({"role": "assistant", "content": answer})
+
+            return answer
 
         except Exception as e:
             logging.error(f"Image processing error: {e}")
-            return f"An error occurred while analyzing the image: {e}"
+            raise HTTPException(status_code=500, detail=str(e))
 
-def main():
-    try:
-        # Initialize server
-        server = RAGQueryServer()
+# Initialize server
+server = RAGQueryServer()
 
-        # Example text query
-        print("\nTesting text query...")
-        text_response = server.process_query(
-            input_data="What are the voltage requirements?",
-            top_k=CONFIG.DEFAULT_TOP_K
-        )
-        print("Text Query Response:", text_response)
+# API endpoints
+@app.post("/chat/reset")
+async def reset_chat():
+    """Endpoint to reset the chat history"""
+    return server.reset_chat()
 
-        # Example image query
-        print("\nTesting image query...")
-        try:
-            image = Image.open("image.png")
-            image_response = server.process_query(
-                input_data=image,
-                query_text="What is shown in this image in context of Atlantium?",
-                top_k=CONFIG.DEFAULT_TOP_K
-            )
-            print("Image Query Response:", image_response)
-        except FileNotFoundError:
-            print("Image file not found. Skipping image query test.")
-        except Exception as e:
-            print(f"Error processing image query: {e}")
+@app.post("/query/text")
+async def text_query(query: str = Form(...), top_k: int = CONFIG.DEFAULT_TOP_K):
+    """Endpoint for text queries"""
+    response = await server.process_text_query(query, top_k)
+    return {"response": response}
 
-    except Exception as e:
-        print(f"Server initialization error: {e}")
-        logging.error(f"Server initialization error: {e}", exc_info=True)
+@app.post("/query/image")
+async def image_query(image: UploadFile = File(...), query: Optional[str] = Form(None)):
+    """Endpoint for image queries"""
+    image_data = await image.read()
+    response = await server.process_image_query(image_data, query)
+    return {"response": response}
 
-if __name__ == "__main__":
-    main()
+@app.get("/chat/history")
+async def get_chat_history():
+    """Endpoint to retrieve chat history"""
+    history = server.get_chat_history()
+    return {"history": history}  # Make sure history is a list of message dictionaries

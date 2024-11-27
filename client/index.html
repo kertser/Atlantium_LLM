@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Atlantium RAG Client</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .chat-container {
+            height: calc(100vh - 200px);
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <div class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-bold">Atlantium RAG System</h1>
+            <button onclick="debugButton('reset'); resetConversation();" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600">
+                Reset Conversation
+            </button>
+        </div>
+
+        <div class="chat-container bg-white rounded-lg shadow-md p-6 mb-6 overflow-y-auto">
+            <div id="chatHistory" class="space-y-4">
+            </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="mb-4">
+                <input type="text" id="textQuery" placeholder="Enter your question..."
+                       class="w-full p-2 border rounded-lg mb-2">
+                <button onclick="debugButton('text'); submitTextQuery();" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600">
+                    Send Query
+                </button>
+            </div>
+
+            <div class="border-t pt-4">
+                <input type="file" id="imageInput" accept="image/*" class="mb-2">
+                <input type="text" id="imageQuery" placeholder="Question about the image (optional)"
+                       class="w-full p-2 border rounded-lg mb-2">
+                <button onclick="debugButton('image'); submitImageQuery();" class="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600">
+                    Send Image Query
+                </button>
+            </div>
+        </div>
+
+        <!-- Debug output -->
+        <div id="debugOutput" class="mt-4 p-4 bg-gray-200 rounded">
+            Debug messages will appear here
+        </div>
+    </div>
+
+    <script>
+        // Debug function
+        function debugButton(type) {
+            const debugDiv = document.getElementById('debugOutput');
+            debugDiv.innerHTML = `Button clicked: ${type} at ${new Date().toISOString()}`;
+        }
+
+        // Add debug output to the page
+        function debugLog(message) {
+            const debugDiv = document.getElementById('debugOutput');
+            debugDiv.innerHTML += `<br>${new Date().toISOString()}: ${message}`;
+            console.log(message);
+        }
+
+        async function submitTextQuery() {
+            debugLog('submitTextQuery called');
+            const queryInput = document.getElementById('textQuery');
+            const query = queryInput.value.trim();
+
+            if (!query) {
+                debugLog('No query text entered');
+                return;
+            }
+
+            try {
+                debugLog(`Sending query: ${query}`);
+                const formData = new FormData();
+                formData.append('query', query);
+
+                const response = await fetch('http://localhost:9000/query/text', {
+                    method: 'POST',
+                    body: formData
+                });
+                debugLog(`Response status: ${response.status}`);
+
+                const data = await response.json();
+                debugLog(`Received response: ${JSON.stringify(data)}`);
+
+                // Update chat history
+                const chatContainer = document.getElementById('chatHistory');
+
+                // Add user message
+                const userDiv = document.createElement('div');
+                userDiv.className = 'p-3 rounded-lg bg-blue-100 ml-12';
+                userDiv.textContent = query;
+                chatContainer.appendChild(userDiv);
+                debugLog('Added user message to chat');
+
+                // Add assistant response
+                const assistantDiv = document.createElement('div');
+                assistantDiv.className = 'p-3 rounded-lg bg-gray-100 mr-12';
+                assistantDiv.textContent = data.response;
+                chatContainer.appendChild(assistantDiv);
+                debugLog('Added assistant response to chat');
+
+                // Clear input
+                queryInput.value = '';
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            } catch (error) {
+                debugLog(`Error: ${error.message}`);
+                console.error('Error:', error);
+            }
+        }
+
+        // Add Enter key support
+        document.getElementById('textQuery').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                debugButton('enter-key');
+                submitTextQuery();
+            }
+        });
+
+        async function submitImageQuery() {
+            debugLog('submitImageQuery called');
+            const imageInput = document.getElementById('imageInput');
+            const queryInput = document.getElementById('imageQuery');
+
+            if (!imageInput.files[0]) {
+                debugLog('No image selected');
+                alert('Please select an image first');
+                return;
+            }
+
+            try {
+                debugLog('Preparing image query');
+                const formData = new FormData();
+                formData.append('image', imageInput.files[0]);
+                if (queryInput.value.trim()) {
+                    formData.append('query', queryInput.value.trim());
+                }
+
+                const response = await fetch('http://localhost:9000/query/image', {
+                    method: 'POST',
+                    body: formData
+                });
+                debugLog(`Response status: ${response.status}`);
+
+                const data = await response.json();
+                debugLog(`Received response: ${JSON.stringify(data)}`);
+
+                // Update chat history
+                const chatContainer = document.getElementById('chatHistory');
+
+                // Add user message
+                const userDiv = document.createElement('div');
+                userDiv.className = 'p-3 rounded-lg bg-blue-100 ml-12';
+                userDiv.textContent = queryInput.value.trim() || 'Image Analysis Request';
+                chatContainer.appendChild(userDiv);
+
+                // Add assistant response
+                const assistantDiv = document.createElement('div');
+                assistantDiv.className = 'p-3 rounded-lg bg-gray-100 mr-12';
+                assistantDiv.textContent = data.response;
+                chatContainer.appendChild(assistantDiv);
+
+                // Clear inputs
+                imageInput.value = '';
+                queryInput.value = '';
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            } catch (error) {
+                debugLog(`Error: ${error.message}`);
+                console.error('Error:', error);
+            }
+        }
+
+        async function resetConversation() {
+            debugLog('resetConversation called');
+            try {
+                const response = await fetch('http://localhost:9000/chat/reset', {
+                    method: 'POST'
+                });
+                debugLog(`Reset response status: ${response.status}`);
+
+                // Clear the chat history display
+                document.getElementById('chatHistory').innerHTML = '';
+                debugLog('Cleared chat history');
+
+                // Clear input fields
+                document.getElementById('textQuery').value = '';
+                document.getElementById('imageQuery').value = '';
+                document.getElementById('imageInput').value = '';
+                debugLog('Cleared input fields');
+            } catch (error) {
+                debugLog(`Error: ${error.message}`);
+                console.error('Error:', error);
+            }
+        }
+
+        // Load initial chat history
+        window.onload = function() {
+            debugLog('Page loaded, fetching chat history');
+            loadChatHistory();
+        };
+
+        async function loadChatHistory() {
+            try {
+                debugLog('Loading chat history');
+                const response = await fetch('http://localhost:9000/chat/history');
+                debugLog(`History response status: ${response.status}`);
+                const data = await response.json();
+                debugLog(`Received history: ${JSON.stringify(data)}`);
+                displayChatHistory(data.history);
+            } catch (error) {
+                debugLog(`Error loading history: ${error.message}`);
+                console.error('Error loading chat history:', error);
+            }
+        }
+
+        function displayChatHistory(history) {
+            debugLog('Displaying chat history');
+            const chatContainer = document.getElementById('chatHistory');
+            chatContainer.innerHTML = '';
+
+            if (history && history.length > 0) {
+                history.forEach(message => {
+                    const messageDiv = document.createElement('div');
+                    messageDiv.className = `p-3 rounded-lg ${message.role === 'user' ? 'bg-blue-100 ml-12' : 'bg-gray-100 mr-12'}`;
+                    messageDiv.textContent = message.content;
+                    chatContainer.appendChild(messageDiv);
+                });
+                debugLog(`Displayed ${history.length} messages`);
+            } else {
+                debugLog('No messages in history');
+            }
+
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+    </script>
+</body>
+</html>
