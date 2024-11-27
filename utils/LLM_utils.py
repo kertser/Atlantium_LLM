@@ -4,12 +4,6 @@ import numpy as np
 import requests
 import logging
 
-# LangChain
-from langchain_openai import OpenAI
-from langchain.chains import RetrievalQA
-from langchain.prompts import PromptTemplate
-from langchain.memory import ConversationBufferMemory
-
 def openai_post_request(messages, model_name, max_tokens, temperature, api_key):
     """Send a synchronous request to the OpenAI API."""
     url = "https://api.openai.com/v1/chat/completions"

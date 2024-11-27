@@ -1,0 +1,12 @@
+python-dotenv
+pillow
+openai
+numpy
+faiss-cpu
+torch
+transformers
+requests
+PyMuPDF
+python-docx
+openpyxl
+

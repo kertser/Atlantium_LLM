@@ -236,35 +236,31 @@ def main():
         format='%(asctime)s - %(levelname)s: %(message)s'
     )
 
-    # Example text query with verbose logging
-    query_text = "What are the voltage pins for RZ163?"
+    # Text query example
     response = process_input(
-        input_data=query_text,
+        input_data="What are the voltage pins for RZ163?",
         index=index,
         metadata=metadata,
         model=clip_model,
         processor=clip_processor,
-        device=device,
-        verbose=True  # Enable detailed logging
+        device=device
     )
     print("Response:", response)
 
-    # Image Query
+
+    # Image query example using a file path
+
     image_path = "image.png"
-    try:
-        query_text = "What is written on the buttons in the image and what do they refer to?"
-        response = process_input(
-            input_data=image_path,
-            query_text=query_text,
-            index=index,
-            metadata=metadata,
-            model=clip_model,
-            processor=clip_processor,
-            device=device
-        )
-        print("Image Query Response:", response)
-    except Exception as e:
-        print(f"An error occurred while processing the image: {e}")
+    response = process_input(
+        input_data=image_path,
+        query_text="What is shown in this image in context of Atlantium user interface",  # Optional specific question about the image
+        index=index,
+        metadata=metadata,
+        model=clip_model,
+        processor=clip_processor,
+        device=device
+    )
+    print("Response:", response)
 
 
 if __name__ == "__main__":
