@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Atlantium RAG System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .chat-message {
+            white-space: pre-line;
+            line-height: 1.4;
+            margin-bottom: 0.75rem;
+        }
+        .message-content {
+            margin-top: 0.5rem;
+            padding: 0.5rem;
+        }
+        .chat-response {
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+        .chat-response h2 {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin: 1rem 0 0.5rem 0;
+            color: #2563eb;
+        }
+        .chat-response p {
+            margin: 0.5rem 0;
+        }
+        .chat-response ul {
+            margin: 0.5rem 0;
+            padding-left: 1.5rem;
+        }
+        .chat-response li {
+            margin: 0.25rem 0;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <div class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-bold">Atlantium RAG System</h1>
+            <button onclick="resetChat()" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">Reset Conversation</button>
+        </div>
+
+        <div class="chat-container bg-white rounded-lg shadow-md p-6 mb-6 overflow-y-auto max-h-[60vh]">
+            <div id="chatHistory" class="space-y-4"></div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="flex flex-col space-y-4">
+                <textarea id="queryText" class="w-full p-2 border rounded" rows="4" placeholder="Enter your query here..."></textarea>
+
+                <div class="flex flex-col space-y-4">
+                    <input type="file" id="imageInput" accept="image/*" class="hidden" onchange="handleImageSelect(event)" />
+                    <div class="flex space-x-4">
+                        <button onclick="document.getElementById('imageInput').click()" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">
+                            Add Image
+                        </button>
+                        <div id="imagePreview" class="hidden flex items-center">
+                            <img id="selectedImage" class="h-16 w-16 object-cover rounded" />
+                            <button onclick="clearImage()" class="ml-2 w-6 h-6 flex items-center justify-center text-red-500 hover:text-red-700 font-bold">
+                                &times;
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <button onclick="submitQuery()" class="w-full py-2 bg-blue-500 text-white rounded hover:bg-blue-600">Send Query</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:9000';
+        let selectedImage = null;
+
+        function handleImageSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                selectedImage = file;
+                document.getElementById('imagePreview').classList.remove('hidden');
+                const reader = new FileReader();
+                reader.onload = e => document.getElementById('selectedImage').src = e.target.result;
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function clearImage() {
+            selectedImage = null;
+            document.getElementById('imageInput').value = '';
+            document.getElementById('imagePreview').classList.add('hidden');
+        }
+
+        async function submitQuery() {
+            const queryText = document.getElementById('queryText').value.trim();
+            if (!queryText && !selectedImage) return;
+
+            const formData = new FormData();
+            formData.append('query', queryText);
+
+            try {
+                let endpoint = `${API_BASE_URL}/query/text`;
+                if (selectedImage) {
+                    endpoint = `${API_BASE_URL}/query/image`;
+                    formData.append('image', selectedImage);
+                }
+
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                // Add messages to chat history
+                const chatHistory = document.getElementById('chatHistory');
+
+                // Add user message
+                const userMessage = document.createElement('div');
+                userMessage.className = 'chat-message bg-blue-50 p-4 rounded-lg';
+
+                if (selectedImage) {
+                    const img = document.createElement('img');
+                    img.src = URL.createObjectURL(selectedImage);
+                    img.className = 'mt-2 max-w-sm rounded';
+                    userMessage.appendChild(img);
+                }
+
+                const userText = document.createElement('div');
+                userText.textContent = queryText || 'Image Analysis Request';
+                userMessage.appendChild(userText);
+                chatHistory.appendChild(userMessage);
+
+                // Add assistant response
+                const assistantMessage = document.createElement('div');
+                assistantMessage.className = 'chat-message bg-gray-50 p-4 rounded-lg chat-response';
+                assistantMessage.innerHTML = formatResponse(data.response);
+                chatHistory.appendChild(assistantMessage);
+
+                // Clear inputs
+                document.getElementById('queryText').value = '';
+                clearImage();
+                chatHistory.scrollTop = chatHistory.scrollHeight;
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        function formatResponse(text) {
+            return text
+                .replace(/##\s+(.*?)$/gm, '<h2>$1</h2>')
+                .replace(/•\s+(.*?)(?=(?:\n[•\n]|$))/g, '<li>$1</li>')
+                .replace(/\n\n/g, '</p><p>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        }
+
+        async function resetChat() {
+            try {
+                await fetch(`${API_BASE_URL}/chat/reset`, { method: 'POST' });
+                document.getElementById('chatHistory').innerHTML = '';
+                clearImage();
+                document.getElementById('queryText').value = '';
+            } catch (error) {
+                console.error('Error resetting chat:', error);
+            }
+        }
+
+        document.getElementById('queryText').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submitQuery();
+            }
+        });
+    </script>
+</body>
+</html>

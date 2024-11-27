@@ -4,6 +4,9 @@ from pathlib import Path
 
 @dataclass
 class Config:
+    # Ports and URLs
+    SERVER_PORT: int = 9000
+
     # Paths
     RAW_DOCUMENTS_PATH: Path = Path("Raw Documents")
     FAISS_INDEX_PATH: Path = Path("faiss_index.bin")
@@ -29,7 +32,11 @@ class Config:
     DEFAULT_TOP_K: int = 5
     TEMPERATURE: float = 0.1
     GPT_MODEL: str = "gpt-4-turbo"
+
+    # Vision model settings
     GPT_VISION_MODEL: str = "gpt-4o"
+    VISION_MAX_TOKENS: int = 500
+    VISION_QUALITY: str = "auto"
 
     # Response formatting
     DEFAULT_LINE_LENGTH: int = 80

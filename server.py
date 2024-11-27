@@ -11,6 +11,8 @@ from io import BytesIO
 from openai import OpenAI
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import numpy as np
 import re
@@ -376,55 +378,68 @@ class RAGQueryServer:
             logging.error(f"Error processing text query: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def process_image_query(self, image: Union[Image.Image, bytes], query_text: Optional[str] = None) -> str:
-        """Handle image-based queries"""
+    async def process_image_query(self, image_data: bytes, query_text: Optional[str] = None) -> str:
         try:
-            # Convert bytes to PIL Image if necessary
-            if isinstance(image, bytes):
-                image = Image.open(BytesIO(image))
+            # Open and convert image
+            image = Image.open(BytesIO(image_data))
 
-            # Convert PIL Image to base64
+            # Convert RGBA to RGB if needed
+            if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
+                background = Image.new('RGB', image.size, (255, 255, 255))
+                if image.mode == 'P':
+                    image = image.convert('RGBA')
+                background.paste(image, mask=image.split()[-1])  # Use alpha channel as mask
+                image = background
+            elif image.mode != 'RGB':
+                image = image.convert('RGB')
+
+            # Save to buffer
             buffered = BytesIO()
-            image.save(buffered, format="PNG")
+            image.save(buffered, format="JPEG", quality=95)
             base64_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-            # Add conversation history to context
-            conversation_context = self.get_conversation_context()
-
-            # Prepare the prompt with conversation context
-            prompt = query_text or "Describe the contents and details of this image in a technical manner."
-            if conversation_context:
-                prompt = f"{prompt}\n\nConsider this conversation context when analyzing the image:{conversation_context}"
-
-            # Image Analysis with OpenAI
-            response = self.client.chat.completions.create(
-                model=CONFIG.GPT_VISION_MODEL,
-                messages=[
+            messages = [{
+                "role": "user",
+                "content": [
                     {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:image/png;base64,{base64_image}"}
-                            },
-                        ],
+                        "type": "text",
+                        "text": query_text or "What is shown in this image?"
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64_image}",
+                            "detail": "auto"
+                        }
                     }
-                ],
-                max_tokens=CONFIG.MAX_TOKENS
-            )
+                ]
+            }]
+
+            try:
+                response = self.client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=messages,
+                    max_tokens=500
+                )
+            except Exception as api_error:
+                logging.error(f"OpenAI API error: {str(api_error)}")
+                raise HTTPException(status_code=500, detail="Error processing image with OpenAI API")
 
             answer = response.choices[0].message.content.strip()
 
-            # Update chat history
-            self.chat_history.append(
-                {"role": "user", "content": f"[Image Query] {query_text or 'Analyze this image'}"})
-            self.chat_history.append({"role": "assistant", "content": answer})
+            self.chat_history.append({
+                "role": "user",
+                "content": f"[Image Query] {query_text or 'Analyze image'}"
+            })
+            self.chat_history.append({
+                "role": "assistant",
+                "content": answer
+            })
 
             return answer
 
         except Exception as e:
-            logging.error(f"Image processing error: {e}")
+            logging.error(f"Image processing error: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
 
     def reset_chat(self):
@@ -454,6 +469,14 @@ class RAGQueryServer:
 # Initialize server
 server = RAGQueryServer()
 
+# Serve static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Root endpoint
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    with open("static/index.html", "r") as f:
+        return f.read()
 
 # API endpoints
 @app.post("/chat/reset")
@@ -463,10 +486,13 @@ async def reset_chat():
 
 
 @app.post("/query/text")
-async def text_query(query: str = Form(...), top_k: int = CONFIG.DEFAULT_TOP_K):
-    """Endpoint for text queries"""
-    response = await server.process_text_query(query, top_k)
-    return {"response": response}
+async def text_query(query: str = Form(...)):
+    try:
+        response = await server.process_text_query(query)
+        return {"response": response}
+    except Exception as e:
+        logging.error(f"Error processing text query: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/query/image")
@@ -482,3 +508,8 @@ async def get_chat_history():
     """Endpoint to retrieve chat history"""
     history = server.get_chat_history()
     return {"history": history}
+
+# Add UVICORN configuration
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=9000)
