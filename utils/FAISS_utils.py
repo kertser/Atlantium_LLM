@@ -100,38 +100,46 @@ def save_faiss_index(index, filepath):
     """
     Save the FAISS index to a file.
     :param index: FAISS index to save.
-    :param filepath: Path to save the FAISS index file.
+    :param filepath: Path or string to save the FAISS index file.
     """
-    faiss.write_index(index, filepath)
-    print(f"FAISS index saved to {filepath}.")
+    # Convert Path to string if necessary
+    filepath_str = str(filepath)
+    faiss.write_index(index, filepath_str)
+    print(f"FAISS index saved to {filepath_str}.")
 
 def save_metadata(metadata, filepath):
     """
     Save metadata to a file.
     :param metadata: List of metadata associated with FAISS embeddings.
-    :param filepath: Path to save the metadata file.
+    :param filepath: Path or string to save the metadata file.
     """
-    with open(filepath, 'w') as f:
+    # Convert Path to string if necessary
+    filepath_str = str(filepath)
+    with open(filepath_str, 'w') as f:
         json.dump(metadata, f)
-    print(f"Metadata saved to {filepath}.")
+    print(f"Metadata saved to {filepath_str}.")
 
 def load_faiss_index(filepath):
     """
     Load the FAISS index from a file.
-    :param filepath: Path to the FAISS index file.
+    :param filepath: Path or string to the FAISS index file.
     :return: Loaded FAISS index.
     """
-    index = faiss.read_index(filepath)
-    print(f"FAISS index loaded from {filepath}.")
+    # Convert Path to string if necessary
+    filepath_str = str(filepath)
+    index = faiss.read_index(filepath_str)
+    print(f"FAISS index loaded from {filepath_str}.")
     return index
 
 def load_metadata(filepath):
     """
     Load metadata from a file.
-    :param filepath: Path to the metadata file.
+    :param filepath: Path or string to the metadata file.
     :return: List of metadata.
     """
-    with open(filepath, 'r') as f:
+    # Convert Path to string if necessary
+    filepath_str = str(filepath)
+    with open(filepath_str, 'r') as f:
         metadata = json.load(f)
-    print(f"Metadata loaded from {filepath}.")
+    print(f"Metadata loaded from {filepath_str}.")
     return metadata
