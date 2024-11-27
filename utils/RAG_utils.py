@@ -118,35 +118,36 @@ def extract_text_and_images_from_excel(excel_path):
         return "", []
 
 #%%
-def chunk_text(text, chunk_size=512):
+def chunk_text(text, chunk_size=512, overlap=100):
     """
-    Splits text into chunks, ensuring each chunk does not exceed the specified size.
-    :param text: The input text to be chunked.
-    :param chunk_size: Maximum size of each chunk (in characters).
-    :return: A list of text chunks.
+    Split text into chunks with overlap to maintain context
     """
-    # Validate inputs
     if not text or chunk_size <= 0:
         return []
 
     words = text.split()
     chunks = []
-    current_chunk = []
-    current_length = 0
+    start_idx = 0
 
-    for word in words:
-        # Calculate the length if the word is added
-        current_length += len(word) + 1  # +1 for space
-        if current_length > chunk_size:
-            # Add the current chunk and reset
-            chunks.append(' '.join(current_chunk))
-            current_chunk = [word]
-            current_length = len(word)
-        else:
-            current_chunk.append(word)
+    while start_idx < len(words):
+        # Calculate end index for current chunk
+        end_idx = start_idx + chunk_size
 
-    # Add any remaining words as the last chunk
-    if current_chunk:
-        chunks.append(' '.join(current_chunk))
+        # If we're not at the end of the text, try to find a good breakpoint
+        if end_idx < len(words):
+            # Look for the last period or newline in the overlap region
+            breakpoint = end_idx
+            for i in range(max(start_idx + chunk_size - overlap, start_idx), end_idx):
+                if words[i].endswith('.') or words[i].endswith('\n'):
+                    breakpoint = i + 1
+                    break
+            end_idx = breakpoint
+
+        # Create chunk
+        chunk = ' '.join(words[start_idx:end_idx])
+        chunks.append(chunk)
+
+        # Move start index, accounting for overlap
+        start_idx = end_idx - overlap if end_idx < len(words) else end_idx
 
     return chunks
