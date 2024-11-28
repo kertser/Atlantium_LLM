@@ -41,20 +41,23 @@ def add_to_faiss(embedding, pdf_name, content_type, content, index, metadata):
 
         index.add(embedding)
 
-        # Add type-specific metadata
+        # Create base metadata
         meta_entry = {
             "pdf": pdf_name,
-            "type": content_type,
-            "content": content
+            "type": content_type
         }
 
-        # Add special handling for image content
-        if content_type == "image" and isinstance(content, dict):
+        # For text chunks, add content directly
+        if content_type == "text-chunk":
+            meta_entry["content"] = content
+        # For images, spread image metadata
+        elif content_type == "image" and isinstance(content, dict):
             meta_entry.update({
-                "image_id": content.get("image_id"),
-                "caption": content.get("caption"),
-                "context": content.get("context"),
-                "source_doc": content.get("source_doc")
+                "image_id": content["image_id"],
+                "caption": content["caption"],
+                "context": content["context"],
+                "source_doc": content["source_doc"],
+                "page": content.get("page")
             })
 
         metadata.append(meta_entry)

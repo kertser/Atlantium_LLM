@@ -90,7 +90,6 @@ def process_documents(model, processor, device, index, metadata, image_store):
                     _, image_embedding = encode_with_clip([], [img_data['image']], model, processor, device)
                     if len(image_embedding) > 0:
                         image_metadata = {
-                            "type": "image",
                             "image_id": image_id,
                             "source_doc": str(doc_path),
                             "caption": f"Image {idx + 1} from {Path(doc_path).name}",
