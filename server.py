@@ -13,7 +13,7 @@ from openai import OpenAI
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pydantic import BaseModel
 import numpy as np
 import re
@@ -484,6 +484,9 @@ async def startup_event():
     os.makedirs(CONFIG.STORED_IMAGES_PATH, exist_ok=True)
     logging.info("Directory structure verified")
 
+@app.get("/favicon.ico")
+async def favicon():
+    return FileResponse("static/favicon.ico", media_type="image/x-icon")
 
 # Server shutdown event
 @app.on_event("shutdown")
