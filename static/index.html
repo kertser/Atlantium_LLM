@@ -1,37 +1,39 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
     <title>Atlantium RAG System</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        .chat-message {
-            white-space: pre-line;
-            line-height: 1.4;
-            margin-bottom: 0.75rem;
+        .prose {
+            line-height: 1.6;
         }
-        .message-content {
-            margin-top: 0.5rem;
-            padding: 0.5rem;
+
+        .prose h1 {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin: 1.5rem 0 1rem 0;
         }
-        .chat-response {
-            font-size: 0.95rem;
-            line-height: 1.5;
+
+        .prose h2 {
+            font-size: 1.25rem;
+            font-weight: bold;
+            margin: 1.25rem 0 0.75rem 0;
         }
-        .chat-response h2 {
+
+        .prose h3 {
             font-size: 1.1rem;
-            font-weight: 600;
+            font-weight: bold;
             margin: 1rem 0 0.5rem 0;
-            color: #2563eb;
         }
-        .chat-response p {
+
+        .prose li {
+            margin-left: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .prose br {
             margin: 0.5rem 0;
-        }
-        .chat-response ul {
-            margin: 0.5rem 0;
-            padding-left: 1.5rem;
-        }
-        .chat-response li {
-            margin: 0.25rem 0;
         }
     </style>
 </head>
@@ -39,138 +41,179 @@
     <div class="container mx-auto px-4 py-8">
         <div class="flex justify-between items-center mb-8">
             <h1 class="text-3xl font-bold">Atlantium RAG System</h1>
-            <button onclick="resetChat()" class="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600">Reset Conversation</button>
+            <button onclick="resetConversation()" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">
+                Reset Conversation
+            </button>
         </div>
 
         <div class="chat-container bg-white rounded-lg shadow-md p-6 mb-6 overflow-y-auto max-h-[60vh]">
-            <div id="chatHistory" class="space-y-4"></div>
+            <div id="chatHistory" class="space-y-4">
+                <!-- Chat messages will be inserted here -->
+            </div>
         </div>
 
         <div class="bg-white rounded-lg shadow-md p-6">
             <div class="flex flex-col space-y-4">
-                <textarea id="queryText" class="w-full p-2 border rounded" rows="4" placeholder="Enter your query here..."></textarea>
-
                 <div class="flex flex-col space-y-4">
-                    <input type="file" id="imageInput" accept="image/*" class="hidden" onchange="handleImageSelect(event)" />
+                    <textarea id="queryInput" rows="4" class="w-full p-2 border rounded"
+                            placeholder="Enter your query here..."></textarea>
+
                     <div class="flex space-x-4">
-                        <button onclick="document.getElementById('imageInput').click()" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">
+                        <input type="file" id="imageInput" accept="image/*" class="hidden"
+                               onchange="handleImageUpload(event)">
+                        <button onclick="document.getElementById('imageInput').click()"
+                                class="bg-gray-200 px-4 py-2 rounded hover:bg-gray-300">
                             Add Image
                         </button>
+
                         <div id="imagePreview" class="hidden flex items-center">
-                            <img id="selectedImage" class="h-16 w-16 object-cover rounded" />
-                            <button onclick="clearImage()" class="ml-2 w-6 h-6 flex items-center justify-center text-red-500 hover:text-red-700 font-bold">
-                                &times;
-                            </button>
+                            <img id="previewImg" class="h-10 w-10 object-cover rounded mr-2">
+                            <button onclick="removeImage()"
+                                    class="text-red-500 hover:text-red-700 font-bold">×</button>
                         </div>
                     </div>
                 </div>
 
-                <button onclick="submitQuery()" class="w-full py-2 bg-blue-500 text-white rounded hover:bg-blue-600">Send Query</button>
+                <button onclick="sendQuery()"
+                        class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+                    Send Query
+                </button>
             </div>
         </div>
     </div>
 
     <script>
-        const API_BASE_URL = 'http://localhost:9000';
         let selectedImage = null;
 
-        function handleImageSelect(event) {
+        async function sendQuery() {
+            const queryInput = document.getElementById('queryInput');
+            const query = queryInput.value.trim();
+
+            if (!query) return;
+
+            const formData = new FormData();
+            formData.append('query', query);
+
+            if (selectedImage) {
+                try {
+                    const response = await fetch('/query/image', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await response.json();
+                    updateChat(query, data.response);
+                } catch (error) {
+                    console.error('Error:', error);
+                }
+            } else {
+                try {
+                    const response = await fetch('/query/text', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await response.json();
+                    updateChat(query, data.text_response, data.images);
+                } catch (error) {
+                    console.error('Error:', error);
+                }
+            }
+
+            queryInput.value = '';
+            removeImage();
+        }
+
+        function updateChat(query, response, images = []) {
+            const chatHistory = document.getElementById('chatHistory');
+
+            // Add user query
+            const userDiv = document.createElement('div');
+            userDiv.className = 'mb-4';
+            userDiv.innerHTML = `
+                <p class="font-bold text-blue-600">User:</p>
+                <p class="ml-4 whitespace-pre-wrap">${query}</p>
+            `;
+            chatHistory.appendChild(userDiv);
+
+            // Add assistant response
+            const assistantDiv = document.createElement('div');
+            assistantDiv.className = 'mb-4';
+
+            // Convert markdown-style headers and bullet points to HTML
+            const formattedResponse = response
+                .replace(/^# (.*$)/gm, '<h1 class="text-2xl font-bold mt-4 mb-2">$1</h1>')
+                .replace(/^## (.*$)/gm, '<h2 class="text-xl font-bold mt-3 mb-2">$1</h2>')
+                .replace(/^### (.*$)/gm, '<h3 class="text-lg font-bold mt-2 mb-1">$1</h3>')
+                .replace(/^• (.*$)/gm, '<li class="ml-4">$1</li>')
+                .replace(/\n\n/g, '<br><br>');
+
+            assistantDiv.innerHTML = `
+                <p class="font-bold text-green-600">Assistant:</p>
+                <div class="ml-4 prose max-w-none">
+                    ${formattedResponse}
+                </div>
+            `;
+
+            // Add images if any
+            if (images && images.length > 0) {
+                const imagesDiv = document.createElement('div');
+                imagesDiv.className = 'ml-4 mt-4 flex flex-wrap gap-4';
+                images.forEach(img => {
+                    const imgContainer = document.createElement('div');
+                    imgContainer.className = 'max-w-sm';
+
+                    const imgElement = document.createElement('img');
+                    imgElement.src = `data:image/jpeg;base64,${img.image}`;
+                    imgElement.className = 'rounded shadow-md max-w-full h-auto';
+                    imgElement.alt = img.caption || 'Retrieved image';
+
+                    if (img.caption) {
+                        const caption = document.createElement('p');
+                        caption.className = 'text-sm text-gray-600 mt-1';
+                        caption.textContent = img.caption;
+                        imgContainer.appendChild(caption);
+                    }
+
+                    imgContainer.appendChild(imgElement);
+                    imagesDiv.appendChild(imgContainer);
+                });
+                assistantDiv.appendChild(imagesDiv);
+            }
+
+            chatHistory.appendChild(assistantDiv);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+
+        function handleImageUpload(event) {
             const file = event.target.files[0];
             if (file) {
                 selectedImage = file;
-                document.getElementById('imagePreview').classList.remove('hidden');
                 const reader = new FileReader();
-                reader.onload = e => document.getElementById('selectedImage').src = e.target.result;
+                reader.onload = function(e) {
+                    const preview = document.getElementById('imagePreview');
+                    const previewImg = document.getElementById('previewImg');
+                    previewImg.src = e.target.result;
+                    preview.classList.remove('hidden');
+                }
                 reader.readAsDataURL(file);
             }
         }
 
-        function clearImage() {
+        function removeImage() {
             selectedImage = null;
+            const preview = document.getElementById('imagePreview');
+            preview.classList.add('hidden');
             document.getElementById('imageInput').value = '';
-            document.getElementById('imagePreview').classList.add('hidden');
         }
 
-        async function submitQuery() {
-            const queryText = document.getElementById('queryText').value.trim();
-            if (!queryText && !selectedImage) return;
-
-            const formData = new FormData();
-            formData.append('query', queryText);
-
+        async function resetConversation() {
             try {
-                let endpoint = `${API_BASE_URL}/query/text`;
-                if (selectedImage) {
-                    endpoint = `${API_BASE_URL}/query/image`;
-                    formData.append('image', selectedImage);
-                }
-
-                const response = await fetch(endpoint, {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const data = await response.json();
-
-                // Add messages to chat history
-                const chatHistory = document.getElementById('chatHistory');
-
-                // Add user message
-                const userMessage = document.createElement('div');
-                userMessage.className = 'chat-message bg-blue-50 p-4 rounded-lg';
-
-                if (selectedImage) {
-                    const img = document.createElement('img');
-                    img.src = URL.createObjectURL(selectedImage);
-                    img.className = 'mt-2 max-w-sm rounded';
-                    userMessage.appendChild(img);
-                }
-
-                const userText = document.createElement('div');
-                userText.textContent = queryText || 'Image Analysis Request';
-                userMessage.appendChild(userText);
-                chatHistory.appendChild(userMessage);
-
-                // Add assistant response
-                const assistantMessage = document.createElement('div');
-                assistantMessage.className = 'chat-message bg-gray-50 p-4 rounded-lg chat-response';
-                assistantMessage.innerHTML = formatResponse(data.response);
-                chatHistory.appendChild(assistantMessage);
-
-                // Clear inputs
-                document.getElementById('queryText').value = '';
-                clearImage();
-                chatHistory.scrollTop = chatHistory.scrollHeight;
-            } catch (error) {
-                console.error('Error:', error);
-            }
-        }
-
-        function formatResponse(text) {
-            return text
-                .replace(/##\s+(.*?)$/gm, '<h2>$1</h2>')
-                .replace(/•\s+(.*?)(?=(?:\n[•\n]|$))/g, '<li>$1</li>')
-                .replace(/\n\n/g, '</p><p>')
-                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-        }
-
-        async function resetChat() {
-            try {
-                await fetch(`${API_BASE_URL}/chat/reset`, { method: 'POST' });
+                await fetch('/chat/reset', { method: 'POST' });
                 document.getElementById('chatHistory').innerHTML = '';
-                clearImage();
-                document.getElementById('queryText').value = '';
+                removeImage();
             } catch (error) {
-                console.error('Error resetting chat:', error);
+                console.error('Error resetting conversation:', error);
             }
         }
-
-        document.getElementById('queryText').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                submitQuery();
-            }
-        });
     </script>
 </body>
 </html>

@@ -52,7 +52,7 @@ class ImageStore:
         return hasher.hexdigest()[:16]
 
     def store_image(self, image: Image.Image, source_doc: str, page_num: int,
-                    caption: Optional[str] = None) -> str:
+                    caption: Optional[str] = None, context: Optional[str] = None) -> str:
         """
         Store an image and return its ID
 
@@ -61,13 +61,14 @@ class ImageStore:
             source_doc (str): Source document path or identifier
             page_num (int): Page number where the image was found
             caption (Optional[str]): Optional caption for the image
+            context (Optional[str]): Surrounding text context for the image
 
         Returns:
             str: Unique identifier for the stored image
         """
         image_id = self._generate_image_id(image, source_doc, page_num)
 
-        # Convert RGBA to RGB if needed
+        # Convert to RGB if needed
         if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
             background = Image.new('RGB', image.size, (255, 255, 255))
             if image.mode == 'P':
@@ -87,6 +88,7 @@ class ImageStore:
             "page_number": page_num,
             "path": str(image_path),
             "caption": caption,
+            "context": context,
             "width": image.width,
             "height": image.height
         }

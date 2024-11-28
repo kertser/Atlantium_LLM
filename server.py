@@ -3,6 +3,7 @@ import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 import logging
+import json
 from dotenv import load_dotenv
 from PIL import Image
 from typing import Optional, Union, List, Dict, Tuple
@@ -16,6 +17,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import numpy as np
 import re
+from pathlib import Path
 
 from config import CONFIG
 from utils.FAISS_utils import load_faiss_index, load_metadata, query_with_context
@@ -33,7 +35,7 @@ logging.basicConfig(
 )
 
 
-# Define data models
+# Data models
 class ChatMessage(BaseModel):
     role: str
     content: str
@@ -54,106 +56,70 @@ class QueryResponse(BaseModel):
     images: List[Dict[str, str]] = []
 
 
-app = FastAPI(title="Atlantium RAG API")
-
-# Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
 class EnhancedResponseFormatter:
     @staticmethod
     def format_response(content: str) -> str:
-        """Format the response with proper structure and styling"""
+        def clean_text(text: str) -> str:
+            # Clean up excess whitespace while preserving structure
+            text = re.sub(r'\s*\n\s*\n\s*\n+', '\n\n', text)
+            text = re.sub(r'[ \t]+', ' ', text)
+            return text.strip()
 
-        def clean_section(text: str) -> str:
-            """Clean and format a section of text"""
-            text = re.sub(r'\s+', ' ', text.strip())
-            text = re.sub(r'([.!?])\s+', r'\1\n', text)
-            return text
+        def format_lists(content: str) -> str:
+            # Format numbered lists and bullet points
+            content = re.sub(r'(?m)^(\d+\.)\s*', r'\1 ', content)
+            content = re.sub(r'(?m)^[•\-]\s*', '• ', content)
+            # Ensure line breaks between list items
+            content = re.sub(r'(?m)((?:^|\n)(?:\d+\.|\•)[^\n]+)(?:\n(?!\d+\.|\•|$))', r'\1\n', content)
+            return content
 
-        def format_section(title: str, content: str, level: int = 1) -> str:
-            """Format a section with title and content"""
-            header = '#' * level
-            formatted_content = clean_section(content)
-            return f"\n{header} {title}\n\n{formatted_content}\n"
+        def format_section(title: str, content: str) -> str:
+            # Format section with consistent spacing
+            formatted_content = clean_text(content)
+            formatted_content = format_lists(formatted_content)
+            return f"# {title}\n\n{formatted_content}"
 
-        def format_bullet_points(points: List[str], indent_level: int = 0) -> str:
-            """Format a list of bullet points"""
-            indent = '  ' * indent_level
-            formatted_points = []
-            for point in points:
-                if point.strip():
-                    sub_points = point.split('\n')
-                    main_point = sub_points[0].strip()
-                    formatted_points.append(f"{indent}• {main_point}")
-                    if len(sub_points) > 1:
-                        nested_points = [p.strip() for p in sub_points[1:] if p.strip()]
-                        if nested_points:
-                            formatted_points.extend(format_bullet_points(nested_points, indent_level + 1).split('\n'))
-            return '\n'.join(formatted_points)
+        # Process the content
+        sections = []
+        current_title = "Overview"
+        current_content = []
 
-        sections = re.split(r'(?m)^#{2,3}\s+', content)
-        formatted_sections = []
+        for line in content.split('\n'):
+            line = line.strip()
+            if line.startswith('#'):
+                if current_content:
+                    sections.append(format_section(current_title, '\n'.join(current_content)))
+                current_title = line.lstrip('#').strip()
+                current_content = []
+            elif line:
+                current_content.append(line)
 
-        for section in sections:
-            if not section.strip():
-                continue
-            parts = section.split('\n', 1)
-            if len(parts) > 1:
-                title, content = parts
-                if '•' in content or '-' in content:
-                    points = re.split(r'(?m)^[•-]\s*', content)
-                    points = [p for p in points if p.strip()]
-                    formatted_content = format_bullet_points(points)
-                else:
-                    formatted_content = clean_section(content)
-                formatted_sections.append(format_section(title.strip(), formatted_content))
+        if current_content:
+            sections.append(format_section(current_title, '\n'.join(current_content)))
 
-        return '\n'.join(formatted_sections)
+        return '\n\n'.join(sections)
 
 
 class RAGQueryServer:
     def __init__(self):
-        # Load environment variables
         load_dotenv()
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         if not self.openai_api_key:
-            raise ValueError("OpenAI API key not found in environment variables")
+            raise ValueError("OpenAI API key not found")
 
-        # Initialize OpenAI client
         self.client = OpenAI(api_key=self.openai_api_key)
-
-        # Initialize CLIP model
         self.model, self.processor, self.device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
-        logging.info(f"CLIP model initialized on {self.device}")
-
-        # Load FAISS index and metadata
         self.index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
         self.metadata = load_metadata(CONFIG.METADATA_PATH)
-        logging.info("FAISS index and metadata loaded successfully")
-
-        # Initialize image store
         self.image_store = ImageStore(CONFIG.STORED_IMAGES_PATH)
-        logging.info("Image store initialized")
-
-        # Initialize empty chat history
+        self.similarity_threshold = 0.3  # Lowered threshold for better image matching
+        self.formatter = EnhancedResponseFormatter()
         self.reset_chat()
 
-        # Configure similarity threshold
-        self.similarity_threshold = 0.7
-        self.context_window = 2
-
-        # Initialize formatter
-        self.formatter = EnhancedResponseFormatter()
+        logging.info(
+            f"Server initialized with {len([m for m in self.metadata if m.get('type') == 'image'])} images in metadata")
 
     def determine_query_type(self, query_text: str) -> QueryType:
-        """Determine the type of query to adjust response format"""
         query_lower = query_text.lower()
         return QueryType(
             is_overview="overview" in query_lower or "what is" in query_lower,
@@ -161,33 +127,142 @@ class RAGQueryServer:
             is_summary="summary" in query_lower or "brief" in query_lower
         )
 
+    def get_relevant_contexts(self, results: List[Dict], query_text: str) -> Tuple[List[str], List[Dict]]:
+        """Get relevant contexts and images based on similarity scores"""
+        if not results or not results[0]:
+            return [], []
+
+        relevant_contexts = []
+        relevant_images = []
+
+        # Keywords for better image matching
+        keywords = set(query_text.lower().split())
+        image_keywords = {'image', 'picture', 'diagram', 'photo', 'figure', 'illustration', 'logo', 'symbol', 'hazard'}
+        is_image_query = bool(keywords & image_keywords)
+
+        # Debug: Print all image entries in metadata
+        image_entries = [m for m in self.metadata if m.get('type') == 'image']
+        logging.info(f"Found {len(image_entries)} total image entries")
+        logging.info("Sample of first 3 image entries:")
+        for entry in image_entries[:3]:
+            logging.info(f"Image entry: {json.dumps(entry, indent=2)}")
+
+        # Debug: Print search results
+        logging.info(f"Search results: {len(results[0])} items")
+        for idx, result in enumerate(results[0][:3]):
+            logging.info(
+                f"Result {idx}: distance={result['distance']}, metadata={json.dumps(result['metadata'], indent=2)}")
+
+        for result in results[0]:
+            try:
+                similarity_score = 1 / (1 + result['distance'])
+                metadata = result['metadata']
+
+                # Much lower threshold for image queries
+                threshold = 0.2 if is_image_query else self.similarity_threshold
+
+                if similarity_score >= threshold:
+                    if metadata.get('type') == 'text-chunk':
+                        content = metadata.get('content', '').strip()
+                        if content and content not in relevant_contexts:
+                            relevant_contexts.append(content)
+
+                    elif metadata.get('type') == 'image':
+                        # Try multiple ways to get image_id
+                        image_id = None
+
+                        # Debug: Print image metadata
+                        logging.info(f"Processing image metadata: {json.dumps(metadata, indent=2)}")
+
+                        # Check all possible locations for image_id
+                        if 'image_id' in metadata:
+                            image_id = metadata['image_id']
+                        elif isinstance(metadata.get('content'), dict):
+                            image_id = metadata['content'].get('image_id')
+                        elif isinstance(metadata.get('content'), str) and 'images' in metadata.get('content', ''):
+                            image_id = metadata.get('content').split('/')[-1].strip()
+
+                        logging.info(f"Found image_id: {image_id}")
+
+                        if image_id:
+                            base64_image = self.image_store.get_base64_image(image_id)
+                            if base64_image:
+                                image_data = {
+                                    'image': base64_image,
+                                    'caption': metadata.get('caption', ''),
+                                    'source': metadata.get('source_doc', ''),
+                                    'similarity': similarity_score,
+                                    'context': metadata.get('context', '')
+                                }
+                                relevant_images.append(image_data)
+                                logging.info(f"Successfully added image {image_id}")
+                            else:
+                                logging.warning(f"Failed to get base64 image for ID: {image_id}")
+
+            except Exception as e:
+                logging.error(f"Error processing result: {e}", exc_info=True)
+                continue
+
+        if is_image_query:
+            relevant_images.sort(key=lambda x: x['similarity'], reverse=True)
+            relevant_images = relevant_images[:5]  # Limit to top 5 most relevant images
+
+        logging.info(f"Found {len(relevant_contexts)} text chunks and {len(relevant_images)} images")
+        return relevant_contexts, relevant_images
+
+    def get_image_data(self, image_id: str, metadata: Dict, similarity: float) -> Optional[Dict]:
+        try:
+            base64_image = self.image_store.get_base64_image(image_id)
+            if not base64_image:
+                return None
+
+            image_data = {
+                'image': base64_image,
+                'caption': metadata.get('caption', ''),
+                'source': metadata.get('source_doc', ''),
+                'similarity': similarity,
+                'context': metadata.get('context', '')
+            }
+
+            if isinstance(metadata.get('content'), dict):
+                content = metadata['content']
+                if content.get('context'):
+                    image_data['context'] = content['context']
+                if content.get('caption'):
+                    image_data['caption'] = content['caption']
+
+            return image_data
+        except Exception as e:
+            logging.error(f"Error getting image data: {e}")
+            return None
+
     def prepare_prompt(self, query_text: str, contexts: List[str], query_type: QueryType, images: List[Dict]) -> str:
-        """Prepare a structured prompt based on query type and available content"""
         context_text = "\n\n".join(contexts) if contexts else "No relevant technical documentation found."
         image_context = ""
+
         if images:
-            image_context = "\n\nRelevant Images:\n" + "\n".join(
-                f"- Image from {img['source']} with similarity {img['similarity']:.2f}" +
-                (f": {img['caption']}" if img['caption'] else "")
-                for img in images
-            )
+            image_descriptions = []
+            for img in images:
+                desc = f"- Image from {img['source']}"
+                if img.get('caption'):
+                    desc += f": {img['caption']}"
+                if img.get('context'):
+                    desc += f" (Context: {img['context']})"
+                image_descriptions.append(desc)
+            image_context = "\n\nRelevant Images:\n" + "\n".join(image_descriptions)
 
         instructions = [
             "1. Provide a clear and structured response",
             "2. Use technical terminology appropriately",
             "3. Reference specific documents and images when relevant",
-            "4. Format with clear section headers"
+            "4. Use section headers for organization",
+            "5. Keep responses concise and well-formatted"
         ]
 
         if query_type.is_technical:
             instructions.extend([
-                "5. Focus on technical details and specifications",
-                "6. Include step-by-step explanations if applicable"
-            ])
-        elif query_type.is_overview:
-            instructions.extend([
-                "5. Provide a high-level overview",
-                "6. Highlight key features and capabilities"
+                "6. Focus on technical details and specifications",
+                "7. Include step-by-step explanations if applicable"
             ])
 
         prompt = (
@@ -199,42 +274,7 @@ class RAGQueryServer:
         )
         return prompt
 
-    def get_relevant_contexts(self, results: List[Dict], query_text: str) -> Tuple[List[str], List[Dict]]:
-        """Get relevant contexts and images based on similarity scores"""
-        if not results or not results[0]:
-            return [], []
-
-        relevant_contexts = set()
-        relevant_images = []
-        sorted_results = sorted(results[0], key=lambda x: x['distance'])
-
-        for res in sorted_results:
-            similarity_score = 1 / (1 + res['distance'])
-
-            if similarity_score >= self.similarity_threshold:
-                metadata = res['metadata']
-
-                if metadata.get('type') == 'text-chunk':
-                    content = metadata.get('content', '').strip()
-                    if content:
-                        relevant_contexts.add(content)
-
-                elif metadata.get('type') == 'image':
-                    image_id = metadata.get('image_id')
-                    if image_id:
-                        base64_image = self.image_store.get_base64_image(image_id)
-                        if base64_image:
-                            relevant_images.append({
-                                'image': base64_image,
-                                'caption': metadata.get('caption', ''),
-                                'source': metadata.get('source_doc', ''),
-                                'similarity': similarity_score
-                            })
-
-        return list(relevant_contexts), relevant_images
-
     def prepare_messages(self, prompt: str) -> List[Dict[str, str]]:
-        """Prepare messages for OpenAI API"""
         return [
             {
                 "role": "system",
@@ -248,10 +288,11 @@ class RAGQueryServer:
             {"role": "user", "content": prompt}
         ]
 
-    async def process_text_query(self, query_text: str, top_k: int = CONFIG.DEFAULT_TOP_K) -> QueryResponse:
-        """Process a text query and return response with relevant images"""
+    def process_text_query(self, query_text: str, top_k: int = CONFIG.DEFAULT_TOP_K) -> QueryResponse:
         try:
-            query_type = self.determine_query_type(query_text)
+            image_entries = [m for m in self.metadata if m.get('type') == 'image']
+            logging.info(f"Total images in metadata: {len(image_entries)}")
+
             results = query_with_context(
                 index=self.index,
                 metadata=self.metadata,
@@ -262,16 +303,22 @@ class RAGQueryServer:
                 top_k=top_k * 2
             )
 
-            relevant_contexts, relevant_images = self.get_relevant_contexts(results, query_text)
-            prompt = self.prepare_prompt(query_text, relevant_contexts, query_type, relevant_images)
+            contexts, images = self.get_relevant_contexts(results, query_text)
 
-            temperature = 0.3 if query_type.is_technical else 0.7 if query_type.is_overview else 0.5
+            if not contexts and not images:
+                return QueryResponse(
+                    text_response="No relevant information found.",
+                    images=[]
+                )
+
+            query_type = self.determine_query_type(query_text)
+            prompt = self.prepare_prompt(query_text, contexts, query_type, images)
 
             response = openai_post_request(
                 messages=self.prepare_messages(prompt),
                 model_name=CONFIG.GPT_MODEL,
                 max_tokens=CONFIG.DETAIL_MAX_TOKENS,
-                temperature=temperature,
+                temperature=0.3 if query_type.is_technical else 0.7,
                 api_key=self.openai_api_key
             )
 
@@ -284,15 +331,14 @@ class RAGQueryServer:
 
             return QueryResponse(
                 text_response=formatted_response,
-                images=relevant_images
+                images=images
             )
 
         except Exception as e:
-            logging.error(f"Error processing text query: {e}")
+            logging.error(f"Error processing query: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
 
     async def process_image_query(self, image_data: bytes, query_text: Optional[str] = None) -> str:
-        """Process an image query and return response"""
         try:
             image = Image.open(BytesIO(image_data))
             if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
@@ -346,15 +392,25 @@ class RAGQueryServer:
             raise HTTPException(status_code=500, detail=str(e))
 
     def reset_chat(self):
-        """Reset the chat history"""
         self.chat_history = []
         logging.info("Chat history has been reset")
         return {"status": "success", "message": "Chat history cleared"}
 
     def get_chat_history(self):
-        """Return the chat history"""
         return self.chat_history
 
+
+# Initialize FastAPI app
+app = FastAPI(title="Atlantium RAG API")
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Initialize server
 server = RAGQueryServer()
@@ -366,22 +422,19 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # API endpoints
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    """Root endpoint serving the main HTML interface"""
     with open("static/index.html", "r") as f:
         return f.read()
 
 
 @app.post("/chat/reset")
 async def reset_chat():
-    """Reset the chat history"""
     return server.reset_chat()
 
 
 @app.post("/query/text")
 async def text_query(query: str = Form(...)):
-    """Handle text queries"""
     try:
-        response = await server.process_text_query(query)
+        response = server.process_text_query(query)
         return response
     except Exception as e:
         logging.error(f"Error processing text query: {e}")
@@ -390,7 +443,6 @@ async def text_query(query: str = Form(...)):
 
 @app.post("/query/image")
 async def image_query(image: UploadFile = File(...), query: Optional[str] = Form(None)):
-    """Handle image queries"""
     try:
         image_data = await image.read()
         response = await server.process_image_query(image_data, query)
@@ -402,13 +454,33 @@ async def image_query(image: UploadFile = File(...), query: Optional[str] = Form
 
 @app.get("/chat/history")
 async def get_chat_history():
-    """Retrieve chat history"""
     history = server.get_chat_history()
     return {"history": history}
+
+
+# Server startup event
+@app.on_event("startup")
+async def startup_event():
+    logging.info("Starting RAG Query Server...")
+    # Verify directories exist
+    os.makedirs("static", exist_ok=True)
+    os.makedirs(CONFIG.STORED_IMAGES_PATH, exist_ok=True)
+    logging.info("Directory structure verified")
+
+
+# Server shutdown event
+@app.on_event("shutdown")
+async def shutdown_event():
+    logging.info("Shutting down RAG Query Server...")
 
 
 # Run server configuration
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=CONFIG.SERVER_PORT)
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=CONFIG.SERVER_PORT,
+        log_level="info"
+    )
