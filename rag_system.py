@@ -188,6 +188,12 @@ def main():
 
     # Save index and metadata
     save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
+
+    logging.info("Metadata analysis:")
+    logging.info(f"Text chunks: {len([m for m in metadata if m['type'] == 'text-chunk'])}")
+    logging.info(f"Images: {len([m for m in metadata if m['type'] == 'image'])}")
+    logging.info(f"First image entry: {next((m for m in metadata if m['type'] == 'image'), None)}")
+
     save_metadata(metadata, CONFIG.METADATA_PATH)
     logging.info("Index and metadata saved successfully")
 

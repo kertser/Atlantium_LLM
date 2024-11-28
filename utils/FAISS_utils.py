@@ -69,21 +69,35 @@ def add_to_faiss(embedding, pdf_name, content_type, content, index, metadata):
 
 
 def query_faiss(index, metadata, query_embeddings, top_k):
-    """Query the FAISS index with improved results handling"""
-    distances, indices = index.search(query_embeddings, top_k)
+    distances, indices = index.search(query_embeddings, len(metadata))  # Get all results
+
+    # Add logging
+    logging.info(f"Querying FAISS index with {len(metadata)} total entries")
+    distances, indices = index.search(query_embeddings, len(metadata))
+    logging.info(f"Query returned {len(indices[0])} results")
+    logging.info(f"Image matches: {len([i for i in indices[0] if i < len(metadata) and metadata[i].get('type') == 'image'])}")
+
     results = []
 
-    for i, idx_list in enumerate(indices):
-        query_results = []
-        for j, idx in enumerate(idx_list):
-            if idx < len(metadata):  # Ensure index is within bounds
-                query_results.append({
-                    "idx": idx,
-                    "metadata": metadata[idx],
-                    "distance": float(distances[i][j])  # Convert to float for JSON serialization
-                })
-        results.append(query_results)
+    # Separate text and image results
+    text_results = []
+    image_results = []
 
+    for idx, distance in zip(indices[0], distances[0]):
+        if idx >= len(metadata):
+            continue
+        result = {
+            "idx": idx,
+            "metadata": metadata[idx],
+            "distance": float(distance)
+        }
+        if metadata[idx].get('type') == 'image':
+            image_results.append(result)
+        else:
+            text_results.append(result)
+
+    # Combine top results from each type
+    results.append(text_results[:top_k] + image_results[:top_k])
     return results
 
 

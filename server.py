@@ -145,7 +145,11 @@ class RAGQueryServer:
 
     def get_relevant_contexts(self, results: List[Dict], query_text: str) -> Tuple[List[str], List[Dict]]:
         if not results or not results[0]:
+            logging.info("No results found")
             return [], []
+
+        logging.info(f"Processing query: {query_text}")
+        logging.info(f"Found {len(results[0])} results")
 
         # Get CLIP embedding for query
         query_input = self.processor(text=[query_text], return_tensors="pt", padding=True)
@@ -158,27 +162,39 @@ class RAGQueryServer:
 
         for result in results[0]:
             metadata = result['metadata']
+            logging.info(f"Metadata type: {metadata.get('type')}")
+
             if metadata.get('type') == 'text-chunk':
                 if result['distance'] < 1 / CONFIG.SIMILARITY_THRESHOLD:
                     relevant_contexts.append(metadata.get('content', '').strip())
+                    logging.info("Added text context")
 
             elif metadata.get('type') == 'image':
-                # Get image and compute semantic similarity
+                logging.info(f"Image metadata: {json.dumps(metadata, indent=2)}")
                 image_id = metadata.get('image_id') or metadata.get('content', {}).get('image_id')
+                logging.info(f"Image ID: {image_id}")
+
                 if image_id:
                     image, img_metadata = self.image_store.get_image(image_id)
                     if image:
+                        logging.info(f"Successfully loaded image {image_id}")
                         image_input = self.processor(images=image, return_tensors="pt").to(self.device)
                         image_embedding = self.model.get_image_features(**image_input)
                         image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
 
                         similarity = (query_embedding @ image_embedding.T).item()
+                        logging.info(f"Similarity score for image {image_id}: {similarity}")
+
                         if similarity > CONFIG.IMAGE_SIMILARITY_THRESHOLD:
                             image_data = self.get_image_data(image_id, metadata, similarity)
                             if image_data:
                                 relevant_images.append(image_data)
+                                logging.info(f"Added image {image_id} with similarity {similarity}")
+                    else:
+                        logging.warning(f"Failed to load image {image_id}")
 
         relevant_images.sort(key=lambda x: x['similarity'], reverse=True)
+        logging.info(f"Found {len(relevant_contexts)} contexts and {len(relevant_images)} images")
         return relevant_contexts, relevant_images
 
     def get_image_data(self, image_id: str, metadata: Dict, similarity: float) -> Optional[Dict]:
