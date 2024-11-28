@@ -1,20 +1,22 @@
 # Document parsing and RAG-related functions
 
 import fitz  # PyMuPDF for PDFs
+
 fitz.TOOLS.mupdf_display_errors(False)  # Suppress MuPDF errors
 
 import docx  # for Word documents
 import openpyxl  # for Excel files
 from docx import Document
-
+from pathlib import Path
 from PIL import Image, UnidentifiedImageError
 from io import BytesIO
 
-def extract_text_and_images_from_word(docx_path):
+
+def extract_text_and_images_from_word(docx_path, image_store):
     try:
         doc = Document(docx_path)
         text = "\n".join([para.text for para in doc.paragraphs])
-        images = []
+        image_ids = []
 
         # Extract images
         for rel in doc.part.rels.values():
@@ -22,19 +24,27 @@ def extract_text_and_images_from_word(docx_path):
                 if "image" in rel.target_ref:
                     image_data = rel.target_part.blob
                     image = Image.open(BytesIO(image_data))
-                    images.append(image)
+
+                    # Store image and get ID
+                    image_id = image_store.store_image(
+                        image=image,
+                        source_doc=str(docx_path),
+                        page_num=0  # Word docs don't have pages, use 0
+                    )
+                    image_ids.append(image_id)
             except Exception as e:
                 print(f"Error extracting an image from {docx_path}: {e}")
 
-        return text, images
+        return text, image_ids
     except Exception as e:
         print(f"Error processing Word document {docx_path}: {e}")
         return "", []
 
-def extract_text_and_images_from_pdf(pdf_path):
+
+def extract_text_and_images_from_pdf(pdf_path, image_store):
     """Extracts text and images from a PDF file."""
     text = ""
-    images = []
+    image_ids = []
 
     try:
         # Open the PDF
@@ -63,17 +73,21 @@ def extract_text_and_images_from_pdf(pdf_path):
 
                         # Convert to PIL Image
                         image = Image.open(BytesIO(image_bytes))
-                        images.append(image)
+
+                        # Store image and get ID
+                        image_id = image_store.store_image(
+                            image=image,
+                            source_doc=str(pdf_path),
+                            page_num=page_num
+                        )
+                        image_ids.append(image_id)
 
                     except UnidentifiedImageError:
-                        # Log and skip if the image cannot be identified
                         print(f"Skipping image {img_index} on page {page_num}: Unidentified image error.")
                     except Exception as e:
                         if "cmsOpenProfileFromMem" in str(e):
-                            # Suppress color profile errors
                             print(f"Skipping image {img_index} on page {page_num}: Invalid color profile.")
                         else:
-                            # Log other errors but continue
                             print(f"Error extracting image {img_index} on page {page_num}: {e}")
                         continue
 
@@ -85,14 +99,14 @@ def extract_text_and_images_from_pdf(pdf_path):
     except Exception as e:
         print(f"Error opening or processing PDF {pdf_path}: {e}")
 
-    return text, images
+    return text, image_ids
 
 
-def extract_text_and_images_from_excel(excel_path):
+def extract_text_and_images_from_excel(excel_path, image_store):
     try:
         workbook = openpyxl.load_workbook(excel_path)
         text = ""
-        images = []
+        image_ids = []
 
         for sheet in workbook.worksheets:
             # Extract text
@@ -105,19 +119,26 @@ def extract_text_and_images_from_excel(excel_path):
             # Extract images
             try:
                 for image in sheet._images:
-                    if isinstance(image, OpenPyXLImage):
-                        img_data = image._data()  # Get the raw image data
+                    if hasattr(image, '_data'):
+                        img_data = image._data()
                         img = Image.open(BytesIO(img_data))
-                        images.append(img)
+
+                        # Store image and get ID
+                        image_id = image_store.store_image(
+                            image=img,
+                            source_doc=str(excel_path),
+                            page_num=workbook.worksheets.index(sheet)  # Use sheet index as page number
+                        )
+                        image_ids.append(image_id)
             except Exception as e:
                 print(f"Error processing images in sheet {sheet.title}: {e}")
 
-        return text, images
+        return text, image_ids
     except Exception as e:
         print(f"Error opening Excel file {excel_path}: {e}")
         return "", []
 
-#%%
+
 def chunk_text(text, chunk_size=512, overlap=100):
     """
     Split text into chunks with overlap to maintain context

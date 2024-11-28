@@ -10,6 +10,7 @@ from utils.FAISS_utils import initialize_faiss_index, add_to_faiss, save_faiss_i
 from utils.LLM_utils import CLIP_init, encode_with_clip
 from utils.RAG_utils import extract_text_and_images_from_pdf, extract_text_and_images_from_word, \
     extract_text_and_images_from_excel, chunk_text
+from image_store import ImageStore
 
 # Setup logging
 logging.basicConfig(
@@ -22,7 +23,7 @@ logging.basicConfig(
 )
 
 
-def process_documents(model, processor, device, index, metadata):
+def process_documents(model, processor, device, index, metadata, image_store):
     """Process all documents in the Raw Documents folder and add them to the RAG system."""
     # Get all documents from the Raw Documents folder
     doc_paths = []
@@ -38,23 +39,23 @@ def process_documents(model, processor, device, index, metadata):
     for doc_path in doc_paths:
         try:
             text = ""
-            images = []
+            image_ids = []  # Store image IDs instead of images
             file_extension = Path(doc_path).suffix.lower()
 
             # Extract text and images based on document type
             logging.info(f"Processing document: {doc_path}")
 
             if file_extension == '.pdf':
-                text, images = extract_text_and_images_from_pdf(doc_path)
+                text, image_ids = extract_text_and_images_from_pdf(doc_path, image_store)
             elif file_extension == '.docx':
-                text, images = extract_text_and_images_from_word(doc_path)
+                text, image_ids = extract_text_and_images_from_word(doc_path, image_store)
             elif file_extension == '.xlsx':
-                text, images = extract_text_and_images_from_excel(doc_path)
+                text, image_ids = extract_text_and_images_from_excel(doc_path, image_store)
             else:
                 logging.warning(f"Unsupported file type: {doc_path}")
                 continue
 
-            logging.info(f" - Extracted {len(text.split())} words and {len(images)} images.")
+            logging.info(f" - Extracted {len(text.split())} words and {len(image_ids)} images.")
 
             # Process text content
             if text.strip():
@@ -72,17 +73,26 @@ def process_documents(model, processor, device, index, metadata):
                     except Exception as e:
                         logging.error(f"Error adding text embedding for chunk {chunk_idx} in {doc_path}: {e}")
 
-            # Process images
-            if images:
-                _, image_embeddings = encode_with_clip([], images, model, processor, device)
-                logging.info(f" - Encoded {len(image_embeddings)} images.")
-
-                for img_idx, image_embedding in enumerate(image_embeddings):
+            # Add image embeddings to FAISS
+            if image_ids:
+                for image_id in image_ids:
                     try:
-                        add_to_faiss(np.array(image_embedding), doc_path, "image", f"Image {img_idx + 1}", index,
-                                     metadata)
+                        image, image_metadata = image_store.get_image(image_id)
+                        if image:
+                            _, image_embedding = encode_with_clip([], [image], model, processor, device)
+                            if len(image_embedding) > 0:
+                                add_to_faiss(
+                                    embedding=np.array(image_embedding[0]),
+                                    pdf_name=doc_path,
+                                    content_type="image",
+                                    content=f"Image {image_id}",
+                                    index=index,
+                                    metadata=metadata
+                                )
+                                # Add image_id to metadata for retrieval
+                                metadata[-1]['image_id'] = image_id
                     except Exception as e:
-                        logging.error(f"Error adding image embedding for image {img_idx + 1} in {doc_path}: {e}")
+                        logging.error(f"Error processing image {image_id} from {doc_path}: {e}")
 
         except Exception as e:
             logging.error(f"Error processing document {doc_path}: {e}")
@@ -102,13 +112,18 @@ def main():
     index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
     metadata = []
 
+    # Initialize ImageStore
+    image_store = ImageStore(CONFIG.STORED_IMAGES_PATH)
+    logging.info("ImageStore initialized")
+
     # Process documents
     process_documents(
         model=clip_model,
         processor=clip_processor,
         device=device,
         index=index,
-        metadata=metadata
+        metadata=metadata,
+        image_store=image_store
     )
 
     # Save index and metadata

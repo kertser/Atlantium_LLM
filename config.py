@@ -12,6 +12,7 @@ class Config:
     FAISS_INDEX_PATH: Path = Path("faiss_index.bin")
     METADATA_PATH: Path = Path("faiss_metadata.json")
     LOG_PATH: Path = Path("system.log")
+    STORED_IMAGES_PATH: Path = Path("RAG_Data/stored_images")
 
     # CLIP Configuration
     CLIP_MODEL_NAME: str = "openai/clip-vit-base-patch32"
@@ -21,7 +22,6 @@ class Config:
     # Document Processing
     CHUNK_SIZE: int = 512
     SUPPORTED_EXTENSIONS: List[str] = None
-
 
     # Token limits for completeness
     MAX_TOKENS: int = 1000
