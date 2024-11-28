@@ -24,51 +24,67 @@ def initialize_faiss_index(dimension, use_gpu=False):
 
 
 def add_to_faiss(embedding, pdf_name, content_type, content, index, metadata):
-    """
-    Add a single embedding to the FAISS index with associated metadata.
-    :param embedding: Numpy array of the embedding vector.
-    :param pdf_name: Name of the source document.
-    :param content_type: Type of the content (e.g., "text-chunk", "image").
-    :param content: The actual content (text or image description).
-    """
-
+    """Add embedding to FAISS with improved metadata handling"""
     try:
         if embedding is None or not isinstance(embedding, np.ndarray):
-            raise ValueError("Embedding must be a valid NumPy array.")
+            raise ValueError("Embedding must be a valid NumPy array")
+
         if embedding.ndim == 1:
             embedding = embedding.reshape(1, -1)
+
         if embedding.ndim != 2 or embedding.shape[1] != index.d:
             raise ValueError(f"Embedding shape mismatch. Expected shape: [1, {index.d}]")
+
         index.add(embedding)
-        metadata.append({"pdf": pdf_name, "type": content_type, "content": content})
-        print(f"Added embedding to FAISS: {pdf_name}, type: {content_type}")
+
+        # Add type-specific metadata
+        meta_entry = {
+            "pdf": pdf_name,
+            "type": content_type,
+            "content": content
+        }
+
+        # Add special handling for image content
+        if content_type == "image" and isinstance(content, dict):
+            meta_entry.update({
+                "image_id": content.get("image_id"),
+                "caption": content.get("caption"),
+                "context": content.get("context"),
+                "source_doc": content.get("source_doc")
+            })
+
+        metadata.append(meta_entry)
+        logging.info(f"Added {content_type} embedding to FAISS from {pdf_name}")
+
     except Exception as e:
-        print(f"Error adding embedding to FAISS: {e}")
+        logging.error(f"Error adding embedding to FAISS: {e}")
+        raise
+
 
 def query_faiss(index, metadata, query_embeddings, top_k):
-    """
-    Query the FAISS index and retrieve the top_k results along with metadata.
-    """
+    """Query the FAISS index with improved results handling"""
     distances, indices = index.search(query_embeddings, top_k)
     results = []
+
     for i, idx_list in enumerate(indices):
         query_results = []
         for j, idx in enumerate(idx_list):
             if idx < len(metadata):  # Ensure index is within bounds
                 query_results.append({
+                    "idx": idx,
                     "metadata": metadata[idx],
-                    "distance": distances[i][j]
+                    "distance": float(distances[i][j])  # Convert to float for JSON serialization
                 })
         results.append(query_results)
+
     return results
 
+
 def query_with_context(index, metadata, model, processor, device="cpu", text_query=None, image_query=None, top_k=5):
-    """
-    Query FAISS index with text and/or image.
-    """
+    """Query FAISS with improved context handling"""
     query_embeddings = []
 
-    # Encode text query
+    # Process text query
     if text_query:
         query_input = processor(text=[text_query], return_tensors="pt", padding=True, truncation=True)
         query_input = {k: v.to(device) for k, v in query_input.items()}
@@ -76,7 +92,7 @@ def query_with_context(index, metadata, model, processor, device="cpu", text_que
         text_embedding = text_embedding / text_embedding.norm(dim=-1, keepdim=True)
         query_embeddings.append(text_embedding.cpu().detach().numpy())
 
-    # Encode image query
+    # Process image query
     if image_query:
         if image_query.mode != "RGB":
             image_query = image_query.convert("RGB")
@@ -85,15 +101,19 @@ def query_with_context(index, metadata, model, processor, device="cpu", text_que
         image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
         query_embeddings.append(image_embedding.cpu().detach().numpy())
 
-    # Combine query embeddings
     if not query_embeddings:
-        raise ValueError("At least one of text_query or image_query must be provided.")
+        raise ValueError("At least one of text_query or image_query must be provided")
+
+    # Combine and normalize embeddings
     query_embeddings = np.vstack(query_embeddings)
 
-    # Query FAISS index
-    results = query_faiss(index, metadata, query_embeddings, top_k)
+    # Query FAISS
+    results = query_faiss(index, metadata, query_embeddings, top_k * 2)  # Get more results for filtering
+
     if not results or not results[0]:
-        logging.error("No results retrieved from FAISS index.")
+        logging.error("No results retrieved from FAISS index")
+        return []
+
     return results
 
 def save_faiss_index(index, filepath):

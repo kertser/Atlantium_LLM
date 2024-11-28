@@ -13,7 +13,9 @@ from utils.RAG_utils import (
     extract_text_and_images_from_pdf,
     extract_text_and_images_from_word,
     extract_text_and_images_from_excel,
-    chunk_text
+    chunk_text,
+    get_relevant_images,
+    extract_text_around_image
 )
 from image_store import ImageStore
 
@@ -45,85 +47,81 @@ def process_document_images(images_data, doc_path, image_store):
             logging.error(f"Error storing image {idx+1} from {doc_path}: {e}")
     return image_ids
 
+
 def process_documents(model, processor, device, index, metadata, image_store):
-    """Process all documents in the Raw Documents folder and add them to the RAG system."""
-    # Get all documents from the Raw Documents folder
+    """Process all documents and store their content and images."""
     doc_paths = []
     for ext in CONFIG.SUPPORTED_EXTENSIONS:
         doc_paths.extend(glob.glob(str(CONFIG.RAW_DOCUMENTS_PATH / f"*{ext}")))
 
     if not doc_paths:
         logging.warning(f"No documents found in {CONFIG.RAW_DOCUMENTS_PATH}")
-        return
+        return index, metadata
 
-    logging.info(f"Found {len(doc_paths)} documents to process.")
+    logging.info(f"Found {len(doc_paths)} documents to process")
 
     for doc_path in doc_paths:
         try:
             text = ""
-            image_ids = []
+            images_data = []
             file_extension = Path(doc_path).suffix.lower()
 
-            # Extract text and images based on document type
-            logging.info(f"Processing document: {doc_path}")
-
             if file_extension == '.pdf':
-                text, images = extract_text_and_images_from_pdf(doc_path)
-                image_ids.extend(process_document_images(images, doc_path, image_store))
+                text, images_data = extract_text_and_images_from_pdf(doc_path)
             elif file_extension == '.docx':
-                text, images = extract_text_and_images_from_word(doc_path)
-                image_ids.extend(process_document_images(images, doc_path, image_store))
+                text, images_data = extract_text_and_images_from_word(doc_path)
             elif file_extension == '.xlsx':
-                text, images = extract_text_and_images_from_excel(doc_path)
-                image_ids.extend(process_document_images(images, doc_path, image_store))
+                text, images_data = extract_text_and_images_from_excel(doc_path)
             else:
-                logging.warning(f"Unsupported file type: {file_extension}")
                 continue
 
-            logging.info(f"Extracted {len(text.split())} words and {len(image_ids)} images from {doc_path}")
+            # Process and store images
+            for idx, img_data in enumerate(images_data):
+                try:
+                    image_id = image_store.store_image(
+                        image=img_data['image'],
+                        source_doc=str(doc_path),
+                        page_num=img_data['page_num'],
+                        caption=f"Image {idx + 1} from {Path(doc_path).name}",
+                        context=img_data.get('context', '')
+                    )
+
+                    # Create image embedding and add to FAISS
+                    _, image_embedding = encode_with_clip([], [img_data['image']], model, processor, device)
+                    if len(image_embedding) > 0:
+                        image_metadata = {
+                            "type": "image",
+                            "image_id": image_id,
+                            "source_doc": str(doc_path),
+                            "caption": f"Image {idx + 1} from {Path(doc_path).name}",
+                            "context": img_data.get('context', ''),
+                            "page": img_data['page_num']
+                        }
+                        add_to_faiss(
+                            embedding=np.array(image_embedding[0]),
+                            pdf_name=doc_path,
+                            content_type="image",
+                            content=image_metadata,
+                            index=index,
+                            metadata=metadata
+                        )
+                except Exception as e:
+                    logging.error(f"Error processing image {idx} from {doc_path}: {e}")
 
             # Process text content
             if text.strip():
                 text_chunks = chunk_text(text, CONFIG.CHUNK_SIZE)
-                logging.info(f"Split text into {len(text_chunks)} chunks for encoding.")
-
                 text_embeddings, _ = encode_with_clip(text_chunks, [], model, processor, device)
-                logging.info(f"Encoded {len(text_embeddings)} text chunks.")
 
-                # Add text embeddings to FAISS
-                for chunk_idx, text_embedding in enumerate(text_embeddings):
-                    try:
-                        content = text_chunks[chunk_idx]
-                        add_to_faiss(np.array(text_embedding), doc_path, "text-chunk", content, index, metadata)
-                    except Exception as e:
-                        logging.error(f"Error adding text embedding for chunk {chunk_idx} in {doc_path}: {e}")
-
-            # Add image embeddings to FAISS
-            if image_ids:
-                for img_id in image_ids:
-                    try:
-                        image, image_metadata = image_store.get_image(img_id)
-                        if image:
-                            _, image_embedding = encode_with_clip([], [image], model, processor, device)
-                            if len(image_embedding) > 0:
-                                metadata_entry = {
-                                    "type": "image",
-                                    "image_id": img_id,
-                                    "source_doc": str(doc_path),
-                                    "caption": image_metadata.get("caption", ""),
-                                    "page": image_metadata.get("page_number", 0)
-                                }
-                                add_to_faiss(
-                                    embedding=np.array(image_embedding[0]),
-                                    pdf_name=doc_path,
-                                    content_type="image",
-                                    content=metadata_entry,
-                                    index=index,
-                                    metadata=metadata
-                                )
-                                logging.info(f"Added image {img_id} to FAISS index")
-                    except Exception as e:
-                        logging.error(f"Error processing image {img_id} from {doc_path}: {e}")
+                for chunk_idx, embedding in enumerate(text_embeddings):
+                    add_to_faiss(
+                        embedding=np.array(embedding),
+                        pdf_name=doc_path,
+                        content_type="text-chunk",
+                        content=text_chunks[chunk_idx],
+                        index=index,
+                        metadata=metadata
+                    )
 
         except Exception as e:
             logging.error(f"Error processing document {doc_path}: {e}")

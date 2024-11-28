@@ -7,20 +7,24 @@ import openpyxl  # for Excel files
 from docx import Document
 from PIL import Image, UnidentifiedImageError
 from io import BytesIO
+from image_store import ImageStore
 
 
 def extract_text_around_image(page, image_bbox, context_range=100):
-    """Extract text around an image's location on the page"""
+    """Extract text around an image's location on the page with improved context"""
     try:
-        # Get text blocks near the image
         blocks = page.get_text("blocks")
         image_center_y = (image_bbox[1] + image_bbox[3]) / 2
+        image_center_x = (image_bbox[0] + image_bbox[2]) / 2
 
         nearby_text = []
         for block in blocks:
             block_center_y = (block[1] + block[3]) / 2
-            # Check if text block is close to image
-            if abs(block_center_y - image_center_y) < context_range:
+            block_center_x = (block[0] + block[2]) / 2
+
+            # Check both vertical and horizontal proximity
+            if abs(block_center_y - image_center_y) < context_range and \
+                    abs(block_center_x - image_center_x) < context_range * 2:  # Wider horizontal range
                 text = block[4].strip()
                 if text:
                     nearby_text.append(text)
@@ -30,6 +34,45 @@ def extract_text_around_image(page, image_bbox, context_range=100):
         print(f"Error extracting text context: {e}")
         return ""
 
+
+def get_relevant_images(query_context: str, image_store: ImageStore, threshold: float = 0.3):
+    """Get images relevant to the query with improved matching"""
+    relevant_images = []
+    query_terms = set(query_context.lower().split())
+
+    for img_id, metadata in image_store.metadata.items():
+        try:
+            # Get all text associated with the image
+            context = metadata.get("context", "").lower()
+            caption = metadata.get("caption", "").lower()
+            source = metadata.get("source_document", "").lower()
+
+            # Split text into terms
+            context_terms = set(context.split())
+            caption_terms = set(caption.split())
+            source_terms = set(source.split())
+
+            # Calculate term overlap
+            term_overlap = len(query_terms & (context_terms | caption_terms | source_terms))
+            if term_overlap > 0:
+                score = term_overlap / len(query_terms)
+                if score >= threshold:
+                    base64_img = image_store.get_base64_image(img_id)
+                    if base64_img:
+                        relevant_images.append({
+                            "id": img_id,
+                            "base64": base64_img,
+                            "caption": metadata.get("caption", "No caption available"),
+                            "context": metadata.get("context", ""),
+                            "similarity": score
+                        })
+        except Exception as e:
+            print(f"Error processing image {img_id}: {e}")
+            continue
+
+    # Sort by relevance
+    relevant_images.sort(key=lambda x: x['similarity'], reverse=True)
+    return relevant_images[:5]  # Return top 5 most relevant images
 
 def extract_text_and_images_from_pdf(pdf_path):
     """Extracts text and images with their context from a PDF file."""

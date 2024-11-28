@@ -6,14 +6,14 @@ import logging
 import json
 from dotenv import load_dotenv
 from PIL import Image
-from typing import Optional, Union, List, Dict, Tuple
+from typing import Optional, Union, List, Dict, Tuple, Any
 import base64
 from io import BytesIO
 from openai import OpenAI
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 import numpy as np
 import re
@@ -23,6 +23,7 @@ from config import CONFIG
 from utils.FAISS_utils import load_faiss_index, load_metadata, query_with_context
 from utils.LLM_utils import CLIP_init, openai_post_request
 from image_store import ImageStore
+from utils.RAG_utils import get_relevant_images
 
 # Setup logging
 logging.basicConfig(
@@ -53,7 +54,22 @@ class QueryType(BaseModel):
 
 class QueryResponse(BaseModel):
     text_response: str
-    images: List[Dict[str, str]] = []
+    images: List[Dict[str, Any]] = []
+
+    class Config:
+        arbitrary_types_allowed = True
+
+    def to_dict(self):
+        return {
+            "text_response": self.text_response,
+            "images": [{
+                "image": img.get("image", ""),
+                "caption": img.get("caption", ""),
+                "context": img.get("context", ""),
+                "source": img.get("source", ""),
+                "similarity": str(img.get("similarity", 0))  # Convert float to string
+            } for img in self.images]
+        }
 
 
 class EnhancedResponseFormatter:
@@ -137,103 +153,111 @@ class RAGQueryServer:
 
         # Keywords for better image matching
         keywords = set(query_text.lower().split())
-        image_keywords = {'image', 'picture', 'diagram', 'photo', 'figure', 'illustration', 'logo', 'symbol', 'hazard'}
-        is_image_query = bool(keywords & image_keywords)
+        image_keywords = {'image', 'picture', 'diagram', 'photo', 'figure', 'illustration', 'logo', 'symbol', 'hazard',
+                          'voltage', 'pin', 'connection', 'wiring'}
+        is_image_query = bool(keywords & image_keywords) or 'show' in keywords
 
-        # Debug: Print all image entries in metadata
-        image_entries = [m for m in self.metadata if m.get('type') == 'image']
-        logging.info(f"Found {len(image_entries)} total image entries")
-        logging.info("Sample of first 3 image entries:")
-        for entry in image_entries[:3]:
-            logging.info(f"Image entry: {json.dumps(entry, indent=2)}")
-
-        # Debug: Print search results
-        logging.info(f"Search results: {len(results[0])} items")
-        for idx, result in enumerate(results[0][:3]):
-            logging.info(
-                f"Result {idx}: distance={result['distance']}, metadata={json.dumps(result['metadata'], indent=2)}")
-
+        # Debug: Print all image entries that match the query
         for result in results[0]:
-            try:
-                similarity_score = 1 / (1 + result['distance'])
-                metadata = result['metadata']
+            similarity_score = 1 / (1 + result['distance'])
+            metadata = result['metadata']
 
+            logging.info(f"Processing result with score {similarity_score}: {json.dumps(metadata, indent=2)}")
+
+            try:
                 # Much lower threshold for image queries
-                threshold = 0.2 if is_image_query else self.similarity_threshold
+                threshold = 0.1 if is_image_query else 0.3
 
                 if similarity_score >= threshold:
                     if metadata.get('type') == 'text-chunk':
                         content = metadata.get('content', '').strip()
-                        if content and content not in relevant_contexts:
+                        if content:
                             relevant_contexts.append(content)
 
                     elif metadata.get('type') == 'image':
-                        # Try multiple ways to get image_id
+                        # Get image ID from both possible locations
                         image_id = None
-
-                        # Debug: Print image metadata
-                        logging.info(f"Processing image metadata: {json.dumps(metadata, indent=2)}")
-
-                        # Check all possible locations for image_id
-                        if 'image_id' in metadata:
-                            image_id = metadata['image_id']
-                        elif isinstance(metadata.get('content'), dict):
+                        if isinstance(metadata.get('content'), dict):
                             image_id = metadata['content'].get('image_id')
-                        elif isinstance(metadata.get('content'), str) and 'images' in metadata.get('content', ''):
-                            image_id = metadata.get('content').split('/')[-1].strip()
-
-                        logging.info(f"Found image_id: {image_id}")
+                        elif 'image_id' in metadata:
+                            image_id = metadata['image_id']
 
                         if image_id:
-                            base64_image = self.image_store.get_base64_image(image_id)
-                            if base64_image:
+                            # Get and check image context
+                            context = metadata.get('content', {}).get('context', '') if isinstance(
+                                metadata.get('content'), dict) else metadata.get('context', '')
+                            caption = metadata.get('content', {}).get('caption', '') if isinstance(
+                                metadata.get('content'), dict) else metadata.get('caption', '')
+
+                            # Get source document name
+                            source_doc = str(metadata.get('source_doc', ''))
+
+                            # Check if query terms appear in context or caption
+                            text_to_check = f"{context} {caption} {source_doc}".lower()
+                            matches_query = any(kw in text_to_check for kw in keywords) or is_image_query
+
+                            if matches_query:
                                 image_data = {
-                                    'image': base64_image,
-                                    'caption': metadata.get('caption', ''),
-                                    'source': metadata.get('source_doc', ''),
-                                    'similarity': similarity_score,
-                                    'context': metadata.get('context', '')
+                                    'image': self.image_store.get_base64_image(image_id),
+                                    'caption': caption,
+                                    'context': context,
+                                    'source': source_doc,
+                                    'similarity': similarity_score
                                 }
-                                relevant_images.append(image_data)
-                                logging.info(f"Successfully added image {image_id}")
-                            else:
-                                logging.warning(f"Failed to get base64 image for ID: {image_id}")
+                                if image_data['image']:
+                                    relevant_images.append(image_data)
+                                    logging.info(f"Added image {image_id} with score {similarity_score}")
 
             except Exception as e:
                 logging.error(f"Error processing result: {e}", exc_info=True)
                 continue
 
-        if is_image_query:
-            relevant_images.sort(key=lambda x: x['similarity'], reverse=True)
-            relevant_images = relevant_images[:5]  # Limit to top 5 most relevant images
+        # Sort images by relevance
+        relevant_images.sort(key=lambda x: x['similarity'], reverse=True)
 
-        logging.info(f"Found {len(relevant_contexts)} text chunks and {len(relevant_images)} images")
+        # Add proper debug logging
+        logging.info(f"Query '{query_text}' found:")
+        logging.info(f"- {len(relevant_contexts)} text contexts")
+        logging.info(f"- {len(relevant_images)} images")
+        if relevant_images:
+            for img in relevant_images[:3]:
+                logging.info(f"Image from {img['source']} with score {img['similarity']}")
+
         return relevant_contexts, relevant_images
 
     def get_image_data(self, image_id: str, metadata: Dict, similarity: float) -> Optional[Dict]:
+        """Get image data with improved logging"""
         try:
+            logging.info(f"Retrieving image data for ID: {image_id}")
             base64_image = self.image_store.get_base64_image(image_id)
             if not base64_image:
+                logging.warning(f"Failed to get base64 image for ID: {image_id}")
                 return None
+
+            # Get all available metadata
+            source_doc = metadata.get('source_doc', '')
+            context = metadata.get('context', '')
+            caption = metadata.get('caption', '')
+
+            # Try to get additional metadata from content if available
+            if isinstance(metadata.get('content'), dict):
+                content = metadata['content']
+                context = content.get('context', context)
+                caption = content.get('caption', caption)
 
             image_data = {
                 'image': base64_image,
-                'caption': metadata.get('caption', ''),
-                'source': metadata.get('source_doc', ''),
-                'similarity': similarity,
-                'context': metadata.get('context', '')
+                'image_id': image_id,
+                'caption': caption,
+                'context': context,
+                'source': source_doc,
+                'similarity': similarity
             }
 
-            if isinstance(metadata.get('content'), dict):
-                content = metadata['content']
-                if content.get('context'):
-                    image_data['context'] = content['context']
-                if content.get('caption'):
-                    image_data['caption'] = content['caption']
-
+            logging.info(f"Successfully retrieved image data for ID: {image_id}")
             return image_data
         except Exception as e:
-            logging.error(f"Error getting image data: {e}")
+            logging.error(f"Error getting image data for {image_id}: {e}")
             return None
 
     def prepare_prompt(self, query_text: str, contexts: List[str], query_type: QueryType, images: List[Dict]) -> str:
@@ -289,10 +313,11 @@ class RAGQueryServer:
         ]
 
     def process_text_query(self, query_text: str, top_k: int = CONFIG.DEFAULT_TOP_K) -> QueryResponse:
+        """Process a text query and return response with relevant images"""
         try:
-            image_entries = [m for m in self.metadata if m.get('type') == 'image']
-            logging.info(f"Total images in metadata: {len(image_entries)}")
+            logging.info(f"Processing query: {query_text}")
 
+            # Get query results
             results = query_with_context(
                 index=self.index,
                 metadata=self.metadata,
@@ -303,40 +328,51 @@ class RAGQueryServer:
                 top_k=top_k * 2
             )
 
+            # Get contexts and images
             contexts, images = self.get_relevant_contexts(results, query_text)
 
-            if not contexts and not images:
-                return QueryResponse(
-                    text_response="No relevant information found.",
-                    images=[]
+            # If no contexts but images found, provide a basic response
+            if not contexts and images:
+                text_response = "Here are the relevant images I found:"
+            # If no contexts and no images, provide a fallback response
+            elif not contexts and not images:
+                text_response = "I couldn't find any specific information about that. Could you please rephrase your question?"
+            else:
+                # Prepare prompt and get GPT response
+                query_type = self.determine_query_type(query_text)
+                prompt = self.prepare_prompt(query_text, contexts, query_type, images)
+
+                response = openai_post_request(
+                    messages=self.prepare_messages(prompt),
+                    model_name=CONFIG.GPT_MODEL,
+                    max_tokens=CONFIG.DETAIL_MAX_TOKENS,
+                    temperature=0.3 if query_type.is_technical else 0.7,
+                    api_key=self.openai_api_key
                 )
 
-            query_type = self.determine_query_type(query_text)
-            prompt = self.prepare_prompt(query_text, contexts, query_type, images)
+                text_response = response['choices'][0]['message']['content'].strip()
+                text_response = self.formatter.format_response(text_response)
 
-            response = openai_post_request(
-                messages=self.prepare_messages(prompt),
-                model_name=CONFIG.GPT_MODEL,
-                max_tokens=CONFIG.DETAIL_MAX_TOKENS,
-                temperature=0.3 if query_type.is_technical else 0.7,
-                api_key=self.openai_api_key
-            )
-
-            formatted_response = self.formatter.format_response(
-                response['choices'][0]['message']['content'].strip()
-            )
-
+            # Update chat history
             self.chat_history.append({"role": "user", "content": query_text})
-            self.chat_history.append({"role": "assistant", "content": formatted_response})
+            self.chat_history.append({
+                "role": "assistant",
+                "content": text_response
+            })
+
+            logging.info(f"Returning response with {len(images)} images")
 
             return QueryResponse(
-                text_response=formatted_response,
+                text_response=text_response,
                 images=images
             )
 
         except Exception as e:
             logging.error(f"Error processing query: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail=str(e))
+            raise HTTPException(
+                status_code=500,
+                detail=str(e)
+            )
 
     async def process_image_query(self, image_data: bytes, query_text: Optional[str] = None) -> str:
         try:
@@ -433,12 +469,37 @@ async def reset_chat():
 
 @app.post("/query/text")
 async def text_query(query: str = Form(...)):
+    """Handle text queries"""
     try:
+        # Process the query
         response = server.process_text_query(query)
-        return response
+
+        # Create proper response structure
+        response_data = {
+            "status": "success",
+            "response": {
+                "text_response": response.text_response,
+                "images": response.images
+            }
+        }
+
+        # Log the response
+        logging.info(f"Sending response with {len(response.images)} images")
+
+        return JSONResponse(content=response_data)
+
     except Exception as e:
-        logging.error(f"Error processing text query: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logging.error(f"Error processing text query: {e}", exc_info=True)
+        return JSONResponse(
+            content={
+                "status": "error",
+                "response": {
+                    "text_response": "Sorry, there was an error processing your request.",
+                    "images": []
+                }
+            },
+            status_code=500
+        )
 
 
 @app.post("/query/image")

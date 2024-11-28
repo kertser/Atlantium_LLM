@@ -2,218 +2,33 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Atlantium RAG System</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        .prose {
-            line-height: 1.6;
-        }
-
-        .prose h1 {
-            font-size: 1.5rem;
-            font-weight: bold;
-            margin: 1.5rem 0 1rem 0;
-        }
-
-        .prose h2 {
-            font-size: 1.25rem;
-            font-weight: bold;
-            margin: 1.25rem 0 0.75rem 0;
-        }
-
-        .prose h3 {
-            font-size: 1.1rem;
-            font-weight: bold;
-            margin: 1rem 0 0.5rem 0;
-        }
-
-        .prose li {
-            margin-left: 1.5rem;
-            margin-bottom: 0.5rem;
-        }
-
-        .prose br {
-            margin: 0.5rem 0;
-        }
-    </style>
+    <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body class="bg-gray-100">
-    <div class="container mx-auto px-4 py-8">
-        <div class="flex justify-between items-center mb-8">
-            <h1 class="text-3xl font-bold">Atlantium RAG System</h1>
-            <button onclick="resetConversation()" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">
-                Reset Conversation
-            </button>
-        </div>
+<body>
+    <div class="app-container">
+        <header>
+            <h1>Atlantium Technical Documentation Assistant</h1>
+        </header>
 
-        <div class="chat-container bg-white rounded-lg shadow-md p-6 mb-6 overflow-y-auto max-h-[60vh]">
-            <div id="chatHistory" class="space-y-4">
-                <!-- Chat messages will be inserted here -->
+        <main>
+            <div id="chat-container">
+                <div id="chat-log"></div>
             </div>
-        </div>
 
-        <div class="bg-white rounded-lg shadow-md p-6">
-            <div class="flex flex-col space-y-4">
-                <div class="flex flex-col space-y-4">
-                    <textarea id="queryInput" rows="4" class="w-full p-2 border rounded"
-                            placeholder="Enter your query here..."></textarea>
-
-                    <div class="flex space-x-4">
-                        <input type="file" id="imageInput" accept="image/*" class="hidden"
-                               onchange="handleImageUpload(event)">
-                        <button onclick="document.getElementById('imageInput').click()"
-                                class="bg-gray-200 px-4 py-2 rounded hover:bg-gray-300">
-                            Add Image
-                        </button>
-
-                        <div id="imagePreview" class="hidden flex items-center">
-                            <img id="previewImg" class="h-10 w-10 object-cover rounded mr-2">
-                            <button onclick="removeImage()"
-                                    class="text-red-500 hover:text-red-700 font-bold">×</button>
-                        </div>
-                    </div>
+            <div id="input-container">
+                <textarea
+                    placeholder="Ask a question about Atlantium systems..."
+                    rows="3"
+                ></textarea>
+                <div class="button-group">
+                    <button id="send-button">Send</button>
+                    <button id="reset-button">Reset</button>
                 </div>
-
-                <button onclick="sendQuery()"
-                        class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
-                    Send Query
-                </button>
             </div>
-        </div>
+        </main>
     </div>
-
-    <script>
-        let selectedImage = null;
-
-        async function sendQuery() {
-            const queryInput = document.getElementById('queryInput');
-            const query = queryInput.value.trim();
-
-            if (!query) return;
-
-            const formData = new FormData();
-            formData.append('query', query);
-
-            if (selectedImage) {
-                try {
-                    const response = await fetch('/query/image', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    const data = await response.json();
-                    updateChat(query, data.response);
-                } catch (error) {
-                    console.error('Error:', error);
-                }
-            } else {
-                try {
-                    const response = await fetch('/query/text', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    const data = await response.json();
-                    updateChat(query, data.text_response, data.images);
-                } catch (error) {
-                    console.error('Error:', error);
-                }
-            }
-
-            queryInput.value = '';
-            removeImage();
-        }
-
-        function updateChat(query, response, images = []) {
-            const chatHistory = document.getElementById('chatHistory');
-
-            // Add user query
-            const userDiv = document.createElement('div');
-            userDiv.className = 'mb-4';
-            userDiv.innerHTML = `
-                <p class="font-bold text-blue-600">User:</p>
-                <p class="ml-4 whitespace-pre-wrap">${query}</p>
-            `;
-            chatHistory.appendChild(userDiv);
-
-            // Add assistant response
-            const assistantDiv = document.createElement('div');
-            assistantDiv.className = 'mb-4';
-
-            // Convert markdown-style headers and bullet points to HTML
-            const formattedResponse = response
-                .replace(/^# (.*$)/gm, '<h1 class="text-2xl font-bold mt-4 mb-2">$1</h1>')
-                .replace(/^## (.*$)/gm, '<h2 class="text-xl font-bold mt-3 mb-2">$1</h2>')
-                .replace(/^### (.*$)/gm, '<h3 class="text-lg font-bold mt-2 mb-1">$1</h3>')
-                .replace(/^• (.*$)/gm, '<li class="ml-4">$1</li>')
-                .replace(/\n\n/g, '<br><br>');
-
-            assistantDiv.innerHTML = `
-                <p class="font-bold text-green-600">Assistant:</p>
-                <div class="ml-4 prose max-w-none">
-                    ${formattedResponse}
-                </div>
-            `;
-
-            // Add images if any
-            if (images && images.length > 0) {
-                const imagesDiv = document.createElement('div');
-                imagesDiv.className = 'ml-4 mt-4 flex flex-wrap gap-4';
-                images.forEach(img => {
-                    const imgContainer = document.createElement('div');
-                    imgContainer.className = 'max-w-sm';
-
-                    const imgElement = document.createElement('img');
-                    imgElement.src = `data:image/jpeg;base64,${img.image}`;
-                    imgElement.className = 'rounded shadow-md max-w-full h-auto';
-                    imgElement.alt = img.caption || 'Retrieved image';
-
-                    if (img.caption) {
-                        const caption = document.createElement('p');
-                        caption.className = 'text-sm text-gray-600 mt-1';
-                        caption.textContent = img.caption;
-                        imgContainer.appendChild(caption);
-                    }
-
-                    imgContainer.appendChild(imgElement);
-                    imagesDiv.appendChild(imgContainer);
-                });
-                assistantDiv.appendChild(imagesDiv);
-            }
-
-            chatHistory.appendChild(assistantDiv);
-            chatHistory.scrollTop = chatHistory.scrollHeight;
-        }
-
-        function handleImageUpload(event) {
-            const file = event.target.files[0];
-            if (file) {
-                selectedImage = file;
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    const preview = document.getElementById('imagePreview');
-                    const previewImg = document.getElementById('previewImg');
-                    previewImg.src = e.target.result;
-                    preview.classList.remove('hidden');
-                }
-                reader.readAsDataURL(file);
-            }
-        }
-
-        function removeImage() {
-            selectedImage = null;
-            const preview = document.getElementById('imagePreview');
-            preview.classList.add('hidden');
-            document.getElementById('imageInput').value = '';
-        }
-
-        async function resetConversation() {
-            try {
-                await fetch('/chat/reset', { method: 'POST' });
-                document.getElementById('chatHistory').innerHTML = '';
-                removeImage();
-            } catch (error) {
-                console.error('Error resetting conversation:', error);
-            }
-        }
-    </script>
+    <script src="/static/scripts.js"></script>
 </body>
 </html>

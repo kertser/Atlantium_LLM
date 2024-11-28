@@ -31,7 +31,7 @@ class Config:
     # Query Configuration
     DEFAULT_TOP_K: int = 5
     TEMPERATURE: float = 0.1
-    GPT_MODEL: str = "gpt-4-turbo"
+    GPT_MODEL: str = "gpt-4o-mini"
 
     # Vision model settings
     GPT_VISION_MODEL: str = "gpt-4o"
