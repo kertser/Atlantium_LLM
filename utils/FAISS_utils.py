@@ -2,6 +2,7 @@ import faiss
 import json
 import numpy as np
 import logging
+from config import CONFIG
 
 def initialize_faiss_index(dimension, use_gpu=False):
     """
@@ -31,6 +32,9 @@ def add_to_faiss(embedding, pdf_name, content_type, content, index, metadata):
 
         if embedding.ndim == 1:
             embedding = embedding.reshape(1, -1)
+
+        if len(metadata) >= CONFIG.MAX_METADATA_SIZE:
+            raise ValueError("Metadata size limit exceeded")
 
         if embedding.ndim != 2 or embedding.shape[1] != index.d:
             raise ValueError(f"Embedding shape mismatch. Expected shape: [1, {index.d}]")

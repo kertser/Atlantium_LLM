@@ -20,6 +20,11 @@ class Config:
     USE_GPU: bool = True
 
     # Document Processing
+    CHUNK_OVERLAP: int = 50
+    MIN_CHUNK_SIZE: int = 100
+    SIMILARITY_THRESHOLD: float = 0.6
+    IMAGE_SIMILARITY_THRESHOLD: float = 0.1
+    MAX_METADATA_SIZE: int = 10000
     CHUNK_SIZE: int = 512
     SUPPORTED_EXTENSIONS: List[str] = None
 

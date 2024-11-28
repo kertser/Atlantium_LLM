@@ -8,6 +8,7 @@ from docx import Document
 from PIL import Image, UnidentifiedImageError
 from io import BytesIO
 from image_store import ImageStore
+from config import CONFIG
 
 
 def extract_text_around_image(page, image_bbox, context_range=100):
@@ -197,9 +198,9 @@ def extract_text_and_images_from_excel(excel_path):
         print(f"Error opening Excel file {excel_path}: {e}")
         return "", []
 
-def chunk_text(text, chunk_size=512, overlap=100):
+def chunk_text(text, chunk_size=CONFIG.CHUNK_SIZE, overlap=CONFIG.CHUNK_OVERLAP):
     """Split text into chunks with overlap to maintain context."""
-    if not text or chunk_size <= 0:
+    if not text or chunk_size < CONFIG.MIN_CHUNK_SIZE:
         return []
 
     words = text.split()

@@ -144,85 +144,41 @@ class RAGQueryServer:
         )
 
     def get_relevant_contexts(self, results: List[Dict], query_text: str) -> Tuple[List[str], List[Dict]]:
-        """Get relevant contexts and images based on similarity scores"""
         if not results or not results[0]:
             return [], []
+
+        # Get CLIP embedding for query
+        query_input = self.processor(text=[query_text], return_tensors="pt", padding=True)
+        query_input = {k: v.to(self.device) for k, v in query_input.items()}
+        query_embedding = self.model.get_text_features(**query_input)
+        query_embedding = query_embedding / query_embedding.norm(dim=-1, keepdim=True)
 
         relevant_contexts = []
         relevant_images = []
 
-        # Keywords for better image matching
-        keywords = set(query_text.lower().split())
-        image_keywords = {'image', 'picture', 'diagram', 'photo', 'figure', 'illustration', 'logo', 'symbol', 'hazard',
-                          'voltage', 'pin', 'connection', 'wiring'}
-        is_image_query = bool(keywords & image_keywords) or 'show' in keywords
-
-        # Debug: Print all image entries that match the query
         for result in results[0]:
-            similarity_score = 1 / (1 + result['distance'])
             metadata = result['metadata']
+            if metadata.get('type') == 'text-chunk':
+                if result['distance'] < 1 / CONFIG.SIMILARITY_THRESHOLD:
+                    relevant_contexts.append(metadata.get('content', '').strip())
 
-            logging.info(f"Processing result with score {similarity_score}: {json.dumps(metadata, indent=2)}")
+            elif metadata.get('type') == 'image':
+                # Get image and compute semantic similarity
+                image_id = metadata.get('image_id') or metadata.get('content', {}).get('image_id')
+                if image_id:
+                    image, img_metadata = self.image_store.get_image(image_id)
+                    if image:
+                        image_input = self.processor(images=image, return_tensors="pt").to(self.device)
+                        image_embedding = self.model.get_image_features(**image_input)
+                        image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
 
-            try:
-                # Much lower threshold for image queries
-                threshold = 0.1 if is_image_query else 0.3
+                        similarity = (query_embedding @ image_embedding.T).item()
+                        if similarity > CONFIG.IMAGE_SIMILARITY_THRESHOLD:
+                            image_data = self.get_image_data(image_id, metadata, similarity)
+                            if image_data:
+                                relevant_images.append(image_data)
 
-                if similarity_score >= threshold:
-                    if metadata.get('type') == 'text-chunk':
-                        content = metadata.get('content', '').strip()
-                        if content:
-                            relevant_contexts.append(content)
-
-                    elif metadata.get('type') == 'image':
-                        # Get image ID from both possible locations
-                        image_id = None
-                        if isinstance(metadata.get('content'), dict):
-                            image_id = metadata['content'].get('image_id')
-                        elif 'image_id' in metadata:
-                            image_id = metadata['image_id']
-
-                        if image_id:
-                            # Get and check image context
-                            context = metadata.get('content', {}).get('context', '') if isinstance(
-                                metadata.get('content'), dict) else metadata.get('context', '')
-                            caption = metadata.get('content', {}).get('caption', '') if isinstance(
-                                metadata.get('content'), dict) else metadata.get('caption', '')
-
-                            # Get source document name
-                            source_doc = str(metadata.get('source_doc', ''))
-
-                            # Check if query terms appear in context or caption
-                            text_to_check = f"{context} {caption} {source_doc}".lower()
-                            matches_query = any(kw in text_to_check for kw in keywords) or is_image_query
-
-                            if matches_query:
-                                image_data = {
-                                    'image': self.image_store.get_base64_image(image_id),
-                                    'caption': caption,
-                                    'context': context,
-                                    'source': source_doc,
-                                    'similarity': similarity_score
-                                }
-                                if image_data['image']:
-                                    relevant_images.append(image_data)
-                                    logging.info(f"Added image {image_id} with score {similarity_score}")
-
-            except Exception as e:
-                logging.error(f"Error processing result: {e}", exc_info=True)
-                continue
-
-        # Sort images by relevance
         relevant_images.sort(key=lambda x: x['similarity'], reverse=True)
-
-        # Add proper debug logging
-        logging.info(f"Query '{query_text}' found:")
-        logging.info(f"- {len(relevant_contexts)} text contexts")
-        logging.info(f"- {len(relevant_images)} images")
-        if relevant_images:
-            for img in relevant_images[:3]:
-                logging.info(f"Image from {img['source']} with score {img['similarity']}")
-
         return relevant_contexts, relevant_images
 
     def get_image_data(self, image_id: str, metadata: Dict, similarity: float) -> Optional[Dict]:

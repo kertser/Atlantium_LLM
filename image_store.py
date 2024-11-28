@@ -5,6 +5,7 @@ import hashlib
 import base64
 from io import BytesIO
 from typing import Tuple, List, Dict, Optional
+from functools import lru_cache
 
 
 class ImageStore:
@@ -117,6 +118,7 @@ class ImageStore:
             print(f"Error loading image {image_id}: {e}")
             return None, None
 
+    @lru_cache(maxsize=100)
     def get_base64_image(self, image_id: str) -> Optional[str]:
         """
         Get base64 encoded image for web display
