@@ -22,8 +22,8 @@ class Config:
     # Document Processing
     CHUNK_OVERLAP: int = 50
     MIN_CHUNK_SIZE: int = 100
-    SIMILARITY_THRESHOLD: float = 0.6
-    IMAGE_SIMILARITY_THRESHOLD: float = 0.1
+    SIMILARITY_THRESHOLD: float = 0.4
+    IMAGE_SIMILARITY_THRESHOLD: float = 0.3
     MAX_METADATA_SIZE: int = 10000
     CHUNK_SIZE: int = 512
     SUPPORTED_EXTENSIONS: List[str] = None
@@ -34,7 +34,7 @@ class Config:
     DETAIL_MAX_TOKENS: int = 1500  # Setting for detailed responses
 
     # Query Configuration
-    DEFAULT_TOP_K: int = 5
+    DEFAULT_TOP_K: int = 3
     TEMPERATURE: float = 0.1
     GPT_MODEL: str = "gpt-4o-mini"
 
