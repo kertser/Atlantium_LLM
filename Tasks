@@ -1,0 +1,13 @@
+* Add blinking "Thinking" sign during the RAG/LLM cycle, before populating an answer
+* Play with similarity scores to have more precise answers.
+* Play with prompts to reduce hallucinations
+* Check Word, txt and Excel RAG. Add image direct RAG (with context generation)
+* Remove duplicated images from index
+* Multimodal Input - Connect audio model
+* Interactive troubleshooting mode (step by step)
+* Multilingual communication
+* Add option for "chat with live operator"
+* Calculator API
+* Think of other Agents
+* Android mobile app
+* Offline LLMs (quantized?)

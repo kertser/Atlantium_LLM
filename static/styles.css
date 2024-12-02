@@ -115,9 +115,9 @@ header h1 {
     display: flex;
     gap: 1rem;  /* Space between preview and textarea */
     flex-grow: 1;
-    flex-direction: row;  /* Make preview and textarea side by side */
-    align-items: flex-start; /* Align items at the top */
-    min-height: 150px; /* Match preview height */
+    flex-direction: row;
+    align-items: flex-start;
+    min-height: 150px;
 }
 
 textarea {

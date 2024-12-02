@@ -1,13 +1,11 @@
 import os
-
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
 import asyncio
 import logging
 import json
 from dotenv import load_dotenv
 from PIL import Image
-from typing import Optional, Union, List, Dict, Tuple, Any
+from typing import Optional, List, Dict, Tuple, Any
+from dataclasses import field
 import base64
 from io import BytesIO
 from openai import OpenAI
@@ -16,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pydantic import BaseModel
+from contextlib import asynccontextmanager
 
 import re
 
@@ -23,6 +22,9 @@ from config import CONFIG
 from utils.FAISS_utils import load_faiss_index, load_metadata, query_with_context
 from utils.LLM_utils import CLIP_init, openai_post_request
 from image_store import ImageStore
+
+
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 # Setup logging
 logging.basicConfig(
@@ -33,6 +35,7 @@ logging.basicConfig(
         logging.FileHandler(CONFIG.LOG_PATH)
     ]
 )
+
 
 # Data models
 class ChatMessage(BaseModel):
@@ -52,7 +55,7 @@ class QueryType(BaseModel):
 
 class QueryResponse(BaseModel):
     text_response: str
-    images: List[Dict[str, Any]] = []
+    images: List[Dict[str, Any]] = field(default_factory=list)
 
     class Config:
         arbitrary_types_allowed = True
@@ -84,7 +87,7 @@ class EnhancedResponseFormatter:
             content = re.sub(r'(?m)^(\d+\.)\s*', r'\1 ', content)
             content = re.sub(r'(?m)^[•\-]\s*', '• ', content)
             # Ensure line breaks between list items
-            content = re.sub(r'(?m)((?:^|\n)(?:\d+\.|\•)[^\n]+)(?:\n(?!\d+\.|\•|$))', r'\1\n', content)
+            content = re.sub(r'(?m)((?:^|\n)(?:\d+\.|•)[^\n]+)\n(?!\d+\.|•|$)', r'\1\n', content)
             return content
 
         def format_section(title: str, content: str) -> str:
@@ -126,7 +129,7 @@ class RAGQueryServer:
         self.index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
         self.metadata = load_metadata(CONFIG.METADATA_PATH)
         self.image_store = ImageStore(CONFIG.STORED_IMAGES_PATH)
-        self.similarity_threshold = CONFIG.IMAGE_SIMILARITY_THRESHOLD
+        self.similarity_threshold = CONFIG.SIMILARITY_THRESHOLD
         self.formatter = EnhancedResponseFormatter()
         self.reset_chat()
 
@@ -291,7 +294,7 @@ class RAGQueryServer:
             {
                 "role": "system",
                 "content": (
-                    "You are a technical documentation assistant specialized in providing "
+                    "You are Atlantium Technologies technical documentation assistant specialized in providing "
                     "structured, accurate information. Format your responses with clear "
                     "sections using Markdown-style headers (##) and bullet points (•). "
                     "Reference specific documents and images when relevant."
@@ -324,7 +327,8 @@ class RAGQueryServer:
                 text_response = "Here are the relevant images I found:"
             # If no contexts and no images, provide a fallback response
             elif not contexts and not images:
-                text_response = "I couldn't find any specific information about that. Could you please rephrase your question?"
+                text_response = ("I couldn't find any specific information about that. Could you please rephrase your "
+                                 "question?")
             else:
                 # Prepare prompt and get GPT response
                 query_type = self.determine_query_type(query_text)
@@ -424,8 +428,22 @@ class RAGQueryServer:
         return self.chat_history
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup logic
+    logging.info("Starting RAG Query Server...")
+    os.makedirs("static", exist_ok=True)
+    os.makedirs(CONFIG.STORED_IMAGES_PATH, exist_ok=True)
+    logging.info("Directory structure verified")
+
+    yield  # The application runs during this phase
+
+    # Shutdown logic
+    logging.info("Shutting down RAG Query Server...")
+
+
 # Initialize FastAPI app
-app = FastAPI(title="Atlantium RAG API")
+app = FastAPI(lifespan=lifespan, title="Atlantium RAG API")
 
 # Configure CORS
 app.add_middleware(
@@ -492,8 +510,8 @@ async def text_query(query: str = Form(...)):
 
 @app.post("/query/image")
 async def image_query(
-    image: UploadFile = File(...),
-    query: Optional[str] = Form(None)
+        image: UploadFile = File(...),
+        query: Optional[str] = Form(None)
 ):
     try:
         # Check file size (e.g., 5MB limit)
@@ -559,23 +577,9 @@ async def get_chat_history():
     return {"history": history}
 
 
-# Server startup event
-@app.on_event("startup")
-async def startup_event():
-    logging.info("Starting RAG Query Server...")
-    # Verify directories exist
-    os.makedirs("static", exist_ok=True)
-    os.makedirs(CONFIG.STORED_IMAGES_PATH, exist_ok=True)
-    logging.info("Directory structure verified")
-
 @app.get("/favicon.png")
 async def favicon():
     return FileResponse("static/favicon.png", media_type="image/x-icon")
-
-# Server shutdown event
-@app.on_event("shutdown")
-async def shutdown_event():
-    logging.info("Shutting down RAG Query Server...")
 
 
 # Run server configuration
