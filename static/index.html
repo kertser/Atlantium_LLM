@@ -3,29 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Atlantium RAG System</title>
+    <title>Atlantium Technical Documentation Assistant</title>
     <link rel="stylesheet" href="/static/styles.css">
     <link rel="icon" type="image/x-icon" href="favicon.png">
 </head>
 <body>
     <div class="app-container">
-        <header>
+        <div>
             <h1>Atlantium Technical Documentation Assistant</h1>
-        </header>
+        </div>
 
-        <main>
+        <main role="main">
             <div id="chat-container">
-                <div id="chat-log"></div>
+                <div id="chat-log">
+                </div>
             </div>
 
             <div id="input-container">
-                <textarea
-                    placeholder="Ask a question about Atlantium systems..."
-                    rows="3"
-                ></textarea>
+                <div class="input-wrapper">
+                    <div class="attached-image-preview" style="display: none;"></div>
+                    <textarea placeholder="Type your message..."></textarea>
+                </div>
                 <div class="button-group">
                     <button id="send-button">Send</button>
-                    <button id="send-image">Send Image</button>
+                    <button id="send-image">Attach Image</button>
                     <button id="reset-button">Reset</button>
                 </div>
             </div>

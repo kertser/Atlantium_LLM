@@ -3,32 +3,53 @@ document.addEventListener('DOMContentLoaded', () => {
     const input = document.querySelector('textarea');
     const sendButton = document.getElementById('send-button');
     const resetButton = document.getElementById('reset-button');
+    const attachImageButton = document.getElementById('send-image');
+    attachImageButton.textContent = 'Attach Image';
 
-    async function sendMessage(message) {
+    let currentAttachedImage = null;
+
+    // Create hidden file input
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*';
+    fileInput.style.display = 'none';
+    document.body.appendChild(fileInput);
+
+    async function sendMessageWithImage(message, imageFile = null) {
         try {
             const formData = new FormData();
             formData.append('query', message);
 
-            console.log('Sending query:', message);
+            if (imageFile) {
+                formData.append('image', imageFile);
 
-            const response = await fetch('/query/text', {
-                method: 'POST',
-                body: formData
-            });
+                const response = await fetch('/query/image', {
+                    method: 'POST',
+                    body: formData
+                });
 
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                return data.response;
+            } else {
+                const response = await fetch('/query/text', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                if (!data.response) {
+                    throw new Error('Invalid response format');
+                }
+                return data.response;
             }
-
-            const data = await response.json();
-            console.log('Received response:', data);
-
-            if (!data.response) {
-                console.error('Invalid response format:', data);
-                throw new Error('Invalid response format');
-            }
-
-            return data.response;
         } catch (error) {
             console.error('Error:', error);
             return {
@@ -58,6 +79,40 @@ document.addEventListener('DOMContentLoaded', () => {
         return container;
     }
 
+    function handleImageAttachment(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        // Find the preview container
+        const previewContainer = document.querySelector('.attached-image-preview');
+        if (!previewContainer) {
+            console.error('Preview container not found');
+            return;
+        }
+
+        // Create preview image
+        const previewImage = document.createElement('img');
+        previewImage.src = URL.createObjectURL(file);
+
+        const removeButton = document.createElement('button');
+        removeButton.className = 'remove-image-button';
+        removeButton.innerHTML = '×';
+        removeButton.onclick = () => {
+            previewContainer.style.display = 'none';
+            previewContainer.innerHTML = '';
+            currentAttachedImage = null;
+            fileInput.value = '';
+        };
+
+        // Clear previous preview and add new
+        previewContainer.innerHTML = '';
+        previewContainer.appendChild(previewImage);
+        previewContainer.appendChild(removeButton);
+        previewContainer.style.display = 'block';  // Show the container
+
+        currentAttachedImage = file;
+    }
+
     function addMessage(content, isUser = false) {
         console.log('Adding message:', content, 'isUser:', isUser);
 
@@ -67,10 +122,20 @@ document.addEventListener('DOMContentLoaded', () => {
         // Add text content
         const textDiv = document.createElement('div');
         textDiv.className = 'message-content';
-        textDiv.textContent = isUser ? content : content.text_response;
+        textDiv.textContent = isUser ? content.text || content : content.text_response;
         messageDiv.appendChild(textDiv);
 
-        // Add images if any
+        // Add image for user message if present
+        if (isUser && content.image) {
+            const imageDiv = document.createElement('div');
+            imageDiv.className = 'image-container';
+            const img = document.createElement('img');
+            img.src = URL.createObjectURL(content.image);
+            imageDiv.appendChild(img);
+            messageDiv.appendChild(imageDiv);
+        }
+
+        // Add response images if any
         if (!isUser && content.images && content.images.length > 0) {
             console.log('Processing images:', content.images);
             const imageGrid = document.createElement('div');
@@ -89,20 +154,43 @@ document.addEventListener('DOMContentLoaded', () => {
             messageDiv.appendChild(imageGrid);
         }
 
-        const chatLog = document.getElementById('chat-log');
         chatLog.appendChild(messageDiv);
         chatLog.scrollTop = chatLog.scrollHeight;
     }
 
     async function handleSend() {
         const message = input.value.trim();
-        if (message) {
-            addMessage(message, true);
+        if (message || currentAttachedImage) {
+            // Prepare message content
+            const messageContent = {
+                text: message,
+                image: currentAttachedImage
+            };
+
+            // Show the message in chat
+            addMessage(messageContent, true);
+
+            // Clear the image preview and current image
+            const previewContainer = document.querySelector('.attached-image-preview');
+            if (previewContainer) {
+                previewContainer.style.display = 'none';
+                previewContainer.innerHTML = '';
+            }
+            currentAttachedImage = null;
+
+            // Clear input
             input.value = '';
             input.style.height = 'auto';
 
-            const response = await sendMessage(message);
-            addMessage(response);
+            // Send message and get response
+            const response = await sendMessageWithImage(message, currentAttachedImage);
+
+            // Add the response to chat
+            if (typeof response === 'string') {
+                addMessage({ text_response: response, images: [] });
+            } else {
+                addMessage(response);
+            }
         }
     }
 
@@ -111,6 +199,13 @@ document.addEventListener('DOMContentLoaded', () => {
             await fetch('/chat/reset', { method: 'POST' });
             chatLog.innerHTML = '';
             input.value = '';
+            const previewContainer = document.querySelector('.attached-image-preview');
+            if (previewContainer) {
+                previewContainer.style.display = 'none';
+                previewContainer.innerHTML = '';
+            }
+            currentAttachedImage = null;
+            fileInput.value = '';
         } catch (error) {
             console.error('Error resetting chat:', error);
         }
@@ -121,9 +216,13 @@ document.addEventListener('DOMContentLoaded', () => {
         input.style.height = (input.scrollHeight) + 'px';
     }
 
+    // Event listeners
+    attachImageButton.addEventListener('click', () => {
+        fileInput.click();
+    });
+    fileInput.addEventListener('change', handleImageAttachment);
     sendButton.addEventListener('click', handleSend);
     resetButton.addEventListener('click', handleReset);
-
     input.addEventListener('input', adjustTextareaHeight);
     input.addEventListener('keypress', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {

@@ -2,6 +2,7 @@ import os
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
+import asyncio
 import logging
 import json
 from dotenv import load_dotenv
@@ -15,15 +16,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pydantic import BaseModel
-import numpy as np
+
 import re
-from pathlib import Path
 
 from config import CONFIG
 from utils.FAISS_utils import load_faiss_index, load_metadata, query_with_context
 from utils.LLM_utils import CLIP_init, openai_post_request
 from image_store import ImageStore
-from utils.RAG_utils import get_relevant_images
 
 # Setup logging
 logging.basicConfig(
@@ -34,7 +33,6 @@ logging.basicConfig(
         logging.FileHandler(CONFIG.LOG_PATH)
     ]
 )
-
 
 # Data models
 class ChatMessage(BaseModel):
@@ -128,7 +126,7 @@ class RAGQueryServer:
         self.index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
         self.metadata = load_metadata(CONFIG.METADATA_PATH)
         self.image_store = ImageStore(CONFIG.STORED_IMAGES_PATH)
-        self.similarity_threshold = 0.3  # Lowered threshold for better image matching
+        self.similarity_threshold = CONFIG.IMAGE_SIMILARITY_THRESHOLD
         self.formatter = EnhancedResponseFormatter()
         self.reset_chat()
 
@@ -151,51 +149,69 @@ class RAGQueryServer:
         logging.info(f"Processing query: {query_text}")
         logging.info(f"Found {len(results[0])} results")
 
-        # Get CLIP embedding for query
-        query_input = self.processor(text=[query_text], return_tensors="pt", padding=True)
-        query_input = {k: v.to(self.device) for k, v in query_input.items()}
-        query_embedding = self.model.get_text_features(**query_input)
-        query_embedding = query_embedding / query_embedding.norm(dim=-1, keepdim=True)
+        # Truncate query text to fit CLIP model's maximum length
+        truncated_query = ' '.join(query_text.split()[:50])  # Approximate token limit
 
-        relevant_contexts = []
-        relevant_images = []
+        try:
+            # Get CLIP embedding for query
+            query_input = self.processor(
+                text=[truncated_query],
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=77  # CLIP's maximum sequence length
+            )
+            query_input = {k: v.to(self.device) for k, v in query_input.items()}
+            query_embedding = self.model.get_text_features(**query_input)
+            query_embedding = query_embedding / query_embedding.norm(dim=-1, keepdim=True)
 
-        for result in results[0]:
-            metadata = result['metadata']
-            logging.info(f"Metadata type: {metadata.get('type')}")
+            relevant_contexts = []
+            relevant_images = []
 
-            if metadata.get('type') == 'text-chunk':
-                if result['distance'] < 1 / CONFIG.SIMILARITY_THRESHOLD:
-                    relevant_contexts.append(metadata.get('content', '').strip())
-                    logging.info("Added text context")
+            for result in results[0]:
+                metadata = result['metadata']
+                logging.info(f"Metadata type: {metadata.get('type')}")
 
-            elif metadata.get('type') == 'image':
-                logging.info(f"Image metadata: {json.dumps(metadata, indent=2)}")
-                image_id = metadata.get('image_id') or metadata.get('content', {}).get('image_id')
-                logging.info(f"Image ID: {image_id}")
+                if metadata.get('type') == 'text-chunk':
+                    if result['distance'] < 1 / CONFIG.SIMILARITY_THRESHOLD:
+                        relevant_contexts.append(metadata.get('content', '').strip())
+                        logging.info("Added text context")
 
-                if image_id:
-                    image, img_metadata = self.image_store.get_image(image_id)
-                    if image:
-                        logging.info(f"Successfully loaded image {image_id}")
-                        image_input = self.processor(images=image, return_tensors="pt").to(self.device)
-                        image_embedding = self.model.get_image_features(**image_input)
-                        image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
+                elif metadata.get('type') == 'image':
+                    logging.info(f"Image metadata: {json.dumps(metadata, indent=2)}")
+                    image_id = metadata.get('image_id') or metadata.get('content', {}).get('image_id')
+                    logging.info(f"Image ID: {image_id}")
 
-                        similarity = (query_embedding @ image_embedding.T).item()
-                        logging.info(f"Similarity score for image {image_id}: {similarity}")
+                    if image_id:
+                        try:
+                            image, img_metadata = self.image_store.get_image(image_id)
+                            if image:
+                                logging.info(f"Successfully loaded image {image_id}")
+                                image_input = self.processor(images=image, return_tensors="pt").to(self.device)
+                                image_embedding = self.model.get_image_features(**image_input)
+                                image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
 
-                        if similarity > CONFIG.IMAGE_SIMILARITY_THRESHOLD:
-                            image_data = self.get_image_data(image_id, metadata, similarity)
-                            if image_data:
-                                relevant_images.append(image_data)
-                                logging.info(f"Added image {image_id} with similarity {similarity}")
-                    else:
-                        logging.warning(f"Failed to load image {image_id}")
+                                similarity = (query_embedding @ image_embedding.T).item()
+                                logging.info(f"Similarity score for image {image_id}: {similarity}")
 
-        relevant_images.sort(key=lambda x: x['similarity'], reverse=True)
-        logging.info(f"Found {len(relevant_contexts)} contexts and {len(relevant_images)} images")
-        return relevant_contexts, relevant_images
+                                if similarity > CONFIG.IMAGE_SIMILARITY_THRESHOLD:
+                                    image_data = self.get_image_data(image_id, metadata, similarity)
+                                    if image_data:
+                                        relevant_images.append(image_data)
+                                        logging.info(f"Added image {image_id} with similarity {similarity}")
+                            else:
+                                logging.warning(f"Failed to load image {image_id}")
+                        except Exception as e:
+                            logging.error(f"Error processing image {image_id}: {e}")
+                            continue
+
+            relevant_images.sort(key=lambda x: x['similarity'], reverse=True)
+            logging.info(f"Found {len(relevant_contexts)} contexts and {len(relevant_images)} images")
+            return relevant_contexts, relevant_images
+
+        except Exception as e:
+            logging.error(f"Error in get_relevant_contexts: {e}")
+            return [], []
 
     def get_image_data(self, image_id: str, metadata: Dict, similarity: float) -> Optional[Dict]:
         """Get image data with improved logging"""
@@ -475,14 +491,66 @@ async def text_query(query: str = Form(...)):
 
 
 @app.post("/query/image")
-async def image_query(image: UploadFile = File(...), query: Optional[str] = Form(None)):
+async def image_query(
+    image: UploadFile = File(...),
+    query: Optional[str] = Form(None)
+):
     try:
-        image_data = await image.read()
-        response = await server.process_image_query(image_data, query)
+        # Check file size (e.g., 5MB limit)
+        MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+        contents = await image.read()
+        if len(contents) > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=400,
+                detail="File size too large. Maximum size is 5MB"
+            )
+
+        # Verify file type
+        try:
+            img = Image.open(BytesIO(contents))
+            if img.format.lower() not in ['jpeg', 'jpg', 'png', 'gif']:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid file type. Only JPEG, PNG and GIF are supported"
+                )
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid image file"
+            )
+
+        # Process the image query with retries
+        MAX_RETRIES = 3
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = await server.process_image_query(contents, query)
+                break
+            except Exception as e:
+                if attempt == MAX_RETRIES - 1:
+                    raise
+                logging.warning(f"Retry {attempt + 1} after error: {str(e)}")
+                await asyncio.sleep(1)
+
+        if query:
+            # Get the initial image context
+            image_context = response
+
+            # Use the image context along with the text query to get enhanced response
+            enhanced_response = server.process_text_query(
+                f"Context about the image: {image_context}\n\nUser query: {query}"
+            )
+            return {"response": enhanced_response.text_response}
+
         return {"response": response}
+
+    except HTTPException:
+        raise
     except Exception as e:
-        logging.error(f"Error processing image query: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logging.error(f"Error processing image query: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing image: {str(e)}"
+        )
 
 
 @app.get("/chat/history")

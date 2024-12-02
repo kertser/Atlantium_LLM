@@ -80,12 +80,6 @@ header h1 {
     max-width: 100%;
 }
 
-.message img {
-    max-width: 100%;
-    border-radius: 4px;
-    box-shadow: var(--shadow);
-}
-
 .image-caption {
     font-size: 0.9rem;
     color: #666;
@@ -93,10 +87,37 @@ header h1 {
     font-style: italic;
 }
 
+.attached-image-preview {
+    width: 150px;  /* Fixed width */
+    min-width: 150px;  /* Prevent shrinking */
+    height: 150px;
+    background-color: var(--surface-color);
+    border-radius: var(--border-radius);
+    padding: 0.5rem;
+    position: relative;
+    display: none;  /* Hidden by default */
+}
+
+.attached-image-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    border-radius: var(--border-radius);
+}
+
 #input-container {
     display: flex;
     gap: 1rem;
-    position: relative;
+    align-items: flex-start;  /* Align items at the top */
+}
+
+.input-wrapper {
+    display: flex;
+    gap: 1rem;  /* Space between preview and textarea */
+    flex-grow: 1;
+    flex-direction: row;  /* Make preview and textarea side by side */
+    align-items: flex-start; /* Align items at the top */
+    min-height: 150px; /* Match preview height */
 }
 
 textarea {
@@ -105,7 +126,9 @@ textarea {
     border: 2px solid #ddd;
     border-radius: var(--border-radius);
     resize: vertical;
-    min-height: 60px;
+    min-height: 143px;
+    max-height: 143px;
+    scroll-behavior: auto;
     font-size: 1rem;
     transition: border-color 0.3s ease;
 }
@@ -119,6 +142,7 @@ textarea:focus {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+    min-width: 120px;
 }
 
 button {
@@ -140,10 +164,6 @@ button:hover {
     background-color: #f44336;
 }
 
-#send-image {
-    background-color: darkgreen;
-}
-
 #reset-button:hover {
     background-color: #d32f2f;
 }
@@ -153,4 +173,52 @@ button:hover {
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 1rem;
     margin-top: 1rem;
+}
+
+.message img {
+    max-width: 300px;
+    border-radius: 4px;
+    box-shadow: var(--shadow);
+    margin-top: 10px;
+}
+
+#send-image {
+    background-color: #28a745;
+    color: white;
+    transition: background-color 0.3s ease;
+}
+
+#send-image:hover {
+    background-color: #218838;
+}
+
+.file-upload-preview {
+    max-width: 200px;
+    margin-top: 10px;
+    border-radius: 4px;
+    box-shadow: var(--shadow);
+}
+
+.remove-image-button {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background-color: #f44336;
+    color: white;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    padding: 0;
+    line-height: 1;
+    box-shadow: var(--shadow);
+}
+
+.remove-image-button:hover {
+    background-color: #d32f2f;
 }
