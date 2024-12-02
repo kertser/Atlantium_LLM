@@ -500,9 +500,9 @@ async def startup_event():
     os.makedirs(CONFIG.STORED_IMAGES_PATH, exist_ok=True)
     logging.info("Directory structure verified")
 
-@app.get("/favicon.ico")
+@app.get("/favicon.png")
 async def favicon():
-    return FileResponse("static/favicon.ico", media_type="image/x-icon")
+    return FileResponse("static/favicon.png", media_type="image/x-icon")
 
 # Server shutdown event
 @app.on_event("shutdown")

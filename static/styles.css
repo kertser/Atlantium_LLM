@@ -140,6 +140,10 @@ button:hover {
     background-color: #f44336;
 }
 
+#send-image {
+    background-color: darkgreen;
+}
+
 #reset-button:hover {
     background-color: #d32f2f;
 }
