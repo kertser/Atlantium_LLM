@@ -224,12 +224,6 @@ document.addEventListener('DOMContentLoaded', () => {
     sendButton.addEventListener('click', handleSend);
     resetButton.addEventListener('click', handleReset);
     input.addEventListener('input', adjustTextareaHeight);
-    input.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleSend();
-        }
-    });
 
     // Initial focus
     input.focus();
