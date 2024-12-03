@@ -68,15 +68,33 @@ document.addEventListener('DOMContentLoaded', () => {
         img.alt = imageData.caption || 'Response image';
         img.loading = 'lazy';
 
-        if (imageData.caption) {
-            const caption = document.createElement('div');
-            caption.className = 'image-caption';
-            caption.textContent = imageData.caption;
-            container.appendChild(caption);
-        }
+        const caption = document.createElement('div');
+        caption.className = 'image-caption';
+        caption.textContent = deduplicateCaption(imageData.caption || '');
 
         container.appendChild(img);
+        container.appendChild(caption);
+
+        // Add click handler for enlarging
+        container.onclick = () => showModal(imageData.image);
+
         return container;
+    }
+
+    function showModal(imageBase64) {
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.style.display = 'flex';
+
+        const img = document.createElement('img');
+        img.src = `data:image/png;base64,${imageBase64}`;
+        img.className = 'modal-content';
+
+        modal.onclick = (e) => {
+            if (e.target === modal) modal.remove();
+        };
+        modal.appendChild(img);
+        document.body.appendChild(modal);
     }
 
     function handleImageAttachment(event) {
@@ -187,6 +205,11 @@ document.addEventListener('DOMContentLoaded', () => {
         return text;
     }
 
+    function deduplicateCaption(caption) {
+        return caption.split(' | ')
+            .filter((value, index, self) => self.indexOf(value) === index)
+            .join(' | ');
+    }
 
     async function handleSend() {
         const message = input.value.trim();

@@ -207,36 +207,28 @@ def calculate_image_hash(image: Image.Image) -> str:
 
 
 def merge_image_contexts(contexts: List[Dict]) -> Dict:
-    """
-    Merge multiple context dictionaries for duplicate images.
+    """Merge context dictionaries for duplicate images with smarter deduplication."""
 
-    Args:
-        contexts (List[Dict]): List of context dictionaries for duplicate images
-    Returns:
-        Dict: Merged context dictionary
-    """
-    merged = {
-        "source_documents": set(),
-        "page_numbers": set(),
-        "captions": set(),
-        "contexts": set()
-    }
+    # Get shortest caption among duplicates
+    captions = [ctx.get("caption", "") for ctx in contexts if ctx.get("caption")]
+    caption = min(captions, key=len) if captions else ""
 
-    for ctx in contexts:
-        if isinstance(ctx.get("source_document"), str):
-            merged["source_documents"].add(ctx["source_document"])
-        if isinstance(ctx.get("page_number"), (int, str)):
-            merged["page_numbers"].add(str(ctx["page_number"]))
-        if isinstance(ctx.get("caption"), str):
-            merged["captions"].add(ctx["caption"])
-        if isinstance(ctx.get("context"), str):
-            merged["contexts"].add(ctx["context"])
+    # Deduplicate source documents
+    source_doc = contexts[0].get("source_document", "") if contexts else ""
+
+    # Get unique page numbers
+    pages = {str(ctx.get("page_number")) for ctx in contexts if ctx.get("page_number")}
+    page_numbers = "; ".join(sorted(pages))
+
+    # Get non-empty context with shortest length
+    contexts_list = [ctx.get("context", "") for ctx in contexts if ctx.get("context")]
+    context = min(contexts_list, key=len) if contexts_list else ""
 
     return {
-        "source_document": "; ".join(sorted(merged["source_documents"])),
-        "page_number": "; ".join(sorted(merged["page_numbers"])),
-        "caption": " | ".join(sorted(merged["captions"])),
-        "context": " | ".join(sorted(merged["contexts"]))
+        "source_document": source_doc,
+        "page_number": page_numbers,
+        "caption": caption,
+        "context": context
     }
 
 
