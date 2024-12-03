@@ -55,6 +55,8 @@ header h1 {
     height: 600px;
     overflow-y: auto;
     border: 1px solid rgba(0, 0, 0, 0.1);
+    /* Ensure content doesn't spill out */
+    overflow-x: hidden; /* Add this if needed */
 }
 
 #chat-log {
@@ -148,23 +150,23 @@ header h1 {
 }
 
 .message-list {
-    list-style: none;
-    padding-left: 1.5rem;
-    margin: 0.5rem 0;
-}
-
-.message-bullet {
-    position: relative;
-    padding-left: 0.5rem;
-    margin: 0.5rem 0;
-    line-height: 1.4;
+    list-style-type: none; /* Remove default browser bullets */
+    padding-left: 1.5rem; /* Ensure consistent alignment */
+    margin: 0; /* Reset margins */
 }
 
 .message-bullet::before {
-    content: "•";
-    position: absolute;
-    left: -1rem;
-    color: var(--primary-color);
+    content: "•"; /* Custom bullet */
+    margin-right: 0.5rem; /* Add spacing between bullet and text */
+    color: var(--primary-color); /* Use blue color for consistency */
+    font-size: 1.2rem;
+    line-height: 1.5;
+}
+
+.message-bullet {
+    position: relative; /* Ensure the ::before element aligns properly */
+    margin-left: 0; /* Prevent unintended shifting */
+    padding-left: 0; /* Align text properly */
 }
 
 .attached-image-preview {

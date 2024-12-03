@@ -184,23 +184,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function formatMessageText(text) {
-        // Format headers (# text)
+        // Format headers
         text = text.replace(/^# (.+)$/gm, '<h3 class="message-header">$1</h3>');
 
-        // Format subheaders (lines that match specific patterns)
-        text = text.replace(/^([A-Za-z]+(?: and [A-Za-z]+| Settings))$/gm, '<h4 class="message-subheader">$1</h4>');
+        // Format subheaders
+        text = text.replace(/^([A-Za-z].+)$/gm, '<h4 class="message-subheader">$1</h4>');
 
-        // Format bold text within lines using <strong>
-        text = text.replace(/\*\*(.+?)\*\*/gm, '<strong>$1</strong>');
+        // Ensure new lines before bullet points
+        text = text.replace(/(.+?)(?=\n*?• |\n*?$)/g, '<p>$1</p>\n');
 
-        // Format bullet points
-        text = text.replace(/^\* (.+)$/gm, '<li class="message-bullet"><strong>$1</strong></li>');
+        // Format bullets
+        text = text.replace(/• (.+)/g, '<li class="message-bullet">$1</li>');
 
-        // Wrap consecutive bullet points into a list
-        text = text.replace(
-            /(<li class="message-bullet"><strong>.+<\/strong>\n?)+/g,
-            match => `<ul class="message-list">${match}</ul>`
-        );
+        // Wrap bullets in list, ensuring each bullet starts on a new line
+        text = text.replace(/(<li[^>]*>.*<\/li>\n?)+/g, (match) => {
+            // Split by line breaks and then join with new paragraph tags for each bullet
+            return `<ul class="message-list">\n${match.split('\n').map(item => `  ${item}`).join('\n')}\n</ul>`;
+        });
+
+        // Format bold text
+        text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 
         return text;
     }

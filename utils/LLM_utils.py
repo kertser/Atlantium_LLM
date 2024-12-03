@@ -3,6 +3,7 @@ from transformers import CLIPProcessor, CLIPModel
 import numpy as np
 import requests
 import logging
+import time
 
 
 def openai_post_request(messages, model_name, max_tokens, temperature, api_key):
