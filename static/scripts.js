@@ -170,6 +170,9 @@ document.addEventListener('DOMContentLoaded', () => {
             // Show the message in chat
             addMessage(messageContent, true);
 
+            // Add loading message
+            const loadingMessage = addLoadingMessage();
+
             // Clear the image preview and current image
             const previewContainer = document.querySelector('.attached-image-preview');
             if (previewContainer) {
@@ -182,14 +185,32 @@ document.addEventListener('DOMContentLoaded', () => {
             input.value = '';
             input.style.height = 'auto';
 
-            // Send message and get response
-            const response = await sendMessageWithImage(message, currentAttachedImage);
+            try {
+                // Send message and get response
+                const response = await sendMessageWithImage(message, currentAttachedImage);
 
-            // Add the response to chat
-            if (typeof response === 'string') {
-                addMessage({ text_response: response, images: [] });
-            } else {
-                addMessage(response);
+                // Remove loading message
+                if (loadingMessage && loadingMessage.parentNode) {
+                    loadingMessage.remove();
+                }
+
+                // Add the response to chat
+                if (typeof response === 'string') {
+                    addMessage({ text_response: response, images: [] });
+                } else {
+                    addMessage(response);
+                }
+            } catch (error) {
+                // Remove loading message
+                if (loadingMessage && loadingMessage.parentNode) {
+                    loadingMessage.remove();
+                }
+
+                // Show error message
+                addMessage({
+                    text_response: 'Sorry, there was an error processing your request.',
+                    images: []
+                });
             }
         }
     }
@@ -209,6 +230,30 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             console.error('Error resetting chat:', error);
         }
+    }
+
+    function addLoadingMessage() {
+        const loadingDiv = document.createElement('div');
+        loadingDiv.className = 'loading-message';
+        loadingDiv.id = 'loading-message';
+
+        const textDiv = document.createElement('div');
+        textDiv.className = 'message-content';
+
+        const loadingText = document.createElement('span');
+        loadingText.textContent = 'Generating response';
+
+        const loadingDots = document.createElement('span');
+        loadingDots.className = 'loading-dots';
+
+        textDiv.appendChild(loadingText);
+        textDiv.appendChild(loadingDots);
+        loadingDiv.appendChild(textDiv);
+
+        chatLog.appendChild(loadingDiv);
+        chatLog.scrollTop = chatLog.scrollHeight;
+
+        return loadingDiv;
     }
 
     function adjustTextareaHeight() {
