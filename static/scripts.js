@@ -206,9 +206,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function deduplicateCaption(caption) {
-        return caption.split(' | ')
-            .filter((value, index, self) => self.indexOf(value) === index)
-            .join(' | ');
+        // Split by pipe and trim each part
+        const parts = caption.split('|').map(p => p.trim());
+
+        // Extract unique source document names without image numbers
+        const sources = parts
+            .map(part => part.replace(/^Image \d+ from /, ''))
+            .filter((value, index, self) => self.indexOf(value) === index);
+
+        return sources.join(' | ');
     }
 
     async function handleSend() {
