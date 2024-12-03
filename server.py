@@ -252,6 +252,15 @@ class RAGQueryServer:
             return None
 
     def prepare_prompt(self, query_text: str, contexts: List[str], query_type: QueryType, images: List[Dict]) -> str:
+        # Get relevant chat history (last few exchanges)
+        chat_context = ""
+        if self.chat_history:
+            last_exchanges = self.chat_history[-(2*CONFIG.MAX_CHAT_HISTORY):]  # Get last Q&A pairs
+            chat_context = "\nRecent Chat History:\n" + "\n".join([
+                f"{'User' if msg['role'] == 'user' else 'Assistant'}: {msg['content']}"
+                for msg in last_exchanges
+            ])
+
         context_text = "\n\n".join(contexts) if contexts else "No relevant technical documentation found."
         image_context = ""
 
@@ -271,19 +280,21 @@ class RAGQueryServer:
             "2. Use technical terminology appropriately",
             "3. Reference specific documents and images when relevant",
             "4. Use section headers for organization",
-            "5. Keep responses concise and well-formatted"
+            "5. Keep responses concise and well-formatted",
+            "6. Consider previous chat context when relevant"
         ]
 
         if query_type.is_technical:
             instructions.extend([
-                "6. Focus on technical details and specifications",
-                "7. Include step-by-step explanations if applicable"
+                "7. Focus on technical details and specifications",
+                "8. Include step-by-step explanations if applicable"
             ])
 
         prompt = (
             f"Query: {query_text}\n\n"
             f"Available Documentation:\n{context_text}\n"
-            f"{image_context}\n\n"
+            f"{image_context}\n"
+            f"{chat_context}\n\n"
             f"Instructions:\n{chr(10).join(instructions)}\n\n"
             "Response:"
         )

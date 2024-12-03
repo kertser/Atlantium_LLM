@@ -47,6 +47,9 @@ class Config:
     DEFAULT_LINE_LENGTH: int = 80
     BULLET_INDENT: int = 2
 
+    # Chat parameters
+    MAX_CHAT_HISTORY: int = 3
+
     def __post_init__(self):
         if self.SUPPORTED_EXTENSIONS is None:
             self.SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.xlsx']
