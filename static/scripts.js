@@ -119,10 +119,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${isUser ? 'user-message' : 'assistant-message'}`;
 
-        // Add text content
+        // Add text content with formatting
         const textDiv = document.createElement('div');
         textDiv.className = 'message-content';
-        textDiv.textContent = isUser ? content.text || content : content.text_response;
+
+        // Apply formatting for assistant messages only
+        if (!isUser) {
+            textDiv.innerHTML = formatMessageText(content.text_response);
+        } else {
+            textDiv.textContent = content.text || content;
+        }
+
         messageDiv.appendChild(textDiv);
 
         // Add image for user message if present
@@ -157,6 +164,29 @@ document.addEventListener('DOMContentLoaded', () => {
         chatLog.appendChild(messageDiv);
         chatLog.scrollTop = chatLog.scrollHeight;
     }
+
+    function formatMessageText(text) {
+        // Format headers (# text)
+        text = text.replace(/^# (.+)$/gm, '<h3 class="message-header">$1</h3>');
+
+        // Format subheaders (lines that match specific patterns)
+        text = text.replace(/^([A-Za-z]+(?: and [A-Za-z]+| Settings))$/gm, '<h4 class="message-subheader">$1</h4>');
+
+        // Format bold text within lines using <strong>
+        text = text.replace(/\*\*(.+?)\*\*/gm, '<strong>$1</strong>');
+
+        // Format bullet points
+        text = text.replace(/^\* (.+)$/gm, '<li class="message-bullet"><strong>$1</strong></li>');
+
+        // Wrap consecutive bullet points into a list
+        text = text.replace(
+            /(<li class="message-bullet"><strong>.+<\/strong>\n?)+/g,
+            match => `<ul class="message-list">${match}</ul>`
+        );
+
+        return text;
+    }
+
 
     async function handleSend() {
         const message = input.value.trim();
