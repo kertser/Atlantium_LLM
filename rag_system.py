@@ -17,7 +17,13 @@ from utils.RAG_utils import (
     get_relevant_images,
     extract_text_around_image
 )
-from image_store import ImageStore
+
+from image_store import (
+    ImageStore,
+    deduplicate_images,
+    remove_duplicate_images,
+    update_faiss_metadata
+)
 
 # Setup logging
 logging.basicConfig(
@@ -60,6 +66,7 @@ def process_documents(model, processor, device, index, metadata, image_store):
 
     logging.info(f"Found {len(doc_paths)} documents to process")
 
+    # First pass: Process all documents and store images
     for doc_path in doc_paths:
         try:
             text = ""
@@ -75,7 +82,7 @@ def process_documents(model, processor, device, index, metadata, image_store):
             else:
                 continue
 
-            # Process and store images
+            # Store images
             for idx, img_data in enumerate(images_data):
                 try:
                     image_id = image_store.store_image(
@@ -85,27 +92,8 @@ def process_documents(model, processor, device, index, metadata, image_store):
                         caption=f"Image {idx + 1} from {Path(doc_path).name}",
                         context=img_data.get('context', '')
                     )
-
-                    # Create image embedding and add to FAISS
-                    _, image_embedding = encode_with_clip([], [img_data['image']], model, processor, device)
-                    if len(image_embedding) > 0:
-                        image_metadata = {
-                            "image_id": image_id,
-                            "source_doc": str(doc_path),
-                            "caption": f"Image {idx + 1} from {Path(doc_path).name}",
-                            "context": img_data.get('context', ''),
-                            "page": img_data['page_num']
-                        }
-                        add_to_faiss(
-                            embedding=np.array(image_embedding[0]),
-                            pdf_name=doc_path,
-                            content_type="image",
-                            content=image_metadata,
-                            index=index,
-                            metadata=metadata
-                        )
                 except Exception as e:
-                    logging.error(f"Error processing image {idx} from {doc_path}: {e}")
+                    logging.error(f"Error storing image {idx} from {doc_path}: {e}")
 
             # Process text content
             if text.strip():
@@ -126,6 +114,50 @@ def process_documents(model, processor, device, index, metadata, image_store):
             logging.error(f"Error processing document {doc_path}: {e}")
             continue
 
+    # Second pass: Deduplicate images and update metadata
+    logging.info("Starting image deduplication process...")
+    try:
+        # Get duplicate groups - use the standalone function
+        hash_to_ids, merged_contexts = deduplicate_images(image_store)
+
+        # Remove duplicates and update image store metadata - use the standalone function
+        remove_duplicate_images(image_store, hash_to_ids, merged_contexts)
+
+        # Update FAISS metadata - use the standalone function
+        metadata = update_faiss_metadata(metadata, hash_to_ids, merged_contexts)
+
+        logging.info("Image deduplication completed successfully")
+    except Exception as e:
+        logging.error(f"Error during image deduplication: {e}")
+
+    # Third pass: Create CLIP embeddings for unique images
+    logging.info("Processing CLIP embeddings for unique images...")
+    for image_id in image_store.metadata.keys():
+        try:
+            image, img_metadata = image_store.get_image(image_id)
+            if image and img_metadata:
+                # Create image embedding and add to FAISS
+                _, image_embedding = encode_with_clip([], [image], model, processor, device)
+                if len(image_embedding) > 0:
+                    add_to_faiss(
+                        embedding=np.array(image_embedding[0]),
+                        pdf_name=img_metadata['source_document'],
+                        content_type="image",
+                        content={
+                            "image_id": image_id,
+                            "source_doc": img_metadata['source_document'],
+                            "caption": img_metadata.get('caption', ''),
+                            "context": img_metadata.get('context', ''),
+                            "page": img_metadata.get('page_number')
+                        },
+                        index=index,
+                        metadata=metadata
+                    )
+        except Exception as e:
+            logging.error(f"Error processing CLIP embedding for image {image_id}: {e}")
+            continue
+
+    logging.info("Document processing completed")
     return index, metadata
 
 def check_stored_images():

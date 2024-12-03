@@ -4,8 +4,10 @@ import json
 import hashlib
 import base64
 from io import BytesIO
-from typing import Tuple, List, Dict, Optional
+from typing import Tuple, List, Set, Dict, Optional
 from functools import lru_cache
+import logging
+import imagehash
 
 
 class ImageStore:
@@ -179,3 +181,180 @@ class ImageStore:
         except Exception as e:
             print(f"Error deleting image {image_id}: {e}")
             return False
+
+
+def calculate_image_hash(image: Image.Image) -> str:
+    """
+    Calculate a perceptual hash of an image for deduplication.
+    Uses average hash, difference hash, and perceptual hash for better accuracy.
+
+    Args:
+        image (Image.Image): PIL Image object
+    Returns:
+        str: Combined hash string
+    """
+    # Convert to RGB if needed
+    if image.mode != 'RGB':
+        image = image.convert('RGB')
+
+    # Calculate multiple hash types for better accuracy
+    avg_hash = str(imagehash.average_hash(image))
+    dhash = str(imagehash.dhash(image))
+    phash = str(imagehash.phash(image))
+
+    # Combine hashes
+    return f"{avg_hash}_{dhash}_{phash}"
+
+
+def merge_image_contexts(contexts: List[Dict]) -> Dict:
+    """
+    Merge multiple context dictionaries for duplicate images.
+
+    Args:
+        contexts (List[Dict]): List of context dictionaries for duplicate images
+    Returns:
+        Dict: Merged context dictionary
+    """
+    merged = {
+        "source_documents": set(),
+        "page_numbers": set(),
+        "captions": set(),
+        "contexts": set()
+    }
+
+    for ctx in contexts:
+        if isinstance(ctx.get("source_document"), str):
+            merged["source_documents"].add(ctx["source_document"])
+        if isinstance(ctx.get("page_number"), (int, str)):
+            merged["page_numbers"].add(str(ctx["page_number"]))
+        if isinstance(ctx.get("caption"), str):
+            merged["captions"].add(ctx["caption"])
+        if isinstance(ctx.get("context"), str):
+            merged["contexts"].add(ctx["context"])
+
+    return {
+        "source_document": "; ".join(sorted(merged["source_documents"])),
+        "page_number": "; ".join(sorted(merged["page_numbers"])),
+        "caption": " | ".join(sorted(merged["captions"])),
+        "context": " | ".join(sorted(merged["contexts"]))
+    }
+
+
+def deduplicate_images(image_store: 'ImageStore') -> Tuple[Dict[str, Set[str]], Dict[str, Dict]]:
+    """
+    Find and group duplicate images in the image store.
+
+    Args:
+        image_store: ImageStore instance
+    Returns:
+        Tuple[Dict[str, Set[str]], Dict[str, Dict]]:
+            - Dictionary mapping hash to set of image IDs
+            - Dictionary mapping hash to merged context
+    """
+    hash_to_ids: Dict[str, Set[str]] = {}
+    hash_to_context: Dict[str, List[Dict]] = {}
+
+    logging.info("Starting image deduplication process...")
+
+    for image_id, metadata in image_store.metadata.items():
+        try:
+            image_path = metadata.get("path")
+            if not image_path:
+                continue
+
+            image = Image.open(image_path)
+            image_hash = calculate_image_hash(image)
+
+            if image_hash not in hash_to_ids:
+                hash_to_ids[image_hash] = set()
+                hash_to_context[image_hash] = []
+
+            hash_to_ids[image_hash].add(image_id)
+            hash_to_context[image_hash].append(metadata)
+
+        except Exception as e:
+            logging.error(f"Error processing image {image_id}: {e}")
+            continue
+
+    # Merge contexts for duplicate groups
+    merged_contexts = {
+        hash_val: merge_image_contexts(contexts)
+        for hash_val, contexts in hash_to_context.items()
+        if len(hash_to_ids[hash_val]) > 1
+    }
+
+    logging.info(f"Found {len([ids for ids in hash_to_ids.values() if len(ids) > 1])} groups of duplicate images")
+
+    return hash_to_ids, merged_contexts
+
+
+def remove_duplicate_images(image_store: 'ImageStore', hash_to_ids: Dict[str, Set[str]],
+                            merged_contexts: Dict[str, Dict]) -> None:
+    """
+    Remove duplicate images and update metadata with merged contexts.
+
+    Args:
+        image_store: ImageStore instance
+        hash_to_ids: Dictionary mapping hash to set of image IDs
+        merged_contexts: Dictionary mapping hash to merged context
+    """
+    for image_hash, image_ids in hash_to_ids.items():
+        if len(image_ids) > 1:
+            # Keep the first ID, remove others
+            keep_id = next(iter(image_ids))
+            remove_ids = image_ids - {keep_id}
+
+            # Update metadata for kept image
+            if image_hash in merged_contexts:
+                image_store.metadata[keep_id].update(merged_contexts[image_hash])
+
+            # Remove duplicate images
+            for remove_id in remove_ids:
+                image_store.delete_image(remove_id)
+
+    # Save updated metadata
+    image_store._save_metadata()
+    logging.info("Completed duplicate image removal and metadata update")
+
+
+def update_faiss_metadata(metadata: List[Dict], hash_to_ids: Dict[str, Set[str]],
+                          merged_contexts: Dict[str, Dict]) -> List[Dict]:
+    """
+    Update FAISS metadata to reflect image deduplication.
+
+    Args:
+        metadata: List of FAISS metadata entries
+        hash_to_ids: Dictionary mapping hash to set of image IDs
+        merged_contexts: Dictionary mapping hash to merged context
+    Returns:
+        List[Dict]: Updated metadata list
+    """
+    updated_metadata = []
+    seen_hashes = set()
+
+    for entry in metadata:
+        if entry.get('type') != 'image':
+            updated_metadata.append(entry)
+            continue
+
+        image_id = entry.get('image_id')
+        if not image_id:
+            continue
+
+        # Find hash for this image ID
+        matching_hash = None
+        for hash_val, ids in hash_to_ids.items():
+            if image_id in ids:
+                matching_hash = hash_val
+                break
+
+        if matching_hash and matching_hash not in seen_hashes:
+            # Update with merged context and keep
+            keep_id = next(iter(hash_to_ids[matching_hash]))
+            if matching_hash in merged_contexts:
+                entry.update(merged_contexts[matching_hash])
+            entry['image_id'] = keep_id
+            updated_metadata.append(entry)
+            seen_hashes.add(matching_hash)
+
+    return updated_metadata
