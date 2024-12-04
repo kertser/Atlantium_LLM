@@ -586,22 +586,40 @@ async def image_query(
 @app.post("/upload/document")
 async def upload_document(file: UploadFile):
     try:
-        if not CONFIG.RAW_DOCUMENTS_PATH.exists():
-            CONFIG.RAW_DOCUMENTS_PATH.mkdir(parents=True)
+        # Ensure the directory exists
+        CONFIG.RAW_DOCUMENTS_PATH.mkdir(parents=True, exist_ok=True)
 
-        if not any(file.filename.lower().endswith(ext) for ext in CONFIG.SUPPORTED_EXTENSIONS):
-            raise HTTPException(status_code=400, detail=f"Unsupported file type")
+        # Sanitize filename
+        sanitized_filename = os.path.basename(file.filename)
+        if not sanitized_filename:
+            raise HTTPException(status_code=400, detail="Invalid filename")
 
-        dest_path = CONFIG.RAW_DOCUMENTS_PATH / file.filename
+        # Validate file extension
+        if not any(sanitized_filename.lower().endswith(ext) for ext in CONFIG.SUPPORTED_EXTENSIONS):
+            raise HTTPException(status_code=400, detail="Unsupported file type")
+
+        # Avoid overwriting existing files
+        dest_path = CONFIG.RAW_DOCUMENTS_PATH / sanitized_filename
+        if dest_path.exists():
+            raise HTTPException(status_code=409, detail="File already exists")
+
+        # Save the file safely
         with open(dest_path, 'wb') as buffer:
             shutil.copyfileobj(file.file, buffer)
 
         logging.info(f"File saved to {dest_path}")
-        return {"status": "success"}
+        return {"status": "success", "path": str(dest_path)}
 
+    except HTTPException as http_exc:
+        logging.error(f"HTTP error: {http_exc.detail}")
+        raise
     except Exception as e:
-        logging.error(f"Upload error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logging.error(f"Unexpected error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+    finally:
+        # Ensure file handle is closed
+        file.file.close()
+
 
 
 @app.post("/process/documents")
