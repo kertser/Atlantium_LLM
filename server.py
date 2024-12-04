@@ -1,4 +1,5 @@
 import os, sys
+from pathlib import Path
 import asyncio
 import logging
 import json
@@ -650,6 +651,35 @@ async def process_documents():
 
     except Exception as e:
         logging.error(f"Error in process_documents: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/documents")
+async def list_documents():
+    try:
+        # Load list of processed documents
+        processed_files_path = Path("processed_files.json")
+        if processed_files_path.exists():
+            with open(processed_files_path, 'r') as f:
+                documents = json.load(f)
+
+            # Get file details
+            doc_details = []
+            for doc_path in documents:
+                path = Path(doc_path)
+                if path.exists():
+                    stats = path.stat()
+                    doc_details.append({
+                        "name": path.name,
+                        "size": stats.st_size,
+                        "modified": stats.st_mtime,
+                        "type": path.suffix[1:].upper()
+                    })
+
+            return {"documents": doc_details}
+        return {"documents": []}
+    except Exception as e:
+        logging.error(f"Error listing documents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/chat/history")

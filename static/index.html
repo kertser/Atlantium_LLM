@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <title>Atlantium Technical Documentation Assistant</title>
     <link rel="stylesheet" href="/static/styles.css">
+    <link rel="icon" href="/favicon.png" type="image/png">
 </head>
 <body>
     <div class="app-container">
@@ -30,7 +31,7 @@
             <div id="drop-zone" class="upload-box">
                 <input type="file" id="file-input" multiple accept=".pdf,.docx,.xlsx" style="display: none;">
                 <div class="upload-content">
-                    <svg class="upload-icon" viewBox="0 0 24 24" width="48" height="48">
+                    <svg class="upload-icon" viewBox="0 0 24 24" width="24" height="24">
                         <path fill="currentColor" d="M11 15h2V6h3l-4-4-4 4h3v9zm0 4h2v-2h-2v2zm8-2v2H5v-2H3v4h18v-4h-2z"/>
                     </svg>
                     <p>Drag and drop files or click to upload</p>
@@ -40,7 +41,30 @@
             <div id="upload-list"></div>
             <button id="process-documents" class="process-btn" style="display: none;">Process Documents</button>
         </div>
+
+        <div id="documents-list" class="documents-container">
+            <div class="documents-header">
+                <h2>Indexed Reference Documents</h2>
+                <div class="document-stats">Total: <span id="doc-count">0</span></div>
+            </div>
+            <div class="documents-table-wrapper">
+                <table class="documents-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Size</th>
+                            <th>Modified</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Documents will be loaded here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
+
     <script src="/static/scripts.js"></script>
 </body>
 </html>

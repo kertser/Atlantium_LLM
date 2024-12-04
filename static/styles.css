@@ -426,6 +426,59 @@ button:hover {
     cursor: not-allowed;
 }
 
+.documents-container {
+    margin-top: 2rem;
+    padding: 1rem;
+    background: white;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow);
+}
+
+.documents-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.documents-table-wrapper {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid #eee;
+    border-radius: var(--border-radius);
+}
+
+.documents-table {
+    width: 100%;
+    font-size: 0.9rem;
+    border-collapse: collapse;
+}
+
+.documents-table th {
+    font-weight: 600;
+    font-size: 0.9rem;
+    position: sticky;
+    top: 0;
+    background: #f8f9fa;
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 2px solid #dee2e6;
+}
+
+.documents-table td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid #eee;
+}
+
+.documents-table tr:hover {
+    background-color: #f8f9fa;
+}
+
+.document-stats {
+    color: #666;
+    font-size: 0.9rem;
+}
+
 @keyframes loading {
     0% { content: ''; }
     25% { content: '.'; }

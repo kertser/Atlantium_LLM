@@ -323,6 +323,34 @@ document.addEventListener('DOMContentLoaded', () => {
         input.style.height = (input.scrollHeight) + 'px';
     }
 
+    async function loadDocuments() {
+        try {
+            const response = await fetch('/documents');
+            const data = await response.json();
+
+            const tbody = document.querySelector('.documents-table tbody');
+            document.getElementById('doc-count').textContent = data.documents.length;
+
+            tbody.innerHTML = data.documents.map(doc => `
+                <tr>
+                    <td>${doc.name}</td>
+                    <td>${doc.type}</td>
+                    <td>${formatFileSize(doc.size)}</td>
+                    <td>${new Date(doc.modified * 1000).toLocaleDateString()}</td>
+                </tr>
+            `).join('');
+        } catch (error) {
+            console.error('Error loading documents:', error);
+        }
+    }
+
+    function formatFileSize(bytes) {
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        if (bytes === 0) return '0 Byte';
+        const i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)));
+        return Math.round(100 * (bytes / Math.pow(1024, i))) / 100 + ' ' + sizes[i];
+    }
+
     // Event listeners
     attachImageButton.addEventListener('click', () => {
         fileInput.click();
@@ -334,6 +362,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initial focus
     input.focus();
+    loadDocuments();
 });
 
 // Add to scripts.js
@@ -464,6 +493,9 @@ document.addEventListener('DOMContentLoaded', () => {
             uploadList.innerHTML = '';
             files.clear();
             processBtn.style.display = 'none';
+
+            // Reload document list
+            await loadDocuments();  // Add this line
         } catch (error) {
             alert('Error processing documents. Please try again.');
             console.error('Processing error:', error);
