@@ -335,3 +335,139 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initial focus
     input.focus();
 });
+
+// Add to scripts.js
+document.addEventListener('DOMContentLoaded', () => {
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const uploadList = document.getElementById('upload-list');
+    const processBtn = document.getElementById('process-documents');
+    const files = new Set();
+
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, preventDefaults);
+    });
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, highlight);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, unhighlight);
+    });
+
+    dropZone.addEventListener('drop', handleDrop);
+    fileInput.addEventListener('change', handleFiles);
+
+    function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    function highlight() {
+        dropZone.classList.add('dragover');
+    }
+
+    function unhighlight() {
+        dropZone.classList.remove('dragover');
+    }
+
+    function handleDrop(e) {
+        const dt = e.dataTransfer;
+        const newFiles = [...dt.files];
+        handleFiles({ target: { files: newFiles } });
+    }
+
+    function handleFiles(e) {
+        const newFiles = [...e.target.files];
+        newFiles.forEach(file => {
+            if (!files.has(file.name) && isValidFile(file)) {
+                files.add(file.name);
+                uploadList.appendChild(createFileItem(file));
+                processBtn.style.display = 'block';
+            }
+        });
+    }
+
+    function isValidFile(file) {
+        const validExtensions = ['.pdf', '.docx', '.xlsx'];
+        return validExtensions.some(ext => file.name.toLowerCase().endsWith(ext));
+    }
+
+    function createFileItem(file) {
+        const div = document.createElement('div');
+        div.className = 'file-item';
+        div.innerHTML = `
+            <span class="file-name">${file.name}</span>
+            <span class="file-remove">×</span>
+        `;
+
+        div.querySelector('.file-remove').addEventListener('click', () => {
+            div.remove();
+            files.delete(file.name);
+            if (files.size === 0) {
+                processBtn.style.display = 'none';
+            }
+        });
+
+        return div;
+    }
+
+    processBtn.addEventListener('click', async () => {
+        processBtn.disabled = true;
+        processBtn.textContent = "Processing..."; // Visual feedback
+
+        const uploadPromises = Array.from(uploadList.children).map(async (item) => {
+            const fileName = item.querySelector('.file-name').textContent;
+            const file = Array.from(fileInput.files).find(f => f.name === fileName);
+
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/process/documents', {
+                    method: 'POST'
+                });
+
+                if (!response.ok) throw new Error('Processing failed');
+                processBtn.textContent = "Processed Successfully";
+                processBtn.style.backgroundColor = '#28a745';
+
+                setTimeout(() => {
+                    uploadList.innerHTML = '';
+                    files.clear();
+                    processBtn.style.display = 'none';
+                }, 2000);
+
+            } catch (error) {
+                processBtn.textContent = "Error - Try Again";
+                processBtn.style.backgroundColor = '#dc3545';
+                console.error('Processing error:', error);
+            }
+        });
+
+        await Promise.all(uploadPromises);
+
+        try {
+            const response = await fetch('/process/documents', {
+                method: 'POST'
+            });
+
+            if (!response.ok) throw new Error('Processing failed');
+
+            alert('Documents processed successfully!');
+            uploadList.innerHTML = '';
+            files.clear();
+            processBtn.style.display = 'none';
+        } catch (error) {
+            alert('Error processing documents. Please try again.');
+            console.error('Processing error:', error);
+        }
+
+        processBtn.disabled = false;
+    });
+});

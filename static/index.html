@@ -1,36 +1,45 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Atlantium Technical Documentation Assistant</title>
     <link rel="stylesheet" href="/static/styles.css">
-    <link rel="icon" type="image/x-icon" href="favicon.png">
 </head>
 <body>
     <div class="app-container">
-        <div>
-            <h1>Atlantium Technical Documentation Assistant</h1>
+        <h1>Atlantium Technical Documentation Assistant</h1>
+
+        <div id="chat-container">
+            <div id="chat-log"></div>
         </div>
 
-        <main role="main">
-            <div id="chat-container">
-                <div id="chat-log">
-                </div>
+        <div id="input-container">
+            <div class="input-wrapper">
+                <div class="attached-image-preview" style="display: none;"></div>
+                <textarea placeholder="Type your message..."></textarea>
             </div>
+            <div class="button-group">
+                <button id="send-button">Send</button>
+                <button id="send-image">Attach Image</button>
+                <button id="reset-button">Reset</button>
+            </div>
+        </div>
 
-            <div id="input-container">
-                <div class="input-wrapper">
-                    <div class="attached-image-preview" style="display: none;"></div>
-                    <textarea placeholder="Type your message..."></textarea>
-                </div>
-                <div class="button-group">
-                    <button id="send-button">Send</button>
-                    <button id="send-image">Attach Image</button>
-                    <button id="reset-button">Reset</button>
+        <div id="document-upload" class="upload-container">
+            <h2>Upload Documents to Retrieval System</h2>
+            <div id="drop-zone" class="upload-box">
+                <input type="file" id="file-input" multiple accept=".pdf,.docx,.xlsx" style="display: none;">
+                <div class="upload-content">
+                    <svg class="upload-icon" viewBox="0 0 24 24" width="48" height="48">
+                        <path fill="currentColor" d="M11 15h2V6h3l-4-4-4 4h3v9zm0 4h2v-2h-2v2zm8-2v2H5v-2H3v4h18v-4h-2z"/>
+                    </svg>
+                    <p>Drag and drop files or click to upload</p>
+                    <p class="supported-formats">Supported formats: PDF, DOCX, XLSX</p>
                 </div>
             </div>
-        </main>
+            <div id="upload-list"></div>
+            <button id="process-documents" class="process-btn" style="display: none;">Process Documents</button>
+        </div>
     </div>
     <script src="/static/scripts.js"></script>
 </body>

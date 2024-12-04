@@ -1,0 +1,54 @@
+# docker-compose up -d # to start the services
+# docker-compose run rag-system # to process the documents
+# The web app will be available at http://localhost:9000
+
+# To upload the docs with CLI:
+# curl -X POST "http://server_ip:9000/upload/document" -H "accept: application/json" -H "Content-Type: multipart/form-data" -F "file=@/path/to/your/document.pdf"
+
+version: '3.8'
+
+services:
+  rag-system:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - raw_docs:/app/Raw Documents
+      - rag_data:/app/RAG_Data
+      - index_data:/app/indices
+    env_file:
+      - .env
+    command: python rag_system.py
+    networks:
+      - rag_network
+
+  web-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "9000:9000"
+    volumes:
+      - raw_docs:/app/Raw Documents
+      - rag_data:/app/RAG_Data
+      - index_data:/app/indices
+    env_file:
+      - .env
+    command: python run.py
+    depends_on:
+      - rag-system
+    networks:
+      - rag_network
+
+volumes:
+  raw_docs:
+  rag_data:
+  index_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/indices
+
+networks:
+  rag_network:

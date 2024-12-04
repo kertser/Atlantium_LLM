@@ -1,4 +1,4 @@
-import os
+import os, sys
 import asyncio
 import logging
 import json
@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
+import shutil
 
 import re
 
@@ -31,8 +32,8 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s: %(message)s',
     handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(CONFIG.LOG_PATH)
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(CONFIG.LOG_PATH, encoding='utf-8')
     ]
 )
 
@@ -581,6 +582,57 @@ async def image_query(
             detail=f"Error processing image: {str(e)}"
         )
 
+
+@app.post("/upload/document")
+async def upload_document(file: UploadFile):
+    try:
+        if not CONFIG.RAW_DOCUMENTS_PATH.exists():
+            CONFIG.RAW_DOCUMENTS_PATH.mkdir(parents=True)
+
+        if not any(file.filename.lower().endswith(ext) for ext in CONFIG.SUPPORTED_EXTENSIONS):
+            raise HTTPException(status_code=400, detail=f"Unsupported file type")
+
+        dest_path = CONFIG.RAW_DOCUMENTS_PATH / file.filename
+        with open(dest_path, 'wb') as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        logging.info(f"File saved to {dest_path}")
+        return {"status": "success"}
+
+    except Exception as e:
+        logging.error(f"Upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/process/documents")
+async def process_documents():
+    try:
+        import subprocess
+        process = subprocess.Popen(
+            [sys.executable, 'rag_system.py'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        stdout, stderr = process.communicate()
+
+        try:
+            stdout_str = stdout.decode('utf-8', errors='replace') if stdout else ''
+            stderr_str = stderr.decode('utf-8', errors='replace') if stderr else ''
+
+            logging.info(f"stdout: {stdout_str}")
+            if stderr_str:
+                logging.error(f"stderr: {stderr_str}")
+        except Exception as e:
+            logging.error(f"Error decoding process output: {e}")
+
+        if process.returncode != 0:
+            raise HTTPException(status_code=500, detail="Processing failed")
+
+        return {"status": "success"}
+
+    except Exception as e:
+        logging.error(f"Error in process_documents: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/chat/history")
 async def get_chat_history():
