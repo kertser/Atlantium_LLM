@@ -1,18 +1,17 @@
 # What is to be done:
 
-* Fix OpenAI post request. It shouldn't be direct to endpoint
-* Make/Test docker-compose with volumes
+* Test docker-compose with volumes
 * Add documents to db automatically (detect new document in Raw Documents)
-* Upload manually (check for duplicates existing, do not process them)
-Need to store documents list or retrieve it from DB
-* Play with similarity scores to have more precise answers.
+* Play with similarity scores to have more precise answers. Pictures similarity needs to be better. Or choose the best percentile score
 * Play with prompts to reduce hallucinations. (May be achieved with more data)
-* Check Word, txt and Excel RAG. Add image direct RAG (with context generation)
-
-* Multimodal Input - Connect audio model (?)
-* Interactive troubleshooting mode (step by step)
-* Add option for "chat with live operator"
+* Pure Text and Excel - add to the RAG. Add images directly to RAG (with context generation)
+* Make admin script to remove the RAG library and clear-up
+* Add actual links to the files in the text, where filenames or (link) appears.
+* Multimodal Input - Connect audio model (TBD)
+* Interactive troubleshooting mode (step by step) on request
+* Add option for "chat with live operator" (A button with contacts)
 * Calculator API - connect as agent
-* Think of other Agents
-* Android mobile app
+* Add nice avatar image in floating window. May-be video?
+* Think of other Agents (Video Agent)
+* Android mobile app development
 * Offline LLMs (quantized?)
