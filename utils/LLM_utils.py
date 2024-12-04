@@ -1,53 +1,42 @@
 import torch
+from fastapi import HTTPException
 from transformers import CLIPProcessor, CLIPModel
 import numpy as np
 import requests
 import logging
 import time
+from openai import OpenAI
 
 
 def openai_post_request(messages, model_name, max_tokens, temperature, api_key):
-    """Send request to OpenAI API with rate limit handling"""
-    url = "https://api.openai.com/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": model_name,
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature
-    }
-
+    """Send request using OpenAI client library with rate limit handling"""
+    client = OpenAI(api_key=api_key)
     max_retries = 5
-    base_delay = 1  # Start with 1 second delay
+    base_delay = 1
 
     for attempt in range(max_retries):
         try:
-            response = requests.post(url, json=payload, headers=headers, timeout=30.0)
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+            return {"choices": [{"message": {"content": response.choices[0].message.content}}]}
 
-            if response.status_code == 429:  # Rate limit exceeded
-                delay = base_delay * (2 ** attempt)  # Exponential backoff
-                logging.warning(f"Rate limit reached. Waiting {delay} seconds before retry {attempt + 1}/{max_retries}")
-                time.sleep(delay)
-                continue
-
-            response.raise_for_status()
-            return response.json()
-
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
             if attempt == max_retries - 1:
                 raise HTTPException(
                     status_code=500,
-                    detail="Failed to get response from OpenAI API after multiple retries"
+                    detail=f"OpenAI API error after {max_retries} retries: {str(e)}"
                 )
-            logging.error(f"Error during OpenAI request (attempt {attempt + 1}/{max_retries}): {str(e)}")
+            logging.error(f"OpenAI API error (attempt {attempt + 1}/{max_retries}): {str(e)}")
             time.sleep(base_delay * (2 ** attempt))
 
     raise HTTPException(status_code=500, detail="Maximum retries reached for OpenAI API request")
 
-def CLIP_init(model_name = "openai/clip-vit-base-patch32"):
+
+def CLIP_init(model_name="openai/clip-vit-base-patch32"):
     try:
         # Set device (GPU if available, otherwise CPU)
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -69,6 +58,7 @@ def CLIP_init(model_name = "openai/clip-vit-base-patch32"):
 
     except Exception as e:
         print(f"Error initializing CLIP model: {str(e)}")
+
 
 def process_image_for_clip(image):
     """
