@@ -56,18 +56,33 @@ def process_document_images(images_data, doc_path, image_store):
 
 def process_documents(model, processor, device, index, metadata, image_store):
     """Process all documents and store their content and images."""
+    # Clear existing data
+    index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
+    metadata = []
+
+    # Clear or create a new tracking file
+    processed_files_path = Path("processed_files.json")
+    if processed_files_path.exists():
+        with open(processed_files_path, 'r') as f:
+            processed_files = set(json.load(f))
+    else:
+        processed_files = set()
+
     doc_paths = []
     for ext in CONFIG.SUPPORTED_EXTENSIONS:
         doc_paths.extend(glob.glob(str(CONFIG.RAW_DOCUMENTS_PATH / f"*{ext}")))
 
-    if not doc_paths:
-        logging.warning(f"No documents found in {CONFIG.RAW_DOCUMENTS_PATH}")
+    # Filter out already processed files
+    new_docs = [doc for doc in doc_paths if doc not in processed_files]
+
+    if not new_docs:
+        logging.info("No new documents to process")
         return index, metadata
 
-    logging.info(f"Found {len(doc_paths)} documents to process")
+    logging.info(f"Found {len(new_docs)} new documents to process")
 
     # First pass: Process all documents and store images
-    for doc_path in doc_paths:
+    for doc_path in new_docs:
         try:
             text = ""
             images_data = []
@@ -92,6 +107,7 @@ def process_documents(model, processor, device, index, metadata, image_store):
                         caption=f"Image {idx + 1} from {Path(doc_path).name}",
                         context=img_data.get('context', '')
                     )
+                    logging.info(f"Stored image {idx + 1} from {doc_path} with ID: {image_id}")  # Add this line
                 except Exception as e:
                     logging.error(f"Error storing image {idx} from {doc_path}: {e}")
 
@@ -110,23 +126,30 @@ def process_documents(model, processor, device, index, metadata, image_store):
                         metadata=metadata
                     )
 
+            # Add to processed files after successful processing
+            processed_files.add(str(doc_path))
+
         except Exception as e:
             logging.error(f"Error processing document {doc_path}: {e}")
             continue
 
+    # Save processed files list
+    with open(processed_files_path, 'w') as f:
+        json.dump(list(processed_files), f)
+
     # Second pass: Deduplicate images and update metadata
     logging.info("Starting image deduplication process...")
     try:
-        # Get duplicate groups - use the standalone function
+        # Get duplicate groups (don't clear metadata)
         hash_to_ids, merged_contexts = deduplicate_images(image_store)
 
-        # Remove duplicates and update image store metadata - use the standalone function
-        remove_duplicate_images(image_store, hash_to_ids, merged_contexts)
+        # Only if duplicates found, update metadata
+        if hash_to_ids:
+            remove_duplicate_images(image_store, hash_to_ids, merged_contexts)
+            metadata = update_faiss_metadata(metadata, hash_to_ids, merged_contexts)
 
-        # Update FAISS metadata - use the standalone function
-        metadata = update_faiss_metadata(metadata, hash_to_ids, merged_contexts)
+        logging.info(f"Found {len(image_store.metadata)} unique images")
 
-        logging.info("Image deduplication completed successfully")
     except Exception as e:
         logging.error(f"Error during image deduplication: {e}")
 

@@ -146,26 +146,47 @@ def extract_text_and_images_from_pdf(pdf_path):
 
     return text, image_data
 
+
 def extract_text_and_images_from_word(doc_path):
     """Extract text and images from a Word document."""
     try:
         doc = Document(doc_path)
         text = "\n".join([para.text for para in doc.paragraphs])
-        images = []
+        images_data = []  # List to store image data with context
 
-        # Extract images
+        # Extract images from relationships
         for rel in doc.part.rels.values():
-            try:
-                if "image" in rel.target_ref:
+            if "image" in rel.target_ref:
+                try:
                     image_data = rel.target_part.blob
                     image = Image.open(BytesIO(image_data))
-                    images.append(image)
-            except Exception as e:
-                print(f"Error extracting an image from {doc_path}: {e}")
 
-        return text, images
+                    # Convert to RGB if needed
+                    if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
+                        background = Image.new('RGB', image.size, (255, 255, 255))
+                        if image.mode == 'P':
+                            image = image.convert('RGBA')
+                        background.paste(image, mask=image.split()[-1])
+                        image = background
+                    elif image.mode != 'RGB':
+                        image = image.convert('RGB')
+
+                    # Get context from surrounding paragraphs
+                    img_data = {
+                        'image': image,
+                        'context': '',  # You can add context extraction logic here
+                        'page_num': 1  # Word docs don't have page numbers, using 1 as default
+                    }
+                    images_data.append(img_data)
+
+                except Exception as e:
+                    logging.error(f"Error processing image from Word document: {e}")
+                    continue
+
+        return text, images_data
+
     except Exception as e:
-        print(f"Error processing Word document {doc_path}: {e}")
+        logging.error(f"Error processing Word document {doc_path}: {e}")
         return "", []
 
 def extract_text_and_images_from_excel(excel_path):

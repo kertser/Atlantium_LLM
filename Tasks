@@ -8,9 +8,6 @@ Need to store documents list or retrieve it from DB
 * Play with similarity scores to have more precise answers.
 * Play with prompts to reduce hallucinations. (May be achieved with more data)
 * Check Word, txt and Excel RAG. Add image direct RAG (with context generation)
-- Seems that images from Word are not extracted correctly:
-'JpegImageFile' object is not subscriptable
-'PngImageFile' object is not subscriptable
 
 * Multimodal Input - Connect audio model (?)
 * Interactive troubleshooting mode (step by step)
