@@ -429,12 +429,13 @@ document.addEventListener('DOMContentLoaded', () => {
             formData.append('file', file);
 
             try {
-                const response = await fetch('/process/documents', {
-                    method: 'POST'
+                const response = await fetch('/upload/document', {
+                    method: 'POST',
+                    body: formData
                 });
 
                 if (!response.ok) throw new Error('Processing failed');
-                processBtn.textContent = "Processed Successfully";
+                processBtn.textContent = "Uploaded Successfully";
                 processBtn.style.backgroundColor = '#28a745';
 
                 setTimeout(() => {
@@ -459,7 +460,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (!response.ok) throw new Error('Processing failed');
 
-            alert('Documents processed successfully!');
+            alert('Documents added to DB successfully!');
             uploadList.innerHTML = '';
             files.clear();
             processBtn.style.display = 'none';
