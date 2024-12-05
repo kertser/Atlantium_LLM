@@ -17,6 +17,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 import shutil
+import hmac
+import hashlib
 
 import re
 
@@ -27,6 +29,7 @@ from image_store import ImageStore
 
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
 
 # Setup logging
 logging.basicConfig(
@@ -691,6 +694,27 @@ async def get_chat_history():
 @app.get("/favicon.png")
 async def favicon():
     return FileResponse("static/favicon.png", media_type="image/x-icon")
+
+@app.post("/webhook")
+async def github_webhook(request: Request):
+    if WEBHOOK_SECRET:
+        # Verify GitHub signature
+        signature = request.headers.get('X-Hub-Signature-256')
+        if not signature:
+            raise HTTPException(status_code=403, detail="No signature provided")
+
+        body = await request.body()
+        hmac_gen = hmac.new(WEBHOOK_SECRET.encode(), body, hashlib.sha256)
+        expected_signature = f"sha256={hmac_gen.hexdigest()}"
+
+        if not hmac.compare_digest(signature, expected_signature):
+            raise HTTPException(status_code=403, detail="Invalid signature")
+
+    try:
+        subprocess.run(["/usr/local/bin/update_rag.sh"], check=True)
+        return {"status": "success"}
+    except subprocess.CalledProcessError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # Run server configuration
