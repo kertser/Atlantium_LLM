@@ -1,11 +1,10 @@
 # What is to be done:
 
 * Test docker-compose with volumes
-* Add documents to db automatically (detect new document in Raw Documents)
+* Add documents to db automatically (detect new document in Raw Documents) while server is running and on server start.
 * Play with similarity scores to have more precise answers. Pictures similarity needs to be better. Or choose the best percentile score
 * Play with prompts to reduce hallucinations. (May be achieved with more data)
 * Pure Text and Excel - add to the RAG. Add images directly to RAG (with context generation)
-* Make admin script to remove the RAG library and clear-up
 * Add actual links to the files in the text, where filenames or (link) appears.
 * Multimodal Input - Connect audio model (TBD)
 * Interactive troubleshooting mode (step by step) on request
