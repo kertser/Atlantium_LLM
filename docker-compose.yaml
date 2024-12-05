@@ -1,4 +1,5 @@
-# docker-compose up -d # to start the services
+# For first deployment:  INITIALIZE_RAG=true docker-compose up -d
+# For regular start: docker-compose up -d # to start the services
 # docker-compose run rag-system # to process the documents
 # The web app will be available at http://localhost:9000
 
@@ -18,9 +19,16 @@ services:
       - index_data:/app/indices
     env_file:
       - .env
+    environment:
+      - INITIALIZE_RAG=false  # Set to true only for first deployment
     command: python rag_system.py
     networks:
       - rag_network
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /app/processed_files.json"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   web-app:
     build:
@@ -34,9 +42,12 @@ services:
       - index_data:/app/indices
     env_file:
       - .env
+    environment:
+      - INITIALIZE_RAG=false  # Set to true only for first deployment
     command: python run.py
     depends_on:
-      - rag-system
+      rag-system:
+        condition: service_healthy
     networks:
       - rag_network
 

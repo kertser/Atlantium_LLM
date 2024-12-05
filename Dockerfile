@@ -22,5 +22,9 @@ RUN mkdir -p "RAG_Data/stored_images" "Raw Documents"
 ENV PYTHONUNBUFFERED=1
 ENV KMP_DUPLICATE_LIB_OK=TRUE
 
-# Default command (will be overridden by docker-compose)
+# Add and setup entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["python", "run.py"]
