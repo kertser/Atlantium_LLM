@@ -10,7 +10,7 @@ from dataclasses import field
 import base64
 from io import BytesIO
 from openai import OpenAI
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
@@ -19,6 +19,7 @@ from contextlib import asynccontextmanager
 import shutil
 import hmac
 import hashlib
+import subprocess
 
 import re
 
@@ -629,7 +630,6 @@ async def upload_document(file: UploadFile):
 @app.post("/process/documents")
 async def process_documents():
     try:
-        import subprocess
         process = subprocess.Popen(
             [sys.executable, 'rag_system.py'],
             stdout=subprocess.PIPE,
