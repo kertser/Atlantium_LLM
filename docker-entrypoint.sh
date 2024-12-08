@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -e  # Exit on errors
 
 # Only initialize if INITIALIZE_RAG environment variable is set to true
 if [ "$INITIALIZE_RAG" = "true" ]; then

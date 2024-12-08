@@ -14,3 +14,11 @@
 * Think of other Agents (Video Agent)
 * Android mobile app development
 * Offline LLMs (quantized?)
+
+Errors: (resolve the conflicts)
+2024-12-08 09:30:15,526 - ERROR: HTTP error: File already exists
+INFO:     172.16.172.169:60731 - "POST /upload/document HTTP/1.1" 409 Conflict
+2024-12-08 09:30:15,531 - ERROR: HTTP error: File already exists
+INFO:     172.16.172.169:60729 - "POST /upload/document HTTP/1.1" 409 Conflict
+2024-12-08 09:30:15,614 - ERROR: HTTP error: File already exists
+INFO:     172.16.172.169:60730 - "POST /upload/document HTTP/1.1" 409 Conflict

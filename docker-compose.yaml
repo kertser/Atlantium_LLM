@@ -6,6 +6,15 @@
 # To upload the docs with CLI:
 # curl -X POST "http://server_ip:9000/upload/document" -H "accept: application/json" -H "Content-Type: multipart/form-data" -F "file=@/path/to/your/document.pdf"
 
+# Remove all containers
+# docker rm -f $(docker ps -a -q)
+
+# Remove all:
+# docker system prune --all --volumes --force
+
+# Get the logs:
+# docker logs atlantium_llm-web-app-1 --tail 100
+
 version: '3.8'
 
 services:
