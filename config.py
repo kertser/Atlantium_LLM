@@ -9,8 +9,12 @@ class Config:
 
     # Paths
     RAW_DOCUMENTS_PATH: Path = Path("Raw Documents")
-    FAISS_INDEX_PATH: Path = Path("faiss_index.bin")
-    METADATA_PATH: Path = Path("faiss_metadata.json")
+    # FAISS_INDEX_PATH: Path = Path("faiss_index.bin")
+    # METADATA_PATH: Path = Path("faiss_metadata.json")
+
+    FAISS_INDEX_PATH: Path = Path("indices/faiss_index.bin")
+    METADATA_PATH: Path = Path("indices/faiss_metadata.json")
+
     LOG_PATH: Path = Path("system.log")
     STORED_IMAGES_PATH: Path = Path("RAG_Data/stored_images")
 

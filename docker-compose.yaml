@@ -19,16 +19,9 @@ services:
       - index_data:/app/indices
     env_file:
       - .env
-    environment:
-      - INITIALIZE_RAG=false  # Set to true only for first deployment
     command: python rag_system.py
     networks:
       - rag_network
-    healthcheck:
-      test: ["CMD-SHELL", "test -f /app/processed_files.json"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
 
   web-app:
     build:
@@ -42,12 +35,9 @@ services:
       - index_data:/app/indices
     env_file:
       - .env
-    environment:
-      - INITIALIZE_RAG=false  # Set to true only for first deployment
     command: python run.py
     depends_on:
-      rag-system:
-        condition: service_healthy
+      - rag-system
     networks:
       - rag_network
 
@@ -55,11 +45,6 @@ volumes:
   raw_docs:
   rag_data:
   index_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${PWD}/indices
 
 networks:
   rag_network:
