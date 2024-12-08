@@ -69,13 +69,22 @@ def add_to_faiss(embedding, pdf_name, content_type, content, index, metadata):
 
 
 def query_faiss(index, metadata, query_embeddings, top_k):
-    distances, indices = index.search(query_embeddings, len(metadata))  # Get all results
+    """Query FAISS index """
+    # Handle empty metadata case
+    if not metadata:
+        logging.info("No documents indexed yet")
+        return []
 
     # Add logging
     logging.info(f"Querying FAISS index with {len(metadata)} total entries")
-    distances, indices = index.search(query_embeddings, len(metadata))
+
+    # Get all results, but ensure k is at least 1
+    k = max(1, min(len(metadata), top_k * 2))
+    distances, indices = index.search(query_embeddings, k)
+
     logging.info(f"Query returned {len(indices[0])} results")
-    logging.info(f"Image matches: {len([i for i in indices[0] if i < len(metadata) and metadata[i].get('type') == 'image'])}")
+    logging.info(
+        f"Image matches: {len([i for i in indices[0] if i < len(metadata) and metadata[i].get('type') == 'image'])}")
 
     results = []
 

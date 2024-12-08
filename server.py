@@ -337,42 +337,62 @@ class RAGQueryServer:
         try:
             logging.info(f"Processing query: {query_text}")
 
+            # Check if any documents are indexed
+            if not self.metadata:
+                return QueryResponse(
+                    text_response="No documents have been indexed yet. Please add some documents to the system first.",
+                    images=[]
+                )
+
             # Get query results
-            results = query_with_context(
-                index=self.index,
-                metadata=self.metadata,
-                model=self.model,
-                processor=self.processor,
-                device=self.device,
-                text_query=query_text,
-                top_k=top_k * 2
-            )
+            try:
+                results = query_with_context(
+                    index=self.index,
+                    metadata=self.metadata,
+                    model=self.model,
+                    processor=self.processor,
+                    device=self.device,
+                    text_query=query_text,
+                    top_k=top_k * 2
+                )
+            except Exception as e:
+                logging.error(f"Error in query_with_context: {e}")
+                results = []
+
+            # Handle empty results
+            if not results:
+                text_response = "No relevant information found. Try adding more documents or rephrasing your question."
+                return QueryResponse(
+                    text_response=text_response,
+                    images=[]
+                )
 
             # Get contexts and images
             contexts, images = self.get_relevant_contexts(results, query_text)
 
-            # If no contexts but images found, provide a basic response
+            # Determine appropriate response based on available information
             if not contexts and images:
                 text_response = "Here are the relevant images I found:"
-            # If no contexts and no images, provide a fallback response
             elif not contexts and not images:
-                text_response = ("I couldn't find any specific information about that. Could you please rephrase your "
-                                 "question?")
+                text_response = "I couldn't find any specific information about that. Could you please rephrase your question?"
             else:
                 # Prepare prompt and get GPT response
                 query_type = self.determine_query_type(query_text)
                 prompt = self.prepare_prompt(query_text, contexts, query_type, images)
 
-                response = openai_post_request(
-                    messages=self.prepare_messages(prompt),
-                    model_name=CONFIG.GPT_MODEL,
-                    max_tokens=CONFIG.DETAIL_MAX_TOKENS,
-                    temperature=0.3 if query_type.is_technical else 0.7,
-                    api_key=self.openai_api_key
-                )
-
-                text_response = response['choices'][0]['message']['content'].strip()
-                text_response = self.formatter.format_response(text_response)
+                try:
+                    response = openai_post_request(
+                        messages=self.prepare_messages(prompt),
+                        model_name=CONFIG.GPT_MODEL,
+                        max_tokens=CONFIG.DETAIL_MAX_TOKENS,
+                        temperature=0.3 if query_type.is_technical else 0.7,
+                        api_key=self.openai_api_key
+                    )
+                    text_response = response['choices'][0]['message']['content'].strip()
+                    text_response = self.formatter.format_response(text_response)
+                except Exception as e:
+                    logging.error(f"Error getting GPT response: {e}")
+                    text_response = "I found some relevant information but encountered an error processing it. Please try again."
 
             # Update chat history
             self.chat_history.append({"role": "user", "content": query_text})
@@ -390,9 +410,9 @@ class RAGQueryServer:
 
         except Exception as e:
             logging.error(f"Error processing query: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail=str(e)
+            return QueryResponse(
+                text_response="An error occurred while processing your query. Please try again.",
+                images=[]
             )
 
     async def process_image_query(self, image_data: bytes, query_text: Optional[str] = None) -> str:
