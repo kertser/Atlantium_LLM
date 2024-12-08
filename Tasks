@@ -1,8 +1,12 @@
 # What is to be done:
 
+* Add Erase Database function
+* Keep maximum log size and move all logs to specific folder
 * Test docker-compose with volumes (not working properly - seems like no metadata is initialized)
 * image_store.py shall be transferred to package
 * Search in folders and subfolders all-together in case of rag_system.py
+* Display indexed documents also as tree structure (??)
+* Make available to be opened as source (raw) documents
 * Play with similarity scores to have more precise answers. Pictures similarity needs to be better. Or choose the best percentile score
 * Play with prompts to reduce hallucinations. (May be achieved with more data)
 * Pure Text and Excel - add to the RAG. Add images directly to RAG (with context generation)
