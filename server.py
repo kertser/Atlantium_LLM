@@ -132,8 +132,20 @@ class RAGQueryServer:
 
         self.client = OpenAI(api_key=self.openai_api_key)
         self.model, self.processor, self.device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
-        self.index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
-        self.metadata = load_metadata(CONFIG.METADATA_PATH)
+
+        # Try to load existing index or create new one
+        try:
+            self.index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
+            self.metadata = load_metadata(CONFIG.METADATA_PATH)
+        except:
+            logging.info("No existing index found, initializing new one")
+            from utils.FAISS_utils import initialize_faiss_index, save_faiss_index, save_metadata
+            self.index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
+            self.metadata = []
+            # Save empty index and metadata
+            save_faiss_index(self.index, CONFIG.FAISS_INDEX_PATH)
+            save_metadata(self.metadata, CONFIG.METADATA_PATH)
+
         self.image_store = ImageStore(CONFIG.STORED_IMAGES_PATH)
         self.similarity_threshold = CONFIG.SIMILARITY_THRESHOLD
         self.formatter = EnhancedResponseFormatter()

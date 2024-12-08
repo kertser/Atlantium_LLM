@@ -36,6 +36,45 @@ def openai_post_request(messages, model_name, max_tokens, temperature, api_key):
     raise HTTPException(status_code=500, detail="Maximum retries reached for OpenAI API request")
 
 
+def grok_post_request(messages, model_name="grok-beta", max_tokens=128, temperature=0, api_key=""):
+    """Send request to Grok using OpenAI client library with rate limit handling"""
+    client = OpenAI(
+        api_key=api_key,
+        base_url="https://api.x.ai/v1",
+    )
+
+    """
+    messages=[
+    {"role": "system", "content": "You are Grok, a chatbot inspired by the Hitchhikers Guide to the Galaxy."},
+    {"role": "user", "content": "What is the meaning of life, the universe, and everything?"},
+    ]
+    """
+
+    max_retries = 5
+    base_delay = 1
+
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+            print(response.choices[0].message)
+            return {"choices": [{"message": {"content": response.choices[0].message.content}}]}
+
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"OpenAI API error after {max_retries} retries: {str(e)}"
+                )
+            logging.error(f"Grok API error (attempt {attempt + 1}/{max_retries}): {str(e)}")
+            time.sleep(base_delay * (2 ** attempt))
+
+    raise HTTPException(status_code=500, detail="Maximum retries reached for OpenAI API request")
+
 def CLIP_init(model_name="openai/clip-vit-base-patch32"):
     try:
         # Set device (GPU if available, otherwise CPU)
