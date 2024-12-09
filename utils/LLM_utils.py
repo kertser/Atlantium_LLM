@@ -1,8 +1,6 @@
 import torch
 from fastapi import HTTPException
 from transformers import CLIPProcessor, CLIPModel
-import numpy as np
-import requests
 import logging
 import time
 from openai import OpenAI

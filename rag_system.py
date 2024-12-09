@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 import glob
 import numpy as np
 from pathlib import Path
-
 from config import CONFIG
 from utils.FAISS_utils import (
     initialize_faiss_index,
@@ -22,8 +21,7 @@ from utils.RAG_utils import (
     extract_text_and_images_from_excel,
     chunk_text,
 )
-
-from image_store import (
+from utils.image_store import (
     ImageStore,
 )
 
@@ -216,7 +214,7 @@ def check_stored_images():
     # Check metadata file
     metadata_path = CONFIG.STORED_IMAGES_PATH / "image_metadata.json"
     if metadata_path.exists():
-        with open(metadata_path, 'r') as f:
+        with open(metadata_path, 'r', encoding='utf-8') as f:  # Added UTF-8 encoding
             metadata = json.load(f)
             print(f"Found {len(metadata)} image entries in metadata")
             for img_id, data in metadata.items():
@@ -226,7 +224,7 @@ def check_stored_images():
 
     # Check FAISS metadata
     if CONFIG.METADATA_PATH.exists():
-        with open(CONFIG.METADATA_PATH, 'r') as f:
+        with open(CONFIG.METADATA_PATH, 'r', encoding='utf-8') as f:  # Added UTF-8 encoding
             faiss_metadata = json.load(f)
             image_entries = [m for m in faiss_metadata if m.get('type') == 'image']
             print(f"Found {len(image_entries)} image entries in FAISS metadata")

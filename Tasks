@@ -1,29 +1,17 @@
 # What is to be done:
 
-* Add Erase Database function
 * Keep maximum log size and move all logs to specific folder
 * Test docker-compose with volumes (not working properly - seems like no metadata is initialized)
-* image_store.py shall be transferred to package
 * Search in folders and subfolders all-together in case of rag_system.py
 * Display indexed documents also as tree structure (??)
-* Make available to be opened as source (raw) documents
+* Make available to be opened as source (raw) documents - Add actual links to the files in the text, where filenames or (link) appears.
 * Play with similarity scores to have more precise answers. Pictures similarity needs to be better. Or choose the best percentile score
 * Play with prompts to reduce hallucinations. (May be achieved with more data)
 * Pure Text and Excel - add to the RAG. Add images directly to RAG (with context generation)
-* Add actual links to the files in the text, where filenames or (link) appears.
 * Multimodal Input - Connect audio model (TBD)
 * Interactive troubleshooting mode (step by step) on request
 * Add option for "chat with live operator" (A button with contacts)
 * Calculator API - connect as agent
-* Add nice avatar image in floating window. May-be video?
 * Think of other Agents (Video Agent)
 * Android mobile app development
 * Offline LLMs (quantized?)
-
-Errors: (resolve the conflicts)
-2024-12-08 09:30:15,526 - ERROR: HTTP error: File already exists
-INFO:     172.16.172.169:60731 - "POST /upload/document HTTP/1.1" 409 Conflict
-2024-12-08 09:30:15,531 - ERROR: HTTP error: File already exists
-INFO:     172.16.172.169:60729 - "POST /upload/document HTTP/1.1" 409 Conflict
-2024-12-08 09:30:15,614 - ERROR: HTTP error: File already exists
-INFO:     172.16.172.169:60730 - "POST /upload/document HTTP/1.1" 409 Conflict

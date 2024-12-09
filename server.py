@@ -23,13 +23,11 @@ import hashlib
 import subprocess
 import faiss
 from datetime import datetime
-
 import re
-
 from config import CONFIG
 from utils.FAISS_utils import load_faiss_index, load_metadata, query_with_context
 from utils.LLM_utils import CLIP_init, openai_post_request
-from image_store import ImageStore
+from utils.image_store import ImageStore
 
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"

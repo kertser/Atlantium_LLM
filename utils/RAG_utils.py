@@ -2,13 +2,12 @@
 import logging
 import fitz  # PyMuPDF for PDFs
 fitz.TOOLS.mupdf_display_errors(False)  # Suppress MuPDF errors
-
 import docx  # for Word documents
 import openpyxl  # for Excel files
 from docx import Document
 from PIL import Image, UnidentifiedImageError
 from io import BytesIO
-from image_store import ImageStore
+from utils.image_store import ImageStore
 from config import CONFIG
 from pathlib import Path
 

@@ -1,26 +1,46 @@
-import os, sys
+from typing import List, Dict, Union, Any
+from pathlib import Path
 import faiss
 import json
 import numpy as np
 import logging
-from pathlib import Path
 from config import CONFIG
 
-def initialize_faiss_index(dimension, use_gpu=False):
+# Define GPU functions at module level
+def _get_gpu_resources():
+    try:
+        from faiss.swigfaiss import StandardGpuResources as SGR
+        return SGR()
+    except ImportError:
+        return None
+
+def _cpu_to_gpu(res, dev: int, index):
+    try:
+        from faiss.swigfaiss import index_cpu_to_gpu as i2g
+        return i2g(res, dev, index)
+    except ImportError:
+        return index
+
+def initialize_faiss_index(dimension: int, use_gpu: bool = False) -> faiss.Index:
     """
     Initialize a FAISS index for storing embeddings.
-    :param dimension: Dimension of the embeddings.
-    :param use_gpu: Whether to use GPU acceleration (if available).
-    :return: FAISS index instance.
+    Args:
+        dimension: Dimension of the embeddings.
+        use_gpu: Whether to use GPU acceleration (if available).
+    Returns:
+        FAISS index instance.
     """
     if dimension <= 0:
         raise ValueError("Embedding dimension must be a positive integer.")
 
     index = faiss.IndexFlatL2(dimension)
     if use_gpu and faiss.get_num_gpus() > 0:
-        gpu_resource = faiss.StandardGpuResources()
-        index = faiss.index_cpu_to_gpu(gpu_resource, 0, index)
-        print("FAISS index initialized on GPU.")
+        gpu_resource = _get_gpu_resources()
+        if gpu_resource is not None:
+            index = _cpu_to_gpu(gpu_resource, 0, index)
+            print("FAISS index initialized on GPU.")
+        else:
+            print("GPU support not available in FAISS installation.")
     else:
         print("FAISS index initialized on CPU.")
     return index
@@ -172,16 +192,16 @@ def save_faiss_index(index, filepath):
     faiss.write_index(index, filepath_str)
     print(f"FAISS index saved to {filepath_str}.")
 
-def save_metadata(metadata, filepath):
+def save_metadata(metadata: List[Dict[str, Any]], filepath: Union[str, Path]) -> None:
     """
     Save metadata to a file.
-    :param metadata: List of metadata associated with FAISS embeddings.
-    :param filepath: Path or string to save the metadata file.
+    Args:
+        metadata: List of metadata associated with FAISS embeddings.
+        filepath: Path or string to save the metadata file.
     """
-    # Convert Path to string if necessary
     filepath_str = str(filepath)
-    with open(filepath_str, 'w') as f:
-        json.dump(metadata, f)
+    with open(filepath_str, 'w', encoding='utf-8') as f:
+        json.dump(metadata, f, ensure_ascii=False, indent=2)
     print(f"Metadata saved to {filepath_str}.")
 
 def load_faiss_index(filepath):
@@ -196,15 +216,16 @@ def load_faiss_index(filepath):
     print(f"FAISS index loaded from {filepath_str}.")
     return index
 
-def load_metadata(filepath):
+def load_metadata(filepath: Union[str, Path]) -> List[Dict[str, Any]]:
     """
     Load metadata from a file.
-    :param filepath: Path or string to the metadata file.
-    :return: List of metadata.
+    Args:
+        filepath: Path or string to the metadata file.
+    Returns:
+        List of metadata dictionaries.
     """
-    # Convert Path to string if necessary
     filepath_str = str(filepath)
-    with open(filepath_str, 'r') as f:
+    with open(filepath_str, 'r', encoding='utf-8') as f:
         metadata = json.load(f)
     print(f"Metadata loaded from {filepath_str}.")
     return metadata
