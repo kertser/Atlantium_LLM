@@ -1,4 +1,4 @@
-import os,sys
+import sys
 import logging
 import json
 from dotenv import load_dotenv
@@ -7,22 +7,24 @@ import numpy as np
 from pathlib import Path
 
 from config import CONFIG
-from utils.FAISS_utils import initialize_faiss_index, add_to_faiss, save_faiss_index, save_metadata
+from utils.FAISS_utils import (
+    initialize_faiss_index,
+    add_to_faiss,
+    save_faiss_index,
+    save_metadata,
+    load_faiss_index,
+    load_metadata
+)
 from utils.LLM_utils import CLIP_init, encode_with_clip
 from utils.RAG_utils import (
     extract_text_and_images_from_pdf,
     extract_text_and_images_from_word,
     extract_text_and_images_from_excel,
     chunk_text,
-    get_relevant_images,
-    extract_text_around_image
 )
 
 from image_store import (
     ImageStore,
-    deduplicate_images,
-    remove_duplicate_images,
-    update_faiss_metadata
 )
 
 # Setup logging
@@ -316,8 +318,7 @@ def main():
         processed_files = get_processed_files()
 
         # Filter out already processed files using absolute paths
-        new_docs = [path for path in all_docs
-                   if str(Path(path).absolute()) not in processed_files]
+        new_docs = [path for path in all_docs if str(Path(path).absolute()) not in processed_files]
 
         if not new_docs:
             logging.info("All documents have already been processed")

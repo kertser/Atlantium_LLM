@@ -13,3 +13,4 @@ fastapi
 python-multipart
 uvicorn
 imagehash
+pydantic

@@ -1,4 +1,5 @@
-import os, sys
+import os
+import sys
 from pathlib import Path
 import asyncio
 import logging
@@ -689,8 +690,9 @@ def update_processed_files(doc_paths):
 
 def check_processing_status():
     """Check if all necessary files and data exist after processing"""
+
+    logger = logging.getLogger(__name__)
     try:
-        logger = logging.getLogger(__name__)
 
         # Check required paths
         if not CONFIG.METADATA_PATH.exists():
@@ -733,8 +735,9 @@ def check_processing_status():
 
 @app.post("/process/documents")
 async def process_documents():
+    logger = logging.getLogger(__name__)
     try:
-        logger = logging.getLogger(__name__)
+
         logger.info("Starting document processing...")
 
         # Run rag_system.py
@@ -796,9 +799,9 @@ async def process_documents():
 @app.get("/get/documents")
 async def get_documents():
     """Get list of documents with metadata"""
+    logger = logging.getLogger(__name__)
     try:
         documents = []
-        logger = logging.getLogger(__name__)
         logger.info(f"Scanning directory: {CONFIG.RAW_DOCUMENTS_PATH}")
 
         # Ensure the directory exists
