@@ -232,8 +232,6 @@ def check_stored_images():
         print("No FAISS metadata file found")
 
 
-# In rag_system.py, update the file status tracking
-
 def update_processed_files(doc_paths):
     """Update the list of successfully processed files
 
