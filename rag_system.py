@@ -6,6 +6,8 @@ import glob
 import numpy as np
 from pathlib import Path
 from config import CONFIG
+from typing import Any, Tuple
+import faiss
 from utils.FAISS_utils import (
     initialize_faiss_index,
     add_to_faiss,
@@ -35,25 +37,6 @@ logging.basicConfig(
     ]
 )
 
-def process_document_images(images_data, doc_path, image_store):
-    """Helper function to process and store images with context from a document"""
-    image_ids = []
-    for idx, img_data in enumerate(images_data):
-        try:
-            image_id = image_store.store_image(
-                image=img_data['image'],
-                source_doc=str(doc_path),
-                page_num=img_data['page_num'],
-                caption=f"Image {idx+1} from {Path(doc_path).name}",
-                context=img_data['context']
-            )
-            image_ids.append(image_id)
-            logging.info(f"Stored image {idx+1} from {doc_path} with ID: {image_id}")
-        except Exception as e:
-            logging.error(f"Error storing image {idx+1} from {doc_path}: {e}")
-    return image_ids
-
-
 def process_documents(model, processor, device, index, metadata, image_store, doc_paths=None):
     """Process documents and store their content and images.
 
@@ -68,6 +51,8 @@ def process_documents(model, processor, device, index, metadata, image_store, do
     """
     try:
         # If no specific docs provided, get all documents
+        processed_image_ids = set()
+
         if doc_paths is None:
             doc_paths = []
             for ext in CONFIG.SUPPORTED_EXTENSIONS:
@@ -132,6 +117,13 @@ def process_documents(model, processor, device, index, metadata, image_store, do
                                 caption=img_data.get('caption', f"Image from {Path(doc_path).name}")
                             )
 
+                            # Skip if we've already processed this image
+                            if image_id in processed_image_ids:
+                                logging.info(f"Skipping duplicate image {image_id}")
+                                continue
+
+                            processed_image_ids.add(image_id)
+
                             # Verify image was stored successfully
                             stored_image, _ = image_store.get_image(image_id)
                             if stored_image is None:
@@ -169,16 +161,6 @@ def process_documents(model, processor, device, index, metadata, image_store, do
                             logging.error(f"Error processing image from {doc_path}: {e}")
                             continue
 
-                # After processing, verify image accessibility
-                image_ids = [m.get('content', {}).get('image_id') for m in metadata
-                             if m.get('type') == 'image' and isinstance(m.get('content'), dict)]
-
-                for image_id in image_ids:
-                    if image_id:
-                        image, _ = image_store.get_image(image_id)
-                        if image is None:
-                            logging.warning(f"Verification failed for image {image_id}")
-
             except Exception as e:
                 logging.error(f"Error processing document {doc_path}: {e}")
                 continue
@@ -214,7 +196,7 @@ def check_stored_images():
     # Check metadata file
     metadata_path = CONFIG.STORED_IMAGES_PATH / "image_metadata.json"
     if metadata_path.exists():
-        with open(metadata_path, 'r', encoding='utf-8') as f:  # Added UTF-8 encoding
+        with open(metadata_path, 'r', encoding='utf-8') as f:
             metadata = json.load(f)
             print(f"Found {len(metadata)} image entries in metadata")
             for img_id, data in metadata.items():
@@ -224,10 +206,18 @@ def check_stored_images():
 
     # Check FAISS metadata
     if CONFIG.METADATA_PATH.exists():
-        with open(CONFIG.METADATA_PATH, 'r', encoding='utf-8') as f:  # Added UTF-8 encoding
+        with open(CONFIG.METADATA_PATH, 'r', encoding='utf-8') as f:
             faiss_metadata = json.load(f)
-            image_entries = [m for m in faiss_metadata if m.get('type') == 'image']
+            image_entries = [
+                m for m in faiss_metadata
+                if m.get('type') == 'image' and isinstance(m.get('content'), dict)
+                and m['content'].get('image_id')
+            ]
             print(f"Found {len(image_entries)} image entries in FAISS metadata")
+            # Print details of found images
+            for entry in image_entries:
+                content = entry['content']
+                print(f"FAISS Image {content['image_id']}: {content['source_doc']}")
     else:
         print("No FAISS metadata file found")
 
@@ -240,19 +230,16 @@ def update_processed_files(doc_paths):
     """
     processed_files_path = Path("processed_files.json")
     try:
-        # Load existing processed files
         if processed_files_path.exists():
-            with open(processed_files_path, 'r') as f:
+            with open(processed_files_path, 'r', encoding='utf-8') as f:
                 processed_files = set(json.load(f))
         else:
             processed_files = set()
 
-        # Convert paths to absolute paths and add to set
         absolute_paths = {str(Path(path).absolute()) for path in doc_paths}
         processed_files.update(absolute_paths)
 
-        # Save updated list
-        with open(processed_files_path, 'w') as f:
+        with open(processed_files_path, 'w', encoding='utf-8') as f:
             json.dump(list(processed_files), f, indent=2)
 
         logging.info(f"Updated processed files list with {len(doc_paths)} new documents")
@@ -290,13 +277,56 @@ def get_processed_files():
     processed_files_path = Path("processed_files.json")
     try:
         if processed_files_path.exists():
-            with open(processed_files_path, 'r') as f:
+            with open(processed_files_path, 'r', encoding='utf-8') as f:
                 return set(json.load(f))
         return set()
     except Exception as e:
         logging.error(f"Error loading processed files list: {e}")
         return set()
 
+
+def validate_metadata_and_index(metadata: list, index: Any, image_store: ImageStore) -> Tuple[list, Any]:
+    """
+    Validate and clean both metadata and FAISS index.
+
+    Args:
+        metadata: List of metadata entries
+        index: FAISS index
+        image_store: ImageStore instance
+
+    Returns:
+        Tuple of (cleaned metadata list, cleaned index)
+    """
+    valid_metadata = []
+    valid_indices = []
+    image_ids_processed = set()
+    current_idx = 0
+
+    for idx, entry in enumerate(metadata):
+        is_valid = False
+
+        if entry.get('type') == 'text-chunk':
+            is_valid = True
+        elif entry.get('type') == 'image':
+            if isinstance(entry.get('content'), dict):
+                image_id = entry['content'].get('image_id')
+                if image_id and image_id not in image_ids_processed:
+                    image, _ = image_store.get_image(image_id)
+                    if image is not None:
+                        is_valid = True
+                        image_ids_processed.add(image_id)
+
+        if is_valid:
+            valid_metadata.append(entry)
+            valid_indices.append(idx)
+
+    # Create new index with only valid entries
+    new_index = faiss.IndexFlatL2(index.d)
+    if valid_indices:
+        vectors = np.vstack([np.array(index.reconstruct(idx)) for idx in valid_indices])
+        new_index.add(vectors)
+
+    return valid_metadata, new_index
 
 def main():
     try:
@@ -350,12 +380,11 @@ def main():
             index=index,
             metadata=metadata,
             image_store=image_store,
-            doc_paths=new_docs  # Pass only new documents
+            doc_paths=new_docs
         )
 
-        if not new_metadata and not metadata:  # Check both new and existing metadata
+        if not new_metadata and not metadata:
             logging.warning("No metadata generated during processing")
-            # Save empty index and metadata to indicate processing completed
             save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
             save_metadata([], CONFIG.METADATA_PATH)
             return 0
@@ -363,16 +392,26 @@ def main():
         # If processing was successful, update metadata and save
         if new_metadata:
             if isinstance(metadata, list):
-                metadata.extend(new_metadata)
+                combined_metadata = metadata + new_metadata
+                # Validate and clean both metadata and index
+                cleaned_metadata, cleaned_index = validate_metadata_and_index(
+                    combined_metadata, updated_index, image_store)
+                logging.info(
+                    f"Cleaned metadata: {len(cleaned_metadata)} entries ({len(combined_metadata) - len(cleaned_metadata)} removed)")
+                metadata = cleaned_metadata
+                updated_index = cleaned_index
             else:
-                metadata = new_metadata
-
-            # Save updated results
-            save_faiss_index(updated_index, CONFIG.FAISS_INDEX_PATH)
-            save_metadata(metadata, CONFIG.METADATA_PATH)
+                cleaned_metadata, cleaned_index = validate_metadata_and_index(
+                    new_metadata, updated_index, image_store)
+                metadata = cleaned_metadata
+                updated_index = cleaned_index
 
             # Update processed files list
             update_processed_files(new_docs)
+
+            # Save final results after all processing is complete
+            save_faiss_index(updated_index, CONFIG.FAISS_INDEX_PATH)
+            save_metadata(metadata, CONFIG.METADATA_PATH)
 
             logging.info(f"Successfully added {len(new_metadata)} new entries to metadata")
             logging.info("Processing completed successfully")

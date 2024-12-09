@@ -76,23 +76,32 @@ def add_to_faiss(embedding, pdf_name, content_type, content, index, metadata):
         # For images, handle potentially missing fields with defaults
         elif content_type == "image":
             if isinstance(content, dict):
-                doc_name = Path(content.get("source_doc", pdf_name)).name
-                meta_entry.update({
-                    "image_id": content.get("image_id", ""),
-                    "caption": content.get("caption", f"Image from {doc_name}"),
-                    "context": content.get("context", ""),
-                    "source_doc": str(content.get("source_doc", pdf_name)),
-                    "page": content.get("page", 1)
-                })
+                meta_entry = {
+                    "pdf": str(pdf_name),
+                    "type": content_type,
+                    "content": {  # Ensure content is properly nested
+                        "image_id": content.get("image_id", ""),
+                        "source_doc": str(content.get("source_doc", pdf_name)),
+                        "context": content.get("context", ""),
+                        "caption": content.get("caption", ""),
+                        "page": content.get("page", 1),
+                        "path": content.get("path", "")
+                    }
+                }
             else:
                 doc_name = Path(pdf_name).name
-                meta_entry.update({
-                    "image_id": "",
-                    "caption": f"Image from {doc_name}",
-                    "context": "",
-                    "source_doc": str(pdf_name),
-                    "page": 1
-                })
+                meta_entry = {
+                    "pdf": str(pdf_name),
+                    "type": content_type,
+                    "content": {
+                        "image_id": "",
+                        "caption": f"Image from {doc_name}",
+                        "context": "",
+                        "source_doc": str(pdf_name),
+                        "page": 1,
+                        "path": ""
+                    }
+                }
 
         metadata.append(meta_entry)
         logging.info(f"Added {content_type} embedding to FAISS from {pdf_name}")
