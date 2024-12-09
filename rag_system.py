@@ -123,7 +123,7 @@ def process_documents(model, processor, device, index, metadata, image_store, do
                 if images_data:
                     for img_data in images_data:
                         try:
-                            # Store image first
+                            # Store image first and ensure it's stored successfully
                             image_id = image_store.store_image(
                                 image=img_data['image'],
                                 source_doc=str(doc_path),
@@ -132,17 +132,22 @@ def process_documents(model, processor, device, index, metadata, image_store, do
                                 caption=img_data.get('caption', f"Image from {Path(doc_path).name}")
                             )
 
+                            # Verify image was stored successfully
+                            stored_image, _ = image_store.get_image(image_id)
+                            if stored_image is None:
+                                logging.error(f"Failed to verify stored image {image_id}")
+                                continue
+
                             # Create image embedding
                             _, image_embedding = encode_with_clip([], [img_data['image']], model, processor, device)
 
-                            # Check if we got a valid embedding
                             if isinstance(image_embedding, np.ndarray) and image_embedding.size > 0:
-                                # If it's a 2D array, take the first embedding
                                 if len(image_embedding.shape) > 1:
                                     embedding_to_use = image_embedding[0]
                                 else:
                                     embedding_to_use = image_embedding
 
+                                # Add to FAISS with verified image data
                                 add_to_faiss(
                                     embedding=embedding_to_use,
                                     pdf_name=doc_path,
@@ -152,7 +157,8 @@ def process_documents(model, processor, device, index, metadata, image_store, do
                                         "source_doc": str(doc_path),
                                         "context": img_data.get('context', ''),
                                         "caption": img_data.get('caption', ''),
-                                        "page": img_data['page_num']
+                                        "page": img_data['page_num'],
+                                        "path": str(image_store.images_path / f"{image_id}.png")  # Add actual path
                                     },
                                     index=index,
                                     metadata=metadata
@@ -162,6 +168,16 @@ def process_documents(model, processor, device, index, metadata, image_store, do
                         except Exception as e:
                             logging.error(f"Error processing image from {doc_path}: {e}")
                             continue
+
+                # After processing, verify image accessibility
+                image_ids = [m.get('content', {}).get('image_id') for m in metadata
+                             if m.get('type') == 'image' and isinstance(m.get('content'), dict)]
+
+                for image_id in image_ids:
+                    if image_id:
+                        image, _ = image_store.get_image(image_id)
+                        if image is None:
+                            logging.warning(f"Verification failed for image {image_id}")
 
             except Exception as e:
                 logging.error(f"Error processing document {doc_path}: {e}")
@@ -180,8 +196,9 @@ def process_documents(model, processor, device, index, metadata, image_store, do
         return index, metadata
 
     except Exception as e:
-        logging.error(f"Error in process_documents: {e}")
+        logging.error(f"Error during document processing: {e}")
         raise
+
 
 def check_stored_images():
     """Check if images are properly stored and indexed"""
