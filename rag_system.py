@@ -54,13 +54,24 @@ def process_document_images(images_data, doc_path, image_store):
     return image_ids
 
 
-def process_documents(model, processor, device, index, metadata, image_store):
-    """Process all documents and store their content and images."""
+def process_documents(model, processor, device, index, metadata, image_store, doc_paths=None):
+    """Process documents and store their content and images.
+
+    Args:
+        model: CLIP model instance
+        processor: CLIP processor instance
+        device: Computing device (cpu/cuda)
+        index: FAISS index instance
+        metadata: List of metadata entries
+        image_store: ImageStore instance
+        doc_paths: Optional list of specific documents to process. If None, processes all documents.
+    """
     try:
-        # Get list of documents to process
-        doc_paths = []
-        for ext in CONFIG.SUPPORTED_EXTENSIONS:
-            doc_paths.extend(glob.glob(str(CONFIG.RAW_DOCUMENTS_PATH / f"*{ext}")))
+        # If no specific docs provided, get all documents
+        if doc_paths is None:
+            doc_paths = []
+            for ext in CONFIG.SUPPORTED_EXTENSIONS:
+                doc_paths.extend(glob.glob(str(CONFIG.RAW_DOCUMENTS_PATH / f"*{ext}")))
 
         if not doc_paths:
             logging.warning("No documents found to process")
@@ -122,8 +133,7 @@ def process_documents(model, processor, device, index, metadata, image_store):
                             )
 
                             # Create image embedding
-                            _, image_embedding = encode_with_clip([], [img_data['image']], model,
-                                                                  processor, device)
+                            _, image_embedding = encode_with_clip([], [img_data['image']], model, processor, device)
 
                             # Check if we got a valid embedding
                             if isinstance(image_embedding, np.ndarray) and image_embedding.size > 0:
@@ -205,6 +215,8 @@ def check_stored_images():
         print("No FAISS metadata file found")
 
 
+# In rag_system.py, update the file status tracking
+
 def update_processed_files(doc_paths):
     """Update the list of successfully processed files
 
@@ -213,18 +225,20 @@ def update_processed_files(doc_paths):
     """
     processed_files_path = Path("processed_files.json")
     try:
+        # Load existing processed files
         if processed_files_path.exists():
             with open(processed_files_path, 'r') as f:
                 processed_files = set(json.load(f))
         else:
             processed_files = set()
 
-        # Add new files
-        processed_files.update([str(path) for path in doc_paths])
+        # Convert paths to absolute paths and add to set
+        absolute_paths = {str(Path(path).absolute()) for path in doc_paths}
+        processed_files.update(absolute_paths)
 
         # Save updated list
         with open(processed_files_path, 'w') as f:
-            json.dump(list(processed_files), f)
+            json.dump(list(processed_files), f, indent=2)
 
         logging.info(f"Updated processed files list with {len(doc_paths)} new documents")
 
@@ -232,60 +246,126 @@ def update_processed_files(doc_paths):
         logging.error(f"Error updating processed files list: {e}")
         raise
 
+
+def get_unprocessed_documents():
+    """Get list of documents that haven't been processed yet"""
+    try:
+        # Get all documents in the raw documents directory
+        all_docs = []
+        for ext in CONFIG.SUPPORTED_EXTENSIONS:
+            all_docs.extend(glob.glob(str(CONFIG.RAW_DOCUMENTS_PATH / f"*{ext}")))
+
+        # Get list of processed files
+        processed_files = get_processed_files()
+
+        # Filter out processed files
+        unprocessed = [doc for doc in all_docs
+                       if str(Path(doc).absolute()) not in processed_files]
+
+        return unprocessed
+    except Exception as e:
+        logging.error(f"Error getting unprocessed documents: {e}")
+        return []
+
+
+# In rag_system.py, update the main function
+
+def get_processed_files():
+    """Load list of already processed files"""
+    processed_files_path = Path("processed_files.json")
+    try:
+        if processed_files_path.exists():
+            with open(processed_files_path, 'r') as f:
+                return set(json.load(f))
+        return set()
+    except Exception as e:
+        logging.error(f"Error loading processed files list: {e}")
+        return set()
+
+
 def main():
     try:
         # Load environment variables
         load_dotenv()
 
-        # Get list of documents to process
-        doc_paths = []
+        # Get list of all documents
+        all_docs = []
         for ext in CONFIG.SUPPORTED_EXTENSIONS:
-            doc_paths.extend(glob.glob(str(CONFIG.RAW_DOCUMENTS_PATH / f"*{ext}")))
+            all_docs.extend(glob.glob(str(CONFIG.RAW_DOCUMENTS_PATH / f"*{ext}")))
 
-        if not doc_paths:
+        if not all_docs:
             logging.warning("No documents found to process")
             return 0
+
+        # Load already processed files
+        processed_files = get_processed_files()
+
+        # Filter out already processed files using absolute paths
+        new_docs = [path for path in all_docs
+                   if str(Path(path).absolute()) not in processed_files]
+
+        if not new_docs:
+            logging.info("All documents have already been processed")
+            return 0
+
+        logging.info(f"Found {len(new_docs)} new documents to process")
 
         # Initialize CLIP model
         clip_model, clip_processor, device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
         if not clip_model or not clip_processor:
             raise RuntimeError("Failed to initialize CLIP model")
 
-        # Initialize FAISS index
-        index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
-        metadata = []
+        # Try to load existing index and metadata first
+        try:
+            index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
+            metadata = load_metadata(CONFIG.METADATA_PATH)
+            logging.info("Loaded existing FAISS index and metadata")
+        except Exception as e:
+            logging.info("No existing index found or error loading. Initializing new ones")
+            index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
+            metadata = []
 
         # Initialize ImageStore
         image_store = ImageStore(CONFIG.STORED_IMAGES_PATH)
 
-        # Process documents
-        index, metadata = process_documents(
+        # Process only new documents
+        updated_index, new_metadata = process_documents(
             model=clip_model,
             processor=clip_processor,
             device=device,
             index=index,
             metadata=metadata,
-            image_store=image_store
+            image_store=image_store,
+            doc_paths=new_docs  # Pass only new documents
         )
 
-        if not metadata:
+        if not new_metadata and not metadata:  # Check both new and existing metadata
             logging.warning("No metadata generated during processing")
-            # Don't raise an error, just return success with empty metadata
             # Save empty index and metadata to indicate processing completed
             save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
-            save_metadata(metadata, CONFIG.METADATA_PATH)
+            save_metadata([], CONFIG.METADATA_PATH)
             return 0
 
-        # Save results
-        save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
-        save_metadata(metadata, CONFIG.METADATA_PATH)
+        # If processing was successful, update metadata and save
+        if new_metadata:
+            if isinstance(metadata, list):
+                metadata.extend(new_metadata)
+            else:
+                metadata = new_metadata
 
-        # Update processed files list
-        if metadata:
-            update_processed_files(doc_paths)
+            # Save updated results
+            save_faiss_index(updated_index, CONFIG.FAISS_INDEX_PATH)
+            save_metadata(metadata, CONFIG.METADATA_PATH)
 
-        logging.info("Processing completed successfully")
-        return 0
+            # Update processed files list
+            update_processed_files(new_docs)
+
+            logging.info(f"Successfully added {len(new_metadata)} new entries to metadata")
+            logging.info("Processing completed successfully")
+            return 0
+        else:
+            logging.warning("No new metadata generated, keeping existing data")
+            return 0
 
     except Exception as e:
         logging.error(f"Critical error during processing: {str(e)}", exc_info=True)

@@ -729,6 +729,8 @@ def check_processing_status():
         logger.error(f"Error checking processing status: {str(e)}")
         return False, f"Error checking processing status: {str(e)}"
 
+# In server.py, update the process_documents endpoint
+
 @app.post("/process/documents")
 async def process_documents():
     try:
@@ -745,15 +747,25 @@ async def process_documents():
 
         stdout, stderr = process.communicate()
 
-        # Log the output
+        # Log the output properly
         if stdout:
-            logger.info(f"Processing output: {stdout}")
-        if stderr:
-            logger.error(f"Processing errors: {stderr}")
+            for line in stdout.splitlines():
+                if 'ERROR' in line:
+                    logger.error(line)
+                else:
+                    logger.info(line)
 
-        # Check return code first
+        # Only treat actual errors in stderr as errors
+        if stderr:
+            for line in stderr.splitlines():
+                if 'ERROR' in line:
+                    logger.error(f"Processing error: {line}")
+                else:
+                    logger.info(line)
+
+        # Check return code
         if process.returncode != 0:
-            error_msg = f"Process failed with code {process.returncode}: {stderr}"
+            error_msg = f"Process failed with code {process.returncode}"
             logger.error(error_msg)
             raise HTTPException(status_code=500, detail=error_msg)
 
