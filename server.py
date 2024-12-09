@@ -20,6 +20,8 @@ import shutil
 import hmac
 import hashlib
 import subprocess
+import faiss
+from datetime import datetime
 
 import re
 
@@ -622,6 +624,7 @@ async def image_query(
 
 @app.post("/upload/document")
 async def upload_document(file: UploadFile):
+    """Handle document upload"""
     try:
         # Ensure the directory exists
         CONFIG.RAW_DOCUMENTS_PATH.mkdir(parents=True, exist_ok=True)
@@ -632,62 +635,184 @@ async def upload_document(file: UploadFile):
             raise HTTPException(status_code=400, detail="Invalid filename")
 
         # Validate file extension
-        if not any(sanitized_filename.lower().endswith(ext) for ext in CONFIG.SUPPORTED_EXTENSIONS):
+        if not any(sanitized_filename.lower().endswith(ext)
+                   for ext in CONFIG.SUPPORTED_EXTENSIONS):
             raise HTTPException(status_code=400, detail="Unsupported file type")
 
-        # Avoid overwriting existing files
+        # Create full path
         dest_path = CONFIG.RAW_DOCUMENTS_PATH / sanitized_filename
+
+        # Avoid overwriting existing files
         if dest_path.exists():
             raise HTTPException(status_code=409, detail="File already exists")
 
         # Save the file safely
-        with open(dest_path, 'wb') as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        try:
+            with open(dest_path, 'wb') as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            logging.info(f"File saved to {dest_path}")
+        except Exception as e:
+            logging.error(f"Error saving file: {e}")
+            raise HTTPException(status_code=500, detail="Error saving file")
+        finally:
+            await file.close()
 
-        logging.info(f"File saved to {dest_path}")
         return {"status": "success", "path": str(dest_path)}
 
-    except HTTPException as http_exc:
-        logging.error(f"HTTP error: {http_exc.detail}")
+    except HTTPException:
         raise
     except Exception as e:
-        logging.error(f"Unexpected error: {str(e)}")
+        logging.error(f"Unexpected error during upload: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
-    finally:
-        # Ensure file handle is closed
-        file.file.close()
 
 
+def update_processed_files(doc_paths):
+    """Update the list of successfully processed files"""
+    processed_files_path = Path("processed_files.json")
+    try:
+        if processed_files_path.exists():
+            with open(processed_files_path, 'r') as f:
+                processed_files = set(json.load(f))
+        else:
+            processed_files = set()
+
+        # Add new files
+        processed_files.update([str(path) for path in doc_paths])
+
+        # Save updated list
+        with open(processed_files_path, 'w') as f:
+            json.dump(list(processed_files), f)
+
+    except Exception as e:
+        logging.error(f"Error updating processed files list: {e}")
+
+
+def check_processing_status():
+    """Check if all necessary files and data exist after processing"""
+    try:
+        logger = logging.getLogger(__name__)
+
+        # Check required paths
+        if not CONFIG.METADATA_PATH.exists():
+            logger.error("Metadata file not found")
+            return False, "Metadata file not found"
+
+        if not CONFIG.FAISS_INDEX_PATH.exists():
+            logger.error("FAISS index not found")
+            return False, "FAISS index not found"
+
+        # Check metadata content
+        try:
+            with open(CONFIG.METADATA_PATH, 'r') as f:
+                metadata = json.load(f)
+                if not metadata:
+                    logger.error("Empty metadata file")
+                    return False, "Empty metadata file"
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid metadata file: {e}")
+            return False, "Invalid metadata file format"
+
+        # Check index
+        try:
+            index = faiss.read_index(str(CONFIG.FAISS_INDEX_PATH))
+            if index.ntotal == 0:
+                logger.error("Empty FAISS index")
+                return False, "Empty FAISS index"
+        except Exception as e:
+            logger.error(f"Error reading FAISS index: {e}")
+            return False, f"Error reading FAISS index: {str(e)}"
+
+        logger.info("All processing checks passed successfully")
+        return True, "Processing completed successfully"
+
+    except Exception as e:
+        logger.error(f"Error checking processing status: {str(e)}")
+        return False, f"Error checking processing status: {str(e)}"
 
 @app.post("/process/documents")
 async def process_documents():
     try:
+        logger = logging.getLogger(__name__)
+        logger.info("Starting document processing...")
+
+        # Run rag_system.py
         process = subprocess.Popen(
             [sys.executable, 'rag_system.py'],
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE
+            stderr=subprocess.PIPE,
+            text=True
         )
+
         stdout, stderr = process.communicate()
 
-        try:
-            stdout_str = stdout.decode('utf-8', errors='replace') if stdout else ''
-            stderr_str = stderr.decode('utf-8', errors='replace') if stderr else ''
+        # Log the output
+        if stdout:
+            logger.info(f"Processing output: {stdout}")
+        if stderr:
+            logger.error(f"Processing errors: {stderr}")
 
-            logging.info(f"stdout: {stdout_str}")
-            if stderr_str:
-                logging.error(f"stderr: {stderr_str}")
-        except Exception as e:
-            logging.error(f"Error decoding process output: {e}")
-
+        # Check return code first
         if process.returncode != 0:
-            raise HTTPException(status_code=500, detail="Processing failed")
+            error_msg = f"Process failed with code {process.returncode}: {stderr}"
+            logger.error(error_msg)
+            raise HTTPException(status_code=500, detail=error_msg)
 
+        # Verify the results
+        success, message = check_processing_status()
+        if not success:
+            logger.error(f"Processing verification failed: {message}")
+            raise HTTPException(status_code=500, detail=message)
+
+        # Reload the server's index and metadata
+        try:
+            server.index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
+            server.metadata = load_metadata(CONFIG.METADATA_PATH)
+        except Exception as e:
+            logger.error(f"Error reloading index and metadata: {e}")
+            raise HTTPException(status_code=500, detail="Failed to load processed data")
+
+        logger.info("Document processing completed successfully")
         return {"status": "success"}
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logging.error(f"Error in process_documents: {e}", exc_info=True)
+        logger.error(f"Error in process_documents: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/get/documents")
+async def get_documents():
+    """Get list of documents with metadata"""
+    try:
+        documents = []
+        logger = logging.getLogger(__name__)
+        logger.info(f"Scanning directory: {CONFIG.RAW_DOCUMENTS_PATH}")
+
+        # Ensure the directory exists
+        CONFIG.RAW_DOCUMENTS_PATH.mkdir(parents=True, exist_ok=True)
+
+        # Get all files with supported extensions
+        for ext in CONFIG.SUPPORTED_EXTENSIONS:
+            for file_path in CONFIG.RAW_DOCUMENTS_PATH.glob(f"*{ext}"):
+                try:
+                    stat = file_path.stat()
+                    documents.append({
+                        "name": file_path.name,
+                        "type": file_path.suffix[1:].upper(),
+                        "size": stat.st_size,
+                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                    })
+                except Exception as e:
+                    logger.error(f"Error processing file {file_path}: {e}")
+                    continue
+
+        logger.info(f"Found {len(documents)} documents")
+        return documents
+
+    except Exception as e:
+        logger.error(f"Error getting documents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/documents")
 async def list_documents():

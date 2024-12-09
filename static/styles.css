@@ -486,3 +486,26 @@ button:hover {
     75% { content: '...'; }
     100% { content: ''; }
 }
+
+.process-btn.processing {
+    position: relative;
+    padding-right: 2.5rem;
+}
+
+.process-btn.processing::after {
+    content: "";
+    position: absolute;
+    right: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 1rem;
+    height: 1rem;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    border-top-color: transparent;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: translateY(-50%) rotate(360deg); }
+}

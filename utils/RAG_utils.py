@@ -1,4 +1,5 @@
 # Document parsing and RAG-related functions
+import logging
 import fitz  # PyMuPDF for PDFs
 fitz.TOOLS.mupdf_display_errors(False)  # Suppress MuPDF errors
 
@@ -9,7 +10,10 @@ from PIL import Image, UnidentifiedImageError
 from io import BytesIO
 from image_store import ImageStore
 from config import CONFIG
+from pathlib import Path
 
+# Configure logging at module level
+logger = logging.getLogger(__name__)
 
 def extract_text_around_image(page, image_bbox, context_range=100):
     """Extract text around an image's location on the page with improved context"""
@@ -75,14 +79,17 @@ def get_relevant_images(query_context: str, image_store: ImageStore, threshold: 
     relevant_images.sort(key=lambda x: x['similarity'], reverse=True)
     return relevant_images[:5]  # Return top 5 most relevant images
 
+
 def extract_text_and_images_from_pdf(pdf_path):
     """Extracts text and images with their context from a PDF file."""
     text = ""
-    image_data = []  # List of tuples (image, context, page_num)
+    image_data = []
     min_size = 50
 
     try:
         pdf_document = fitz.open(pdf_path)
+        doc_name = Path(pdf_path).name
+        logger.info(f"Processing PDF document: {doc_name}")
 
         for page_num in range(pdf_document.page_count):
             try:
@@ -93,6 +100,8 @@ def extract_text_and_images_from_pdf(pdf_path):
 
                 # Get images and their locations
                 image_list = page.get_images(full=True)
+                logger.info(f"Found {len(image_list)} images on page {page_num + 1}")
+
                 for img_index, img in enumerate(image_list):
                     try:
                         xref = img[0]
@@ -109,7 +118,8 @@ def extract_text_and_images_from_pdf(pdf_path):
                             image = Image.open(BytesIO(image_bytes))
 
                             if image.width < min_size or image.height < min_size:
-                                print(f"Skipping small image ({image.width}x{image.height}) on page {page_num}")
+                                logger.info(
+                                    f"Skipping small image ({image.width}x{image.height}) on page {page_num + 1}")
                                 continue
 
                             # Convert to RGB if needed
@@ -122,29 +132,123 @@ def extract_text_and_images_from_pdf(pdf_path):
                             elif image.mode != 'RGB':
                                 image = image.convert('RGB')
 
-                            print(f"Extracted image: {image.width}x{image.height} from page {page_num}")
-                            print(f"Context: {context[:100]}...")  # Print first 100 chars of context
-
                             image_data.append({
                                 'image': image,
                                 'context': context,
-                                'page_num': page_num,
+                                'page_num': page_num + 1,
+                                'caption': f"Image {img_index + 1} from {doc_name} (Page {page_num + 1})",
                                 'bbox': [img_bbox.x0, img_bbox.y0, img_bbox.x1, img_bbox.y1]
                             })
+                            logger.info(f"Processed image {img_index + 1} from page {page_num + 1}")
 
                     except Exception as e:
-                        print(f"Error processing image {img_index} on page {page_num}: {e}")
+                        logger.error(f"Error processing image {img_index} on page {page_num}: {e}")
                         continue
 
             except Exception as e:
-                print(f"Error processing page {page_num}: {e}")
+                logger.error(f"Error processing page {page_num}: {e}")
+                continue
 
         pdf_document.close()
+        logger.info(f"Completed processing {doc_name}: {len(image_data)} images extracted")
 
     except Exception as e:
-        print(f"Error opening or processing PDF {pdf_path}: {e}")
+        logger.error(f"Error opening or processing PDF {pdf_path}: {e}")
 
     return text, image_data
+
+
+def extract_text_and_images_from_word(doc_path):
+    """Extract text and images from a Word document."""
+    try:
+        doc = Document(doc_path)
+        doc_name = Path(doc_path).name
+        logger.info(f"Processing Word document: {doc_name}")
+
+        text = "\n".join([para.text for para in doc.paragraphs])
+        images_data = []
+
+        # Extract images from relationships
+        for rel in doc.part.rels.values():
+            if "image" in rel.target_ref:
+                try:
+                    image_data = rel.target_part.blob
+                    image = Image.open(BytesIO(image_data))
+
+                    # Convert to RGB if needed
+                    if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
+                        background = Image.new('RGB', image.size, (255, 255, 255))
+                        if image.mode == 'P':
+                            image = image.convert('RGBA')
+                        background.paste(image, mask=image.split()[-1])
+                        image = background
+                    elif image.mode != 'RGB':
+                        image = image.convert('RGB')
+
+                    img_data = {
+                        'image': image,
+                        'context': '',  # Context extraction could be improved
+                        'page_num': 1,  # Word docs don't have native page numbers
+                        'caption': f"Image from {doc_name}"
+                    }
+                    images_data.append(img_data)
+                    logger.info(f"Processed image from {doc_name}")
+
+                except Exception as e:
+                    logger.error(f"Error processing image from Word document: {e}")
+                    continue
+
+        logger.info(f"Completed processing {doc_name}: {len(images_data)} images extracted")
+        return text, images_data
+
+    except Exception as e:
+        logger.error(f"Error processing Word document {doc_path}: {e}")
+        return "", []
+
+
+def extract_text_and_images_from_excel(excel_path):
+    """Extract text and images from an Excel file."""
+    try:
+        workbook = openpyxl.load_workbook(excel_path)
+        doc_name = Path(excel_path).name
+        logger.info(f"Processing Excel document: {doc_name}")
+
+        text = ""
+        images = []
+
+        for sheet in workbook.worksheets:
+            # Extract text
+            for row in sheet.iter_rows(values_only=True):
+                text += " ".join([str(cell) if cell is not None else "" for cell in row]) + "\n"
+
+            # Extract images
+            for image in sheet._images:
+                try:
+                    if hasattr(image, '_data'):
+                        img_data = image._data()
+                        img = Image.open(BytesIO(img_data))
+
+                        # Convert to RGB if needed
+                        if img.mode != 'RGB':
+                            img = img.convert('RGB')
+
+                        images.append({
+                            'image': img,
+                            'context': '',
+                            'page_num': 1,
+                            'caption': f"Image from {doc_name} - Sheet: {sheet.title}"
+                        })
+                        logger.info(f"Processed image from sheet {sheet.title}")
+                except Exception as e:
+                    logger.error(f"Error processing image in Excel sheet {sheet.title}: {e}")
+                    continue
+
+        logger.info(f"Completed processing {doc_name}: {len(images)} images extracted")
+        return text, images
+
+    except Exception as e:
+        logger.error(f"Error processing Excel file {excel_path}: {e}")
+        return "", []
 
 
 def extract_text_and_images_from_word(doc_path):

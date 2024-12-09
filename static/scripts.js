@@ -365,13 +365,97 @@ document.addEventListener('DOMContentLoaded', () => {
     loadDocuments();
 });
 
-// Add to scripts.js
+async function loadDocuments() {
+    try {
+        const response = await fetch('/get/documents');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const documents = await response.json();
+
+        // Update document count
+        const docCount = document.getElementById('doc-count');
+        if (docCount) {
+            docCount.textContent = documents.length;
+        }
+
+        // Update documents table
+        const tableWrapper = document.querySelector('.documents-table-wrapper');
+        if (tableWrapper) {
+            const table = document.createElement('table');
+            table.className = 'documents-table';
+
+            // Create table header
+            const thead = document.createElement('thead');
+            thead.innerHTML = `
+                <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Size</th>
+                    <th>Modified</th>
+                </tr>
+            `;
+            table.appendChild(thead);
+
+            // Create table body
+            const tbody = document.createElement('tbody');
+            tbody.innerHTML = documents.map(doc => `
+                <tr>
+                    <td>${escapeHtml(doc.name)}</td>
+                    <td>${escapeHtml(doc.type)}</td>
+                    <td>${formatFileSize(doc.size)}</td>
+                    <td>${formatDate(doc.modified)}</td>
+                </tr>
+            `).join('');
+            table.appendChild(tbody);
+
+            // Clear and update table
+            tableWrapper.innerHTML = '';
+            tableWrapper.appendChild(table);
+
+            console.log(`Updated document list with ${documents.length} documents`);
+        }
+    } catch (error) {
+        console.error('Error loading documents:', error);
+        // Optionally show error to user
+        const tableWrapper = document.querySelector('.documents-table-wrapper');
+        if (tableWrapper) {
+            tableWrapper.innerHTML = '<div class="error-message">Error loading documents. Please try again.</div>';
+        }
+    }
+}
+
+// Helper functions
+
+// Helper functions
+function escapeHtml(unsafe) {
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function formatDate(dateString) {
+    const date = new Date(dateString);
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const dropZone = document.getElementById('drop-zone');
     const fileInput = document.getElementById('file-input');
     const uploadList = document.getElementById('upload-list');
     const processBtn = document.getElementById('process-documents');
-    const files = new Set();
+    const fileMap = new Map();
 
     dropZone.addEventListener('click', () => fileInput.click());
 
@@ -412,8 +496,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleFiles(e) {
         const newFiles = [...e.target.files];
         newFiles.forEach(file => {
-            if (!files.has(file.name) && isValidFile(file)) {
-                files.add(file.name);
+            if (isValidFile(file)) {
+                fileMap.set(file.name, file); // Store the actual file object
                 uploadList.appendChild(createFileItem(file));
                 processBtn.style.display = 'block';
             }
@@ -429,14 +513,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const div = document.createElement('div');
         div.className = 'file-item';
         div.innerHTML = `
-            <span class="file-name">${file.name}</span>
+            <span class="file-name">${escapeHtml(file.name)}</span>
             <span class="file-remove">×</span>
         `;
 
         div.querySelector('.file-remove').addEventListener('click', () => {
             div.remove();
-            files.delete(file.name);
-            if (files.size === 0) {
+            fileMap.delete(file.name);
+            if (fileMap.size === 0) {
                 processBtn.style.display = 'none';
             }
         });
@@ -445,62 +529,73 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     processBtn.addEventListener('click', async () => {
-        processBtn.disabled = true;
-        processBtn.textContent = "Processing..."; // Visual feedback
+        try {
+            processBtn.disabled = true;
+            processBtn.textContent = "Uploading Documents...";
+            processBtn.classList.add('processing');
 
-        const uploadPromises = Array.from(uploadList.children).map(async (item) => {
-            const fileName = item.querySelector('.file-name').textContent;
-            const file = Array.from(fileInput.files).find(f => f.name === fileName);
+            // Upload all files from the fileMap
+            const uploadPromises = Array.from(fileMap.values()).map(async (file) => {
+                const formData = new FormData();
+                formData.append('file', file);
 
-            if (!file) return;
-
-            const formData = new FormData();
-            formData.append('file', file);
-
-            try {
-                const response = await fetch('/upload/document', {
+                const uploadResponse = await fetch('/upload/document', {
                     method: 'POST',
                     body: formData
                 });
 
-                if (!response.ok) throw new Error('Processing failed');
-                processBtn.textContent = "Uploaded Successfully";
-                processBtn.style.backgroundColor = '#28a745';
+                if (!uploadResponse.ok) {
+                    const errorData = await uploadResponse.json();
+                    throw new Error(errorData.detail || `Failed to upload ${file.name}`);
+                }
 
-                setTimeout(() => {
-                    uploadList.innerHTML = '';
-                    files.clear();
-                    processBtn.style.display = 'none';
-                }, 2000);
+                return uploadResponse.json();
+            });
 
-            } catch (error) {
-                processBtn.textContent = "Error - Try Again";
-                processBtn.style.backgroundColor = '#dc3545';
-                console.error('Processing error:', error);
-            }
-        });
+            // Wait for all uploads to complete
+            await Promise.all(uploadPromises);
+            console.log('All files uploaded successfully');
 
-        await Promise.all(uploadPromises);
-
-        try {
-            const response = await fetch('/process/documents', {
+            // Process the documents
+            processBtn.textContent = "Processing Documents...";
+            const processResponse = await fetch('/process/documents', {
                 method: 'POST'
             });
 
-            if (!response.ok) throw new Error('Processing failed');
+            if (!processResponse.ok) {
+                const errorData = await processResponse.json();
+                throw new Error(errorData.detail || 'Document processing failed');
+            }
 
-            alert('Documents added to DB successfully!');
+            const result = await processResponse.json();
+
+            // Success handling
+            processBtn.textContent = "Processing Complete";
+            processBtn.classList.remove('processing');
+            processBtn.style.backgroundColor = '#28a745';
+
+            // Clear upload list
             uploadList.innerHTML = '';
-            files.clear();
-            processBtn.style.display = 'none';
+            fileMap.clear();
 
-            // Reload document list
-            await loadDocuments();  // Add this line
+            // Refresh document list
+            await loadDocuments();
+
+            // Reset button after delay and hide it
+            setTimeout(() => {
+                processBtn.textContent = "Process Documents";
+                processBtn.style.backgroundColor = '';
+                processBtn.disabled = false;
+                processBtn.style.display = 'none'; // Hide the button
+            }, 3000);
+
         } catch (error) {
-            alert('Error processing documents. Please try again.');
             console.error('Processing error:', error);
+            processBtn.textContent = "Process Documents";
+            processBtn.classList.remove('processing');
+            processBtn.style.backgroundColor = '#dc3545';
+            processBtn.disabled = false;
+            alert(`Error: ${error.message}`);
         }
-
-        processBtn.disabled = false;
     });
 });

@@ -1,4 +1,4 @@
-import os
+import os,sys
 import logging
 import json
 from dotenv import load_dotenv
@@ -56,132 +56,116 @@ def process_document_images(images_data, doc_path, image_store):
 
 def process_documents(model, processor, device, index, metadata, image_store):
     """Process all documents and store their content and images."""
-    # Clear existing data
-    index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
-    metadata = []
+    try:
+        # Get list of documents to process
+        doc_paths = []
+        for ext in CONFIG.SUPPORTED_EXTENSIONS:
+            doc_paths.extend(glob.glob(str(CONFIG.RAW_DOCUMENTS_PATH / f"*{ext}")))
 
-    # Clear or create a new tracking file
-    processed_files_path = Path("processed_files.json")
-    if processed_files_path.exists():
-        with open(processed_files_path, 'r') as f:
-            processed_files = set(json.load(f))
-    else:
-        processed_files = set()
+        if not doc_paths:
+            logging.warning("No documents found to process")
+            return index, metadata
 
-    doc_paths = []
-    for ext in CONFIG.SUPPORTED_EXTENSIONS:
-        doc_paths.extend(glob.glob(str(CONFIG.RAW_DOCUMENTS_PATH / f"*{ext}")))
+        logging.info(f"Found {len(doc_paths)} documents to process")
 
-    # Filter out already processed files
-    new_docs = [doc for doc in doc_paths if doc not in processed_files]
+        # Track successful embeddings
+        embeddings_added = False
 
-    if not new_docs:
-        logging.info("No new documents to process")
-        return index, metadata
+        # Process each document
+        for doc_path in doc_paths:
+            try:
+                text = ""
+                images_data = []
+                file_extension = Path(doc_path).suffix.lower()
 
-    logging.info(f"Found {len(new_docs)} new documents to process")
+                # Extract content based on file type
+                if file_extension == '.pdf':
+                    text, images_data = extract_text_and_images_from_pdf(doc_path)
+                elif file_extension == '.docx':
+                    text, images_data = extract_text_and_images_from_word(doc_path)
+                elif file_extension == '.xlsx':
+                    text, images_data = extract_text_and_images_from_excel(doc_path)
 
-    # First pass: Process all documents and store images
-    for doc_path in new_docs:
-        try:
-            text = ""
-            images_data = []
-            file_extension = Path(doc_path).suffix.lower()
+                # Process text content
+                if text and text.strip():
+                    text_chunks = chunk_text(text, CONFIG.CHUNK_SIZE)
+                    if text_chunks:
+                        text_embeddings, _ = encode_with_clip(text_chunks, [], model, processor, device)
 
-            if file_extension == '.pdf':
-                text, images_data = extract_text_and_images_from_pdf(doc_path)
-            elif file_extension == '.docx':
-                text, images_data = extract_text_and_images_from_word(doc_path)
-            elif file_extension == '.xlsx':
-                text, images_data = extract_text_and_images_from_excel(doc_path)
-            else:
+                        for chunk_idx, embedding in enumerate(text_embeddings):
+                            if embedding is not None:
+                                try:
+                                    add_to_faiss(
+                                        embedding=np.array(embedding),
+                                        pdf_name=doc_path,
+                                        content_type="text-chunk",
+                                        content=text_chunks[chunk_idx],
+                                        index=index,
+                                        metadata=metadata
+                                    )
+                                    embeddings_added = True
+                                    logging.info(f"Added text chunk {chunk_idx} from {doc_path}")
+                                except Exception as e:
+                                    logging.error(f"Error adding text chunk {chunk_idx}: {e}")
+
+                # Process images
+                if images_data:
+                    for img_data in images_data:
+                        try:
+                            image_id = image_store.store_image(
+                                image=img_data['image'],
+                                source_doc=str(doc_path),
+                                page_num=img_data['page_num'],
+                                context=img_data.get('context', ''),
+                                caption=img_data.get('caption', f"Image from {Path(doc_path).name}")
+                            )
+
+                            # Create image embedding
+                            _, image_embedding = encode_with_clip([], [img_data['image']], model, processor, device)
+
+                            if image_embedding and len(image_embedding) > 0:
+                                try:
+                                    add_to_faiss(
+                                        embedding=np.array(image_embedding[0]),
+                                        pdf_name=doc_path,
+                                        content_type="image",
+                                        content={
+                                            "image_id": image_id,
+                                            "source_doc": str(doc_path),
+                                            "context": img_data.get('context', ''),
+                                            "caption": img_data.get('caption', ''),
+                                            "page": img_data['page_num']
+                                        },
+                                        index=index,
+                                        metadata=metadata
+                                    )
+                                    embeddings_added = True
+                                    logging.info(f"Added image embedding for {image_id}")
+                                except Exception as e:
+                                    logging.error(f"Error adding image embedding: {e}")
+                        except Exception as e:
+                            logging.error(f"Error processing image from {doc_path}: {e}")
+                            continue
+
+            except Exception as e:
+                logging.error(f"Error processing document {doc_path}: {e}")
                 continue
 
-            # Store images
-            for idx, img_data in enumerate(images_data):
-                try:
-                    image_id = image_store.store_image(
-                        image=img_data['image'],
-                        source_doc=str(doc_path),
-                        page_num=img_data['page_num'],
-                        caption=f"Image {idx + 1} from {Path(doc_path).name}",
-                        context=img_data.get('context', '')
-                    )
-                    logging.info(f"Stored image {idx + 1} from {doc_path} with ID: {image_id}")  # Add this line
-                except Exception as e:
-                    logging.error(f"Error storing image {idx} from {doc_path}: {e}")
+        if not embeddings_added:
+            logging.warning("No embeddings were added during processing")
+            return index, []
 
-            # Process text content
-            if text.strip():
-                text_chunks = chunk_text(text, CONFIG.CHUNK_SIZE)
-                text_embeddings, _ = encode_with_clip(text_chunks, [], model, processor, device)
+        if not metadata:
+            logging.warning("No metadata generated during processing")
+            return index, []
 
-                for chunk_idx, embedding in enumerate(text_embeddings):
-                    add_to_faiss(
-                        embedding=np.array(embedding),
-                        pdf_name=doc_path,
-                        content_type="text-chunk",
-                        content=text_chunks[chunk_idx],
-                        index=index,
-                        metadata=metadata
-                    )
-
-            # Add to processed files after successful processing
-            processed_files.add(str(doc_path))
-
-        except Exception as e:
-            logging.error(f"Error processing document {doc_path}: {e}")
-            continue
-
-    # Save processed files list
-    with open(processed_files_path, 'w') as f:
-        json.dump(list(processed_files), f)
-
-    # Second pass: Deduplicate images and update metadata
-    logging.info("Starting image deduplication process...")
-    try:
-        # Get duplicate groups (don't clear metadata)
-        hash_to_ids, merged_contexts = deduplicate_images(image_store)
-
-        # Only if duplicates found, update metadata
-        if hash_to_ids:
-            remove_duplicate_images(image_store, hash_to_ids, merged_contexts)
-            metadata = update_faiss_metadata(metadata, hash_to_ids, merged_contexts)
-
-        logging.info(f"Found {len(image_store.metadata)} unique images")
+        logging.info(f"Successfully processed {len(doc_paths)} documents")
+        logging.info(f"Generated {len(metadata)} metadata entries")
+        return index, metadata
 
     except Exception as e:
-        logging.error(f"Error during image deduplication: {e}")
-
-    # Third pass: Create CLIP embeddings for unique images
-    logging.info("Processing CLIP embeddings for unique images...")
-    for image_id in image_store.metadata.keys():
-        try:
-            image, img_metadata = image_store.get_image(image_id)
-            if image and img_metadata:
-                # Create image embedding and add to FAISS
-                _, image_embedding = encode_with_clip([], [image], model, processor, device)
-                if len(image_embedding) > 0:
-                    add_to_faiss(
-                        embedding=np.array(image_embedding[0]),
-                        pdf_name=img_metadata['source_document'],
-                        content_type="image",
-                        content={
-                            "image_id": image_id,
-                            "source_doc": img_metadata['source_document'],
-                            "caption": img_metadata.get('caption', ''),
-                            "context": img_metadata.get('context', ''),
-                            "page": img_metadata.get('page_number')
-                        },
-                        index=index,
-                        metadata=metadata
-                    )
-        except Exception as e:
-            logging.error(f"Error processing CLIP embedding for image {image_id}: {e}")
-            continue
-
-    logging.info("Document processing completed")
-    return index, metadata
+        logging.error(f"Error in process_documents: {e}")
+        raise
 
 def check_stored_images():
     """Check if images are properly stored and indexed"""
@@ -214,46 +198,95 @@ def check_stored_images():
     else:
         print("No FAISS metadata file found")
 
+
+def update_processed_files(doc_paths):
+    """Update the list of successfully processed files
+
+    Args:
+        doc_paths: List of paths to documents that were successfully processed
+    """
+    processed_files_path = Path("processed_files.json")
+    try:
+        if processed_files_path.exists():
+            with open(processed_files_path, 'r') as f:
+                processed_files = set(json.load(f))
+        else:
+            processed_files = set()
+
+        # Add new files
+        processed_files.update([str(path) for path in doc_paths])
+
+        # Save updated list
+        with open(processed_files_path, 'w') as f:
+            json.dump(list(processed_files), f)
+
+        logging.info(f"Updated processed files list with {len(doc_paths)} new documents")
+
+    except Exception as e:
+        logging.error(f"Error updating processed files list: {e}")
+        raise
+
 def main():
-    # Load environment variables
-    load_dotenv()
-    os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"  # numpy issue patch
+    try:
+        # Load environment variables
+        load_dotenv()
 
-    # Initialize CLIP embedding model
-    clip_model, clip_processor, device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
-    logging.info(f"CLIP model initialized on {device}")
+        # Get list of documents to process
+        doc_paths = []
+        for ext in CONFIG.SUPPORTED_EXTENSIONS:
+            doc_paths.extend(glob.glob(str(CONFIG.RAW_DOCUMENTS_PATH / f"*{ext}")))
 
-    # Initialize FAISS index and metadata
-    index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
-    metadata = []
+        if not doc_paths:
+            logging.warning("No documents found to process")
+            return 0
 
-    # Initialize ImageStore
-    image_store = ImageStore(CONFIG.STORED_IMAGES_PATH)
-    logging.info("ImageStore initialized")
+        # Initialize CLIP model
+        clip_model, clip_processor, device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
+        if not clip_model or not clip_processor:
+            raise RuntimeError("Failed to initialize CLIP model")
 
-    # Process documents
-    index, metadata = process_documents(
-        model=clip_model,
-        processor=clip_processor,
-        device=device,
-        index=index,
-        metadata=metadata,
-        image_store=image_store
-    )
+        # Initialize FAISS index
+        index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
+        metadata = []
 
-    # Save index and metadata
-    save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
+        # Initialize ImageStore
+        image_store = ImageStore(CONFIG.STORED_IMAGES_PATH)
 
-    logging.info("Metadata analysis:")
-    logging.info(f"Text chunks: {len([m for m in metadata if m['type'] == 'text-chunk'])}")
-    logging.info(f"Images: {len([m for m in metadata if m['type'] == 'image'])}")
-    logging.info(f"First image entry: {next((m for m in metadata if m['type'] == 'image'), None)}")
+        # Process documents
+        index, metadata = process_documents(
+            model=clip_model,
+            processor=clip_processor,
+            device=device,
+            index=index,
+            metadata=metadata,
+            image_store=image_store
+        )
 
-    save_metadata(metadata, CONFIG.METADATA_PATH)
-    logging.info("Index and metadata saved successfully")
+        if not metadata:
+            logging.warning("No metadata generated during processing")
+            # Don't raise an error, just return success with empty metadata
+            # Save empty index and metadata to indicate processing completed
+            save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
+            save_metadata(metadata, CONFIG.METADATA_PATH)
+            return 0
 
+        # Save results
+        save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
+        save_metadata(metadata, CONFIG.METADATA_PATH)
+
+        # Update processed files list
+        if metadata:
+            update_processed_files(doc_paths)
+
+        logging.info("Processing completed successfully")
+        return 0
+
+    except Exception as e:
+        logging.error(f"Critical error during processing: {str(e)}", exc_info=True)
+        return 1
 
 if __name__ == "__main__":
-    main()
+    result = main()
     # After processing, check the stored images
     check_stored_images()
+    sys.exit(result)

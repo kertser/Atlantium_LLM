@@ -50,15 +50,26 @@ def add_to_faiss(embedding, pdf_name, content_type, content, index, metadata):
         # For text chunks, add content directly
         if content_type == "text-chunk":
             meta_entry["content"] = content
-        # For images, spread image metadata
-        elif content_type == "image" and isinstance(content, dict):
-            meta_entry.update({
-                "image_id": content["image_id"],
-                "caption": content["caption"],
-                "context": content["context"],
-                "source_doc": content["source_doc"],
-                "page": content.get("page")
-            })
+
+        # For images, handle potentially missing fields with defaults
+        elif content_type == "image":
+            if isinstance(content, dict):
+                meta_entry.update({
+                    "image_id": content.get("image_id", ""),
+                    "caption": content.get("caption", f"Image from {os.path.basename(pdf_name)}"),
+                    "context": content.get("context", ""),
+                    "source_doc": content.get("source_doc", pdf_name),
+                    "page": content.get("page", 1)
+                })
+            else:
+                # Handle case where content is not a dict
+                meta_entry.update({
+                    "image_id": "",
+                    "caption": f"Image from {os.path.basename(pdf_name)}",
+                    "context": "",
+                    "source_doc": pdf_name,
+                    "page": 1
+                })
 
         metadata.append(meta_entry)
         logging.info(f"Added {content_type} embedding to FAISS from {pdf_name}")
