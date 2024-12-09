@@ -112,6 +112,7 @@ def process_documents(model, processor, device, index, metadata, image_store):
                 if images_data:
                     for img_data in images_data:
                         try:
+                            # Store image first
                             image_id = image_store.store_image(
                                 image=img_data['image'],
                                 source_doc=str(doc_path),
@@ -121,28 +122,33 @@ def process_documents(model, processor, device, index, metadata, image_store):
                             )
 
                             # Create image embedding
-                            _, image_embedding = encode_with_clip([], [img_data['image']], model, processor, device)
+                            _, image_embedding = encode_with_clip([], [img_data['image']], model,
+                                                                  processor, device)
 
-                            if image_embedding and len(image_embedding) > 0:
-                                try:
-                                    add_to_faiss(
-                                        embedding=np.array(image_embedding[0]),
-                                        pdf_name=doc_path,
-                                        content_type="image",
-                                        content={
-                                            "image_id": image_id,
-                                            "source_doc": str(doc_path),
-                                            "context": img_data.get('context', ''),
-                                            "caption": img_data.get('caption', ''),
-                                            "page": img_data['page_num']
-                                        },
-                                        index=index,
-                                        metadata=metadata
-                                    )
-                                    embeddings_added = True
-                                    logging.info(f"Added image embedding for {image_id}")
-                                except Exception as e:
-                                    logging.error(f"Error adding image embedding: {e}")
+                            # Check if we got a valid embedding
+                            if isinstance(image_embedding, np.ndarray) and image_embedding.size > 0:
+                                # If it's a 2D array, take the first embedding
+                                if len(image_embedding.shape) > 1:
+                                    embedding_to_use = image_embedding[0]
+                                else:
+                                    embedding_to_use = image_embedding
+
+                                add_to_faiss(
+                                    embedding=embedding_to_use,
+                                    pdf_name=doc_path,
+                                    content_type="image",
+                                    content={
+                                        "image_id": image_id,
+                                        "source_doc": str(doc_path),
+                                        "context": img_data.get('context', ''),
+                                        "caption": img_data.get('caption', ''),
+                                        "page": img_data['page_num']
+                                    },
+                                    index=index,
+                                    metadata=metadata
+                                )
+                                embeddings_added = True
+                                logging.info(f"Added image embedding for {image_id}")
                         except Exception as e:
                             logging.error(f"Error processing image from {doc_path}: {e}")
                             continue

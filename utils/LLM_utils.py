@@ -116,9 +116,7 @@ def process_image_for_clip(image):
 def encode_with_clip(texts, images, model, processor, device):
     """
     Encodes text and images using CLIP.
-    :param texts: List of strings to encode.
-    :param images: List of PIL Image objects to encode.
-    :return: Tuple of (text_embeddings, image_embeddings) as NumPy arrays.
+    Returns: Tuple of (text_embeddings, image_embeddings) as NumPy arrays.
     """
     text_embeddings = []
     image_embeddings = []
@@ -128,34 +126,34 @@ def encode_with_clip(texts, images, model, processor, device):
         try:
             inputs = processor(text=texts, return_tensors="pt", padding=True, truncation=True)
             inputs = {k: v.to(device) for k, v in inputs.items()}
-            text_features = model.get_text_features(**inputs)
-            text_features = text_features / text_features.norm(dim=-1, keepdim=True)  # Normalize
-            text_embeddings = text_features.cpu().detach().numpy()
+            with torch.no_grad():
+                text_features = model.get_text_features(**inputs)
+                text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+                text_embeddings = text_features.cpu().detach().numpy()
         except Exception as e:
-            print(f"Error encoding text: {e}")
+            logging.error(f"Error encoding text: {e}")
 
     # Encode images
-    for image in images:
+    if images and isinstance(images, list):
         try:
-            if image is None:
-                continue
-            # Ensure image is in RGB mode
-            if image.mode != "RGB":
-                image = image.convert("RGB")
-            image_input = processor(images=image, return_tensors="pt").to(device)
-            image_features = model.get_image_features(**image_input)
-            image_features = image_features / image_features.norm(dim=-1, keepdim=True)  # Normalize
-            image_embeddings.append(image_features.cpu().detach().numpy())
-        except Exception as e:
-            print(f"Error encoding image: {e}")
-            continue
+            processed_images = []
+            for image in images:
+                if image is None:
+                    continue
+                # Ensure image is in RGB mode
+                if image.mode != "RGB":
+                    image = image.convert("RGB")
+                processed_images.append(image)
 
-    # Flatten image embeddings if needed
-    if image_embeddings:
-        try:
-            image_embeddings = np.vstack(image_embeddings)
-        except ValueError as e:
-            print(f"Error flattening image embeddings: {e}")
-            image_embeddings = np.array([])
+            if processed_images:
+                image_inputs = processor(images=processed_images, return_tensors="pt")
+                image_inputs = {k: v.to(device) for k, v in image_inputs.items()}
+                with torch.no_grad():
+                    image_features = model.get_image_features(**image_inputs)
+                    image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+                    image_embeddings = image_features.cpu().detach().numpy()
+
+        except Exception as e:
+            logging.error(f"Error encoding images: {e}")
 
     return text_embeddings, image_embeddings

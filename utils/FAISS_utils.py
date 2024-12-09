@@ -1,7 +1,9 @@
+import os, sys
 import faiss
 import json
 import numpy as np
 import logging
+from pathlib import Path
 from config import CONFIG
 
 def initialize_faiss_index(dimension, use_gpu=False):
@@ -43,7 +45,7 @@ def add_to_faiss(embedding, pdf_name, content_type, content, index, metadata):
 
         # Create base metadata
         meta_entry = {
-            "pdf": pdf_name,
+            "pdf": str(pdf_name),  # Convert Path to string if needed
             "type": content_type
         }
 
@@ -54,20 +56,21 @@ def add_to_faiss(embedding, pdf_name, content_type, content, index, metadata):
         # For images, handle potentially missing fields with defaults
         elif content_type == "image":
             if isinstance(content, dict):
+                doc_name = Path(content.get("source_doc", pdf_name)).name
                 meta_entry.update({
                     "image_id": content.get("image_id", ""),
-                    "caption": content.get("caption", f"Image from {os.path.basename(pdf_name)}"),
+                    "caption": content.get("caption", f"Image from {doc_name}"),
                     "context": content.get("context", ""),
-                    "source_doc": content.get("source_doc", pdf_name),
+                    "source_doc": str(content.get("source_doc", pdf_name)),
                     "page": content.get("page", 1)
                 })
             else:
-                # Handle case where content is not a dict
+                doc_name = Path(pdf_name).name
                 meta_entry.update({
                     "image_id": "",
-                    "caption": f"Image from {os.path.basename(pdf_name)}",
+                    "caption": f"Image from {doc_name}",
                     "context": "",
-                    "source_doc": pdf_name,
+                    "source_doc": str(pdf_name),
                     "page": 1
                 })
 
@@ -78,47 +81,48 @@ def add_to_faiss(embedding, pdf_name, content_type, content, index, metadata):
         logging.error(f"Error adding embedding to FAISS: {e}")
         raise
 
-
 def query_faiss(index, metadata, query_embeddings, top_k):
-    """Query FAISS index """
-    # Handle empty metadata case
-    if not metadata:
-        logging.info("No documents indexed yet")
+    """Query FAISS index with improved error handling"""
+    try:
+        # Handle empty metadata case
+        if not metadata:
+            logging.info("No documents indexed yet")
+            return []
+
+        # Add logging
+        logging.info(f"Querying FAISS index with {len(metadata)} total entries")
+
+        # Get all results, but ensure k is at least 1
+        k = max(1, min(len(metadata), top_k * 2))
+        distances, indices = index.search(query_embeddings, k)
+
+        logging.info(f"Query returned {len(indices[0])} results")
+
+        results = []
+        text_results = []
+        image_results = []
+
+        for idx, distance in zip(indices[0], distances[0]):
+            if idx >= len(metadata):
+                continue
+            result = {
+                "idx": int(idx),
+                "metadata": metadata[idx],
+                "distance": float(distance)
+            }
+            if metadata[idx].get('type') == 'image':
+                image_results.append(result)
+            else:
+                text_results.append(result)
+
+        # Combine results with logging
+        results.append(text_results[:top_k] + image_results[:top_k])
+        logging.info(f"Returning {len(text_results[:top_k])} text and {len(image_results[:top_k])} image results")
+        return results
+
+    except Exception as e:
+        logging.error(f"Error in query_faiss: {e}")
         return []
-
-    # Add logging
-    logging.info(f"Querying FAISS index with {len(metadata)} total entries")
-
-    # Get all results, but ensure k is at least 1
-    k = max(1, min(len(metadata), top_k * 2))
-    distances, indices = index.search(query_embeddings, k)
-
-    logging.info(f"Query returned {len(indices[0])} results")
-    logging.info(
-        f"Image matches: {len([i for i in indices[0] if i < len(metadata) and metadata[i].get('type') == 'image'])}")
-
-    results = []
-
-    # Separate text and image results
-    text_results = []
-    image_results = []
-
-    for idx, distance in zip(indices[0], distances[0]):
-        if idx >= len(metadata):
-            continue
-        result = {
-            "idx": idx,
-            "metadata": metadata[idx],
-            "distance": float(distance)
-        }
-        if metadata[idx].get('type') == 'image':
-            image_results.append(result)
-        else:
-            text_results.append(result)
-
-    # Combine top results from each type
-    results.append(text_results[:top_k] + image_results[:top_k])
-    return results
 
 
 def query_with_context(index, metadata, model, processor, device="cpu", text_query=None, image_query=None, top_k=5):
