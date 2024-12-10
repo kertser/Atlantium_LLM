@@ -1,6 +1,6 @@
 # Document parsing and RAG-related functions
 import logging
-import fitz  # PyMuPDF for PDFs
+import pymupdf  # PyMuPDF for PDFs
 import openpyxl  # for Excel files
 from docx import Document
 from PIL import Image, UnidentifiedImageError
@@ -8,7 +8,6 @@ from io import BytesIO
 from utils.image_store import ImageStore
 from config import CONFIG
 from pathlib import Path
-fitz.TOOLS.mupdf_display_errors(False)  # Suppress MuPDF errors
 
 # Configure logging at module level
 logger = logging.getLogger(__name__)
@@ -88,7 +87,7 @@ def extract_text_and_images_from_pdf(pdf_path):
     pdf_document = None
 
     try:
-        pdf_document = fitz.open(pdf_path)
+        pdf_document = pymupdf.open(pdf_path)
         doc_name = Path(pdf_path).name
         logger.info(f"Processing PDF document: {doc_name}")
 

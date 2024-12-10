@@ -328,22 +328,32 @@ def validate_metadata_and_index(metadata: list, index: Any, image_store: ImageSt
 
     return valid_metadata, new_index
 
+
 def main():
     try:
         # Load environment variables
         load_dotenv()
 
-        # Get list of all documents
+        # Get list of all documents with proper error handling
         all_docs = []
         for ext in CONFIG.SUPPORTED_EXTENSIONS:
-            all_docs.extend(glob.glob(str(CONFIG.RAW_DOCUMENTS_PATH / f"*{ext}")))
+            try:
+                docs = glob.glob(str(CONFIG.RAW_DOCUMENTS_PATH / f"*{ext}"))
+                all_docs.extend(docs)
+            except Exception as e:
+                logging.error(f"Error searching for {ext} files: {e}")
+                continue
 
         if not all_docs:
             logging.warning("No documents found to process")
             return 0
 
-        # Load already processed files
-        processed_files = get_processed_files()
+        # Load already processed files with error handling
+        try:
+            processed_files = get_processed_files()
+        except Exception as e:
+            logging.error(f"Error loading processed files: {e}")
+            processed_files = set()
 
         # Filter out already processed files using absolute paths
         new_docs = [path for path in all_docs if str(Path(path).absolute()) not in processed_files]
@@ -354,78 +364,93 @@ def main():
 
         logging.info(f"Found {len(new_docs)} new documents to process")
 
-        # Initialize CLIP model
-        clip_model, clip_processor, device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
-        if not clip_model or not clip_processor:
-            raise RuntimeError("Failed to initialize CLIP model")
-
-        # Try to load existing index and metadata first
+        # Initialize components with proper cleanup
+        clip_model = None
+        index = None
         try:
-            index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
-            metadata = load_metadata(CONFIG.METADATA_PATH)
-            logging.info("Loaded existing FAISS index and metadata")
-        except Exception as e:
-            logging.info("No existing index found or error loading. Initializing new ones")
-            index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
-            metadata = []
+            # Initialize CLIP model
+            clip_model, clip_processor, device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
+            if not clip_model or not clip_processor:
+                raise RuntimeError("Failed to initialize CLIP model")
 
-        # Initialize ImageStore
-        image_store = ImageStore(CONFIG.STORED_IMAGES_PATH)
+            # Try to load existing index and metadata
+            try:
+                index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
+                metadata = load_metadata(CONFIG.METADATA_PATH)
+                logging.info("Loaded existing FAISS index and metadata")
+            except Exception as e:
+                logging.info(f"Creating new index and metadata: {e}")
+                index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
+                metadata = []
 
-        # Process only new documents
-        updated_index, new_metadata = process_documents(
-            model=clip_model,
-            processor=clip_processor,
-            device=device,
-            index=index,
-            metadata=metadata,
-            image_store=image_store,
-            doc_paths=new_docs
-        )
+            # Initialize ImageStore
+            image_store = ImageStore(CONFIG.STORED_IMAGES_PATH)
 
-        if not new_metadata and not metadata:
-            logging.warning("No metadata generated during processing")
-            save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
-            save_metadata([], CONFIG.METADATA_PATH)
-            return 0
-
-        # If processing was successful, update metadata and save
-        if new_metadata:
-            if isinstance(metadata, list):
-                combined_metadata = metadata + new_metadata
-                # Validate and clean both metadata and index
-                cleaned_metadata, cleaned_index = validate_metadata_and_index(
-                    combined_metadata, updated_index, image_store)
+            # Process documents in smaller batches to manage memory
+            batch_size = 5  # Adjust based on available memory
+            for i in range(0, len(new_docs), batch_size):
+                batch_docs = new_docs[i:i + batch_size]
                 logging.info(
-                    f"Cleaned metadata: {len(cleaned_metadata)} entries ({len(combined_metadata) - len(cleaned_metadata)} removed)")
-                metadata = cleaned_metadata
-                updated_index = cleaned_index
-            else:
-                cleaned_metadata, cleaned_index = validate_metadata_and_index(
-                    new_metadata, updated_index, image_store)
-                metadata = cleaned_metadata
-                updated_index = cleaned_index
+                    f"Processing batch {i // batch_size + 1} of {(len(new_docs) + batch_size - 1) // batch_size}")
 
-            # Update processed files list
-            update_processed_files(new_docs)
+                updated_index, new_metadata = process_documents(
+                    model=clip_model,
+                    processor=clip_processor,
+                    device=device,
+                    index=index,
+                    metadata=metadata,
+                    image_store=image_store,
+                    doc_paths=batch_docs
+                )
 
-            # Save final results after all processing is complete
-            save_faiss_index(updated_index, CONFIG.FAISS_INDEX_PATH)
-            save_metadata(metadata, CONFIG.METADATA_PATH)
+                # Update index and metadata after each batch
+                if new_metadata:
+                    index = updated_index
+                    metadata.extend(new_metadata)
 
-            logging.info(f"Successfully added {len(new_metadata)} new entries to metadata")
+                    # Save intermediate results
+                    save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
+                    save_metadata(metadata, CONFIG.METADATA_PATH)
+                    update_processed_files(batch_docs)
+
+                    logging.info(f"Saved progress after batch {i // batch_size + 1}")
+
             logging.info("Processing completed successfully")
             return 0
-        else:
-            logging.warning("No new metadata generated, keeping existing data")
-            return 0
+
+        except Exception as e:
+            logging.error(f"Critical error during processing: {str(e)}", exc_info=True)
+            return 1
+
+        finally:
+            # Cleanup
+            if clip_model is not None and hasattr(clip_model, 'cpu'):
+                try:
+                    clip_model.cpu()  # Move model to CPU to free GPU memory
+                    del clip_model
+                except Exception as e:
+                    logging.error(f"Error cleaning up CLIP model: {e}")
+
+            if index is not None:
+                try:
+                    del index
+                except Exception as e:
+                    logging.error(f"Error cleaning up FAISS index: {e}")
+
+            import gc
+            gc.collect()  # Force garbage collection
 
     except Exception as e:
-        logging.error(f"Critical error during processing: {str(e)}", exc_info=True)
+        logging.error(f"Unhandled exception in main: {str(e)}", exc_info=True)
         return 1
 
+
 if __name__ == "__main__":
-    result = main()
-    # After processing, check the stored images
-    check_stored_images()
-    sys.exit(result)
+    try:
+        result = main()
+        # After processing, check the stored images
+        check_stored_images()
+        sys.exit(result)
+    except Exception as e:
+        logging.error(f"Fatal error: {str(e)}", exc_info=True)
+        sys.exit(1)

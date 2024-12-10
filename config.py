@@ -9,8 +9,6 @@ class Config:
 
     # Paths
     RAW_DOCUMENTS_PATH: Path = Path("Raw Documents")
-    # FAISS_INDEX_PATH: Path = Path("faiss_index.bin")
-    # METADATA_PATH: Path = Path("faiss_metadata.json")
 
     FAISS_INDEX_PATH: Path = Path("indices/faiss_index.bin")
     METADATA_PATH: Path = Path("indices/faiss_metadata.json")
@@ -27,7 +25,7 @@ class Config:
     CHUNK_OVERLAP: int = 50
     MIN_CHUNK_SIZE: int = 100
     SIMILARITY_THRESHOLD: float = 0.8 # Text similarity
-    IMAGE_SIMILARITY_THRESHOLD: float = 0.3 # Image similarity
+    IMAGE_SIMILARITY_THRESHOLD: float = 0.2 # Image similarity
     MAX_METADATA_SIZE: int = 10000
     CHUNK_SIZE: int = 512
     SUPPORTED_EXTENSIONS: List[str] = None

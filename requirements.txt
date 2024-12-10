@@ -14,4 +14,3 @@ python-multipart
 uvicorn
 imagehash
 pydantic
-fitz
