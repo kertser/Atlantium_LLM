@@ -28,6 +28,8 @@ from config import CONFIG
 from utils.FAISS_utils import load_faiss_index, load_metadata, query_with_context
 from utils.LLM_utils import CLIP_init, openai_post_request
 from utils.image_store import ImageStore
+import imagehash
+import numpy as np
 
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -271,10 +273,11 @@ class RAGQueryServer:
             return None
 
     def prepare_prompt(self, query_text: str, contexts: List[str], query_type: QueryType, images: List[Dict]) -> str:
+        """Prepare prompt with deduplicated images."""
         # Get relevant chat history (last few exchanges)
         chat_context = ""
         if self.chat_history:
-            last_exchanges = self.chat_history[-(2*CONFIG.MAX_CHAT_HISTORY):]  # Get last Q&A pairs
+            last_exchanges = self.chat_history[-(2 * CONFIG.MAX_CHAT_HISTORY):]  # Get last Q&A pairs
             chat_context = "\nRecent Chat History:\n" + "\n".join([
                 f"{'User' if msg['role'] == 'user' else 'Assistant'}: {msg['content']}"
                 for msg in last_exchanges
@@ -371,6 +374,11 @@ class RAGQueryServer:
             # Get contexts and images
             contexts, images = self.get_relevant_contexts(results, query_text)
 
+            # Deduplicate images right after getting them
+            if images:
+                images = deduplicate_images(images)
+                logging.info(f"After deduplication: {len(images)} unique images")
+
             # Determine appropriate response based on available information
             if not contexts and images:
                 text_response = "Here are the relevant images I found:"
@@ -402,8 +410,7 @@ class RAGQueryServer:
                 "content": text_response
             })
 
-            logging.info(f"Returning response with {len(images)} images")
-
+            logging.info(f"Returning response with {len(images)} deduplicated images")
             return QueryResponse(
                 text_response=text_response,
                 images=images
@@ -476,6 +483,24 @@ class RAGQueryServer:
 
     def get_chat_history(self):
         return self.chat_history
+
+
+def calculate_image_hash(image_data: str) -> str:
+    """Calculate perceptual hash from base64 image data"""
+    try:
+        # Convert base64 to PIL Image
+        image_bytes = base64.b64decode(image_data)
+        image = Image.open(BytesIO(image_bytes))
+
+        # Calculate multiple hash types for better accuracy
+        avg_hash = str(imagehash.average_hash(image))
+        dhash = str(imagehash.dhash(image))
+        phash = str(imagehash.phash(image))
+
+        return f"{avg_hash}_{dhash}_{phash}"
+    except Exception as e:
+        logging.error(f"Error calculating image hash: {e}")
+        return None
 
 
 @asynccontextmanager
@@ -729,6 +754,157 @@ def check_processing_status():
     except Exception as e:
         logger.error(f"Error checking processing status: {str(e)}")
         return False, f"Error checking processing status: {str(e)}"
+
+
+def normalize_and_hash_image(image_data: str, target_size: Tuple[int, int] = (224, 224)) -> Tuple[str, Tuple[int, int]]:
+    """
+    Normalize image size and calculate perceptual hash.
+
+    Args:
+        image_data: Base64 encoded image data
+        target_size: Size to normalize to before hashing
+
+    Returns:
+        Tuple of (hash_string, original_size)
+    """
+    try:
+        # Convert base64 to PIL Image
+        image_bytes = base64.b64decode(image_data)
+        image = Image.open(BytesIO(image_bytes))
+        original_size = image.size
+
+        # Convert to RGB if needed
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+
+        # Resize for consistent hashing
+        normalized = image.resize(target_size, Image.Resampling.LANCZOS)
+
+        # Calculate multiple hash types
+        avg_hash = imagehash.average_hash(normalized)
+        dhash = imagehash.dhash(normalized)
+        phash = imagehash.phash(normalized)
+
+        # Convert hashes to binary strings for more precise comparison
+        hash_string = f"{avg_hash}_{dhash}_{phash}"
+
+        return hash_string, original_size
+    except Exception as e:
+        logging.error(f"Error calculating image hash: {e}")
+        return None, None
+
+
+def are_images_similar(hash1: str, hash2: str, threshold: int = 5) -> bool:
+    """
+    Compare image hashes to determine similarity.
+    Lower threshold means stricter matching.
+    """
+    try:
+        # Split combined hashes
+        avg1, dhash1, phash1 = hash1.split('_')
+        avg2, dhash2, phash2 = hash2.split('_')
+
+        # Convert string hashes back to imagehash objects
+        avg_diff = imagehash.hex_to_hash(avg1) - imagehash.hex_to_hash(avg2)
+        dhash_diff = imagehash.hex_to_hash(dhash1) - imagehash.hex_to_hash(dhash2)
+        phash_diff = imagehash.hex_to_hash(phash1) - imagehash.hex_to_hash(phash2)
+
+        # Images are similar if any two hash types indicate similarity
+        similarities = [diff <= threshold for diff in (avg_diff, dhash_diff, phash_diff)]
+        return sum(similarities) >= 2
+    except Exception as e:
+        logging.error(f"Error comparing image hashes: {e}")
+        return False
+
+
+def deduplicate_images(images: list, max_images: int = 8) -> list:
+    """
+    Deduplicate images using perceptual hashing with size normalization.
+
+    Args:
+        images: List of image dictionaries
+        max_images: Maximum number of images to return
+
+    Returns:
+        List of deduplicated images, limited to max_images
+    """
+    # Dictionary to track unique images by their perceptual hash
+    unique_images = {}
+    hash_groups = {}  # Track groups of similar images
+
+    for img in images:
+        image_id = img.get('image_id')
+        if not image_id or not img.get('image'):
+            continue
+
+        # Calculate normalized hash and get original size
+        image_hash, original_size = normalize_and_hash_image(img['image'])
+        if not image_hash:
+            continue
+
+        # Check if this image is similar to any existing ones
+        found_match = False
+        for existing_hash in list(unique_images.keys()):  # Create list copy to avoid runtime modification issues
+            if are_images_similar(image_hash, existing_hash):
+                found_match = True
+                # Use existing hash as the group key
+                group_hash = existing_hash
+                if img.get('similarity', 0) > unique_images[group_hash].get('similarity', 0):
+                    # Keep metadata from old image
+                    old_metadata = unique_images[group_hash]
+                    unique_images[group_hash] = img
+                    # Merge metadata
+                    img = merge_image_metadata(img, old_metadata)
+
+                # Track image ID in hash group
+                if group_hash not in hash_groups:
+                    hash_groups[group_hash] = set()
+                hash_groups[group_hash].add(image_id)
+
+                logging.info(f"Found similar images. ID: {image_id}, Size: {original_size}")
+                break
+
+        if not found_match:
+            unique_images[image_hash] = img
+            hash_groups[image_hash] = {image_id}
+            logging.info(f"New unique image. ID: {image_id}, Size: {original_size}")
+
+    # Log duplicate groups
+    for hash_val, ids in hash_groups.items():
+        if len(ids) > 1:
+            logging.info(f"Duplicate image group with {len(ids)} variants: {ids}")
+
+    # Convert to list and sort by similarity
+    deduplicated = list(unique_images.values())
+    deduplicated.sort(key=lambda x: x.get('similarity', 0), reverse=True)
+
+    logging.info(f"Deduplicated {len(images)} images to {len(deduplicated)} unique images")
+    return deduplicated[:max_images]
+
+
+def merge_image_metadata(primary_img: dict, secondary_img: dict) -> dict:
+    """Merge metadata from two image records."""
+    merged = primary_img.copy()
+
+    # Merge captions
+    if secondary_img.get('caption'):
+        captions = set(primary_img.get('caption', '').split(' | '))
+        captions.add(secondary_img['caption'])
+        merged['caption'] = ' | '.join(filter(None, captions))
+
+    # Merge contexts
+    if secondary_img.get('context'):
+        contexts = set(primary_img.get('context', '').split(' | '))
+        contexts.add(secondary_img['context'])
+        merged['context'] = ' | '.join(filter(None, contexts))
+
+    # Merge sources
+    if secondary_img.get('source'):
+        sources = set(primary_img.get('source', '').split(' | '))
+        sources.add(secondary_img['source'])
+        merged['source'] = ' | '.join(filter(None, sources))
+
+    return merged
 
 @app.post("/process/documents")
 async def process_documents():

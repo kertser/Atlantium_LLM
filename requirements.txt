@@ -2,8 +2,8 @@ python-dotenv
 pillow
 openai
 numpy
-faiss-cpu
-torch
+faiss-cpu # faiss-gpu for linux, using cuda version
+torch # pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 transformers
 requests
 PyMuPDF
