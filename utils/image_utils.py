@@ -1,62 +1,80 @@
 import logging
 import base64
 from io import BytesIO
-from typing import Tuple, List, Dict
+from typing import Tuple, List, Dict, Union
 from PIL import Image
 import imagehash
 import torch
 
 
-def zero_shot_classification(image_path: str, labels: List[str], model, processor) -> Tuple[str, float]:
+def zero_shot_classification(
+        image: Union[Image.Image, str],
+        labels: List[str],
+        model,
+        processor,
+        device
+) -> Tuple[str, float]:
     """
-    Perform zero-shot image classification using the provided model, processor, and labels.
+    Perform zero-shot image classification using CLIP model.
+
     Args:
-        image_path: Path to the image file
-        labels: List of labels for classification
+        image: PIL Image object or path to image file
+        labels: List of text labels for classification
         model: Loaded CLIP model
         processor: Loaded CLIP processor
+        device: Device to run model on ('cuda' or 'cpu')
 
-        * Define labels (categories) for zero-shot classification
-            labels = [
-                "a technical image",
-                "a non-technical image",
-            ]
+    Returns:
+        Tuple[str, float]: (predicted_label, confidence_score)
     """
-
     if model is None or processor is None:
         raise ValueError("Model and processor must be preloaded and passed to the function.")
 
     try:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-
+        # Ensure model is on correct device
         if model.device.type != device:
             model = model.to(device)
 
+        # Validate and ensure image is PIL Image
         try:
-            image = Image.open(image_path)
-            if image.mode != 'RGB':
+            if not isinstance(image, Image.Image):
+                if isinstance(image, str):
+                    image = Image.open(image)
+                else:
+                    raise ValueError("Input must be PIL Image or path to image")
+
+            # Convert to RGB if needed
+            if isinstance(image, Image.Image) and image.mode != 'RGB':
                 image = image.convert('RGB')
+
         except Exception as e:
-            logging.error(f"Failed to load image: {e}")
-            return "image loading error", 0.0
+            logging.error(f"Failed to process image: {e}")
+            return "image processing error", 0.0
 
+        # Process inputs using CLIP processor
+        inputs = processor(
+            text=labels,
+            images=image,
+            return_tensors="pt",
+            padding=True
+        )
 
-        # Process the images
-        inputs = processor(text=labels, images=image, return_tensors="pt", padding=True)
+        # Move inputs to correct device
         inputs = {k: v.to(device) for k, v in inputs.items()}
 
         # Perform inference
         with torch.no_grad():
             outputs = model(**inputs)
-            logits_per_image = outputs.logits_per_image  # Image-text similarity scores
-            probs = logits_per_image.softmax(dim=1)  # Probabilities for each label
+            logits_per_image = outputs.logits_per_image
+            probs = logits_per_image.softmax(dim=1)
 
-        # Get the predicted label and its confidence
+        # Get prediction
         predicted_index = probs.argmax().item()
         predicted_label = labels[predicted_index]
         confidence = probs[0, predicted_index].item()
 
         return predicted_label, confidence
+
     except Exception as e:
         logging.error(f"Error during zero-shot classification: {e}", exc_info=True)
         return "classification error", 0.0

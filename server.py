@@ -28,8 +28,7 @@ from config import CONFIG
 from utils.FAISS_utils import load_faiss_index, load_metadata, query_with_context
 from utils.LLM_utils import CLIP_init, openai_post_request
 from utils.image_store import ImageStore
-from utils.image_utils import deduplicate_images
-
+from utils.image_utils import deduplicate_images, zero_shot_classification
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
@@ -165,12 +164,19 @@ class RAGQueryServer:
         )
 
     def get_relevant_contexts(self, results: List[Dict], query_text: str) -> Tuple[List[str], List[Dict]]:
+        """Get relevant contexts and images, filtering out non-technical images."""
         if not results or not results[0]:
             logging.info("No results found")
             return [], []
 
         logging.info(f"Processing query: {query_text}")
         logging.info(f"Found {len(results[0])} results")
+
+        # Labels for zero-shot classification
+        labels = [
+            "a technical image",
+            "a non-technical image",
+        ]
 
         # Truncate query text to fit CLIP model's maximum length
         truncated_query = ' '.join(query_text.split()[:50])  # Approximate token limit
@@ -210,18 +216,37 @@ class RAGQueryServer:
                             image, img_metadata = self.image_store.get_image(image_id)
                             if image:
                                 logging.info(f"Successfully loaded image {image_id}")
-                                image_input = self.processor(images=image, return_tensors="pt").to(self.device)
-                                image_embedding = self.model.get_image_features(**image_input)
-                                image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
 
-                                similarity = (query_embedding @ image_embedding.T).item()
-                                logging.info(f"Similarity score for image {image_id}: {similarity}")
+                                # Perform zero-shot classification
+                                predicted_label, confidence = zero_shot_classification(
+                                    image=image,
+                                    labels=labels,
+                                    model=self.model,
+                                    processor=self.processor,
+                                    device=self.device
+                                )
 
-                                if similarity > CONFIG.IMAGE_SIMILARITY_THRESHOLD:
-                                    image_data = self.get_image_data(image_id, metadata, similarity)
-                                    if image_data:
-                                        relevant_images.append(image_data)
-                                        logging.info(f"Added image {image_id} with similarity {similarity}")
+                                # Only process technical images
+                                if predicted_label == "a technical image" and confidence > CONFIG.TECHNICAL_CONFIDENCE_THRESHOLD:
+                                    logging.info(
+                                        f"Image {image_id} classified as technical with confidence {confidence}")
+
+                                    image_input = self.processor(images=image, return_tensors="pt").to(self.device)
+                                    image_embedding = self.model.get_image_features(**image_input)
+                                    image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
+
+                                    similarity = (query_embedding @ image_embedding.T).item()
+                                    logging.info(f"Similarity score for image {image_id}: {similarity}")
+
+                                    if similarity > CONFIG.IMAGE_SIMILARITY_THRESHOLD:
+                                        image_data = self.get_image_data(image_id, metadata, similarity)
+                                        if image_data:
+                                            image_data['technical_confidence'] = confidence
+                                            relevant_images.append(image_data)
+                                            logging.info(
+                                                f"Added technical image {image_id} with similarity {similarity}")
+                                else:
+                                    logging.info(f"Skipped non-technical image {image_id} (confidence: {confidence})")
                             else:
                                 logging.warning(f"Failed to load image {image_id}")
                         except Exception as e:
@@ -229,7 +254,7 @@ class RAGQueryServer:
                             continue
 
             relevant_images.sort(key=lambda x: x['similarity'], reverse=True)
-            logging.info(f"Found {len(relevant_contexts)} contexts and {len(relevant_images)} images")
+            logging.info(f"Found {len(relevant_contexts)} contexts and {len(relevant_images)} technical images")
             return relevant_contexts, relevant_images
 
         except Exception as e:
@@ -835,6 +860,7 @@ async def get_documents():
         logger.error(f"Error getting documents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/documents")
 async def list_documents():
     try:
@@ -863,6 +889,7 @@ async def list_documents():
         logging.error(f"Error listing documents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/chat/history")
 async def get_chat_history():
     history = server.get_chat_history()
@@ -872,6 +899,7 @@ async def get_chat_history():
 @app.get("/favicon.png")
 async def favicon():
     return FileResponse("static/favicon.png", media_type="image/x-icon")
+
 
 @app.post("/webhook")
 async def github_webhook(request: Request):
