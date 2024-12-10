@@ -53,7 +53,7 @@ header h1 {
     box-shadow: var(--shadow);
     margin-bottom: 2rem;
     height: 600px;
-    overflow-y: scroll;  /* Changed from auto to scroll */
+    overflow-y: auto;
     border: 1px solid rgba(0, 0, 0, 0.1);
     overflow-x: hidden;
     display: flex;      /* Added */
