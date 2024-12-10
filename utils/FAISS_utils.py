@@ -1,4 +1,4 @@
-from typing import List, Dict, Union, Any
+from typing import List, Dict, Union, Any, Set
 from pathlib import Path
 import faiss
 import json
@@ -46,8 +46,24 @@ def initialize_faiss_index(dimension: int, use_gpu: bool = False) -> faiss.Index
     return index
 
 
-def add_to_faiss(embedding, pdf_name, content_type, content, index, metadata):
-    """Add embedding to FAISS with improved metadata handling"""
+def clean_duplicate_entries(metadata: List[Dict]) -> List[Dict]:
+    """Remove duplicate image entries from metadata"""
+    cleaned_metadata = []
+    seen_image_ids = set()
+
+    for entry in metadata:
+        if entry['type'] == 'image':
+            image_id = entry.get('content', {}).get('image_id', '')
+            if image_id and image_id not in seen_image_ids:
+                seen_image_ids.add(image_id)
+                cleaned_metadata.append(entry)
+        else:
+            cleaned_metadata.append(entry)
+
+    return cleaned_metadata
+
+def add_to_faiss(embedding, pdf_name, content_type, content, index, metadata, processed_ids: Set[str] = None):
+    """Add embedding to FAISS with duplicate prevention"""
     try:
         if embedding is None or not isinstance(embedding, np.ndarray):
             raise ValueError("Embedding must be a valid NumPy array")
@@ -61,11 +77,19 @@ def add_to_faiss(embedding, pdf_name, content_type, content, index, metadata):
         if embedding.ndim != 2 or embedding.shape[1] != index.d:
             raise ValueError(f"Embedding shape mismatch. Expected shape: [1, {index.d}]")
 
+        # For images, check if already processed
+        if content_type == "image" and processed_ids is not None:
+            image_id = content.get("image_id", "")
+            if image_id in processed_ids:
+                logging.info(f"Skipping duplicate FAISS entry for image {image_id}")
+                return
+            processed_ids.add(image_id)
+
         index.add(embedding)
 
         # Create base metadata
         meta_entry = {
-            "pdf": str(pdf_name),  # Convert Path to string if needed
+            "pdf": str(pdf_name),
             "type": content_type
         }
 
@@ -79,7 +103,7 @@ def add_to_faiss(embedding, pdf_name, content_type, content, index, metadata):
                 meta_entry = {
                     "pdf": str(pdf_name),
                     "type": content_type,
-                    "content": {  # Ensure content is properly nested
+                    "content": {
                         "image_id": content.get("image_id", ""),
                         "source_doc": str(content.get("source_doc", pdf_name)),
                         "context": content.get("context", ""),
@@ -201,16 +225,16 @@ def save_faiss_index(index, filepath):
     faiss.write_index(index, filepath_str)
     print(f"FAISS index saved to {filepath_str}.")
 
+
 def save_metadata(metadata: List[Dict[str, Any]], filepath: Union[str, Path]) -> None:
-    """
-    Save metadata to a file.
-    Args:
-        metadata: List of metadata associated with FAISS embeddings.
-        filepath: Path or string to save the metadata file.
-    """
+    """Save metadata to a file with duplicate cleaning"""
     filepath_str = str(filepath)
+
+    # Clean duplicates before saving
+    cleaned_metadata = clean_duplicate_entries(metadata)
+
     with open(filepath_str, 'w', encoding='utf-8') as f:
-        json.dump(metadata, f, ensure_ascii=False, indent=2)
+        json.dump(cleaned_metadata, f, ensure_ascii=False, indent=2)
     print(f"Metadata saved to {filepath_str}.")
 
 def load_faiss_index(filepath):
@@ -225,16 +249,20 @@ def load_faiss_index(filepath):
     print(f"FAISS index loaded from {filepath_str}.")
     return index
 
+
 def load_metadata(filepath: Union[str, Path]) -> List[Dict[str, Any]]:
-    """
-    Load metadata from a file.
-    Args:
-        filepath: Path or string to the metadata file.
-    Returns:
-        List of metadata dictionaries.
-    """
+    """Load metadata from a file and ensure no duplicates"""
     filepath_str = str(filepath)
     with open(filepath_str, 'r', encoding='utf-8') as f:
         metadata = json.load(f)
+
+    # Clean any existing duplicates
+    cleaned_metadata = clean_duplicate_entries(metadata)
+
+    # If we cleaned any duplicates, save the cleaned version
+    if len(cleaned_metadata) != len(metadata):
+        logging.info(f"Removed {len(metadata) - len(cleaned_metadata)} duplicate entries")
+        save_metadata(cleaned_metadata, filepath)
+
     print(f"Metadata loaded from {filepath_str}.")
-    return metadata
+    return cleaned_metadata

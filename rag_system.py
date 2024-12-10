@@ -38,20 +38,13 @@ logging.basicConfig(
 )
 
 def process_documents(model, processor, device, index, metadata, image_store, doc_paths=None):
-    """Process documents and store their content and images.
-
-    Args:
-        model: CLIP model instance
-        processor: CLIP processor instance
-        device: Computing device (cpu/cuda)
-        index: FAISS index instance
-        metadata: List of metadata entries
-        image_store: ImageStore instance
-        doc_paths: Optional list of specific documents to process. If None, processes all documents.
-    """
+    """Process documents and store their content and images."""
     try:
         # If no specific docs provided, get all documents
         processed_image_ids = set()
+
+        # Track image IDs that have been added to FAISS
+        faiss_processed_ids = set()
 
         if doc_paths is None:
             doc_paths = []
@@ -139,7 +132,7 @@ def process_documents(model, processor, device, index, metadata, image_store, do
                                 else:
                                     embedding_to_use = image_embedding
 
-                                # Add to FAISS with verified image data
+                                # Add to FAISS with verified image data and duplicate prevention
                                 add_to_faiss(
                                     embedding=embedding_to_use,
                                     pdf_name=doc_path,
@@ -150,10 +143,11 @@ def process_documents(model, processor, device, index, metadata, image_store, do
                                         "context": img_data.get('context', ''),
                                         "caption": img_data.get('caption', ''),
                                         "page": img_data['page_num'],
-                                        "path": str(image_store.images_path / f"{image_id}.png")  # Add actual path
+                                        "path": str(image_store.images_path / f"{image_id}.png")
                                     },
                                     index=index,
-                                    metadata=metadata
+                                    metadata=metadata,
+                                    processed_ids=faiss_processed_ids  # Pass set to track processed IDs
                                 )
                                 embeddings_added = True
                                 logging.info(f"Added image embedding for {image_id}")
