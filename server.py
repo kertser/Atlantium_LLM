@@ -688,10 +688,8 @@ def update_processed_files(doc_paths):
 
 def check_processing_status():
     """Check if all necessary files and data exist after processing"""
-
     logger = logging.getLogger(__name__)
     try:
-
         # Check required paths
         if not CONFIG.METADATA_PATH.exists():
             logger.error("Metadata file not found")
@@ -701,9 +699,9 @@ def check_processing_status():
             logger.error("FAISS index not found")
             return False, "FAISS index not found"
 
-        # Check metadata content
+        # Check metadata content with explicit UTF-8 encoding
         try:
-            with open(CONFIG.METADATA_PATH, 'r') as f:
+            with open(CONFIG.METADATA_PATH, 'r', encoding='utf-8') as f:
                 metadata = json.load(f)
                 if not metadata:
                     logger.error("Empty metadata file")
@@ -711,6 +709,9 @@ def check_processing_status():
         except json.JSONDecodeError as e:
             logger.error(f"Invalid metadata file: {e}")
             return False, "Invalid metadata file format"
+        except UnicodeDecodeError as e:
+            logger.error(f"Encoding error in metadata file: {e}")
+            return False, "Encoding error in metadata file"
 
         # Check index
         try:
@@ -729,21 +730,19 @@ def check_processing_status():
         logger.error(f"Error checking processing status: {str(e)}")
         return False, f"Error checking processing status: {str(e)}"
 
-# In server.py, update the process_documents endpoint
-
 @app.post("/process/documents")
 async def process_documents():
     logger = logging.getLogger(__name__)
     try:
-
         logger.info("Starting document processing...")
 
-        # Run rag_system.py
+        # Run rag_system.py with proper encoding environment variable
         process = subprocess.Popen(
             [sys.executable, 'rag_system.py'],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"}
         )
 
         stdout, stderr = process.communicate()
@@ -756,7 +755,6 @@ async def process_documents():
                 else:
                     logger.info(line)
 
-        # Only treat actual errors in stderr as errors
         if stderr:
             for line in stderr.splitlines():
                 if 'ERROR' in line:
@@ -770,13 +768,16 @@ async def process_documents():
             logger.error(error_msg)
             raise HTTPException(status_code=500, detail=error_msg)
 
+        # Wait a moment to ensure files are written
+        await asyncio.sleep(1)
+
         # Verify the results
         success, message = check_processing_status()
         if not success:
             logger.error(f"Processing verification failed: {message}")
             raise HTTPException(status_code=500, detail=message)
 
-        # Reload the server's index and metadata
+        # Reload the server's index and metadata with proper encoding
         try:
             server.index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
             server.metadata = load_metadata(CONFIG.METADATA_PATH)
