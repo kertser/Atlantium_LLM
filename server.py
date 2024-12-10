@@ -29,7 +29,6 @@ from utils.FAISS_utils import load_faiss_index, load_metadata, query_with_contex
 from utils.LLM_utils import CLIP_init, openai_post_request
 from utils.image_store import ImageStore
 from utils.image_utils import deduplicate_images
-import imagehash
 
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"

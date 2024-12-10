@@ -4,6 +4,62 @@ from io import BytesIO
 from typing import Tuple, List, Dict
 from PIL import Image
 import imagehash
+import torch
+
+
+def zero_shot_classification(image_path: str, labels: List[str], model, processor) -> Tuple[str, float]:
+    """
+    Perform zero-shot image classification using the provided model, processor, and labels.
+    Args:
+        image_path: Path to the image file
+        labels: List of labels for classification
+        model: Loaded CLIP model
+        processor: Loaded CLIP processor
+
+        * Define labels (categories) for zero-shot classification
+            labels = [
+                "a technical image",
+                "a non-technical image",
+            ]
+    """
+
+    if model is None or processor is None:
+        raise ValueError("Model and processor must be preloaded and passed to the function.")
+
+    try:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        if model.device.type != device:
+            model = model.to(device)
+
+        try:
+            image = Image.open(image_path)
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+        except Exception as e:
+            logging.error(f"Failed to load image: {e}")
+            return "image loading error", 0.0
+
+
+        # Process the images
+        inputs = processor(text=labels, images=image, return_tensors="pt", padding=True)
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+
+        # Perform inference
+        with torch.no_grad():
+            outputs = model(**inputs)
+            logits_per_image = outputs.logits_per_image  # Image-text similarity scores
+            probs = logits_per_image.softmax(dim=1)  # Probabilities for each label
+
+        # Get the predicted label and its confidence
+        predicted_index = probs.argmax().item()
+        predicted_label = labels[predicted_index]
+        confidence = probs[0, predicted_index].item()
+
+        return predicted_label, confidence
+    except Exception as e:
+        logging.error(f"Error during zero-shot classification: {e}", exc_info=True)
+        return "classification error", 0.0
 
 
 def normalize_and_hash_image(image_data: str, target_size: Tuple[int, int] = (224, 224)) -> Tuple[str, Tuple[int, int]]:

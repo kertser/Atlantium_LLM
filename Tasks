@@ -1,9 +1,11 @@
 # What is to be done:
 
+* Scroll to the end on chant window, after reply
+* Filter non-technical images (logos, others)
+* FAISS cannot run GPU on windows - need to change for linux
 * Keep maximum log size and move all logs to specific folder
 * Test docker-compose with volumes (not working properly - seems like no metadata is initialized)
 * Search in folders and subfolders all-together in case of rag_system.py
-* Display indexed documents also as tree structure (??)
 * Make available to be opened as source (raw) documents - Add actual links to the files in the text, where filenames or (link) appears.
 * Play with similarity scores to have more precise answers. Pictures similarity needs to be better. Or choose the best percentile score
 * Play with prompts to reduce hallucinations. (May be achieved with more data)
