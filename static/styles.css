@@ -53,16 +53,19 @@ header h1 {
     box-shadow: var(--shadow);
     margin-bottom: 2rem;
     height: 600px;
-    overflow-y: auto;
+    overflow-y: scroll;  /* Changed from auto to scroll */
     border: 1px solid rgba(0, 0, 0, 0.1);
-    /* Ensure content doesn't spill out */
-    overflow-x: hidden; /* Add this if needed */
+    overflow-x: hidden;
+    display: flex;      /* Added */
+    flex-direction: column;  /* Added */
 }
 
 #chat-log {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
+    flex-grow: 1;     /* Added */
+    min-height: min-content;  /* Added */
 }
 
 .message {
@@ -70,7 +73,7 @@ header h1 {
     border-radius: var(--border-radius);
     max-width: 85%;
     position: relative;
-    margin-bottom: 1rem;
+    /* Removed margin-bottom */
     transition: var(--transition);
 }
 

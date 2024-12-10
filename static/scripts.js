@@ -237,7 +237,8 @@ document.addEventListener('DOMContentLoaded', () => {
         loadingDiv.appendChild(textDiv);
 
         chatLog.appendChild(loadingDiv);
-        chatLog.scrollTop = chatLog.scrollHeight;
+        // Scroll after adding loading message
+        scrollChatToBottom();
 
         return loadingDiv;
     }
@@ -245,6 +246,13 @@ document.addEventListener('DOMContentLoaded', () => {
     function adjustTextareaHeight() {
         input.style.height = 'auto';
         input.style.height = (input.scrollHeight) + 'px';
+    }
+
+    function scrollChatToBottom() {
+        const chatContainer = document.getElementById('chat-container');
+        if (chatContainer) {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
     }
 
     function addMessage(content, isUser = false) {
@@ -284,7 +292,32 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         chatLog.appendChild(messageDiv);
-        chatLog.scrollTop = chatLog.scrollHeight;
+
+        // Handle image loading
+        const images = messageDiv.getElementsByTagName('img');
+        if (images.length > 0) {
+            let loadedImages = 0;
+            const totalImages = images.length;
+
+            const checkAllImagesLoaded = () => {
+                loadedImages++;
+                if (loadedImages === totalImages) {
+                    scrollChatToBottom();
+                }
+            };
+
+            Array.from(images).forEach(img => {
+                if (img.complete) {
+                    checkAllImagesLoaded();
+                } else {
+                    img.onload = checkAllImagesLoaded;
+                    img.onerror = checkAllImagesLoaded;
+                }
+            });
+        }
+
+        // Always scroll immediately after adding the message
+        scrollChatToBottom();
     }
 
     // Event Handlers
@@ -327,30 +360,38 @@ document.addEventListener('DOMContentLoaded', () => {
                 image: currentAttachedImage
             };
 
-            addMessage(messageContent, true);
-            const loadingMessage = addLoadingMessage();
-
+            // Clear input and preview first
             const previewContainer = document.querySelector('.attached-image-preview');
             if (previewContainer) {
                 previewContainer.style.display = 'none';
                 previewContainer.innerHTML = '';
             }
             currentAttachedImage = null;
-
             input.value = '';
             input.style.height = 'auto';
 
+            // Add user message
+            addMessage(messageContent, true);
+
+            // Add loading message
+            const loadingMessage = addLoadingMessage();
+
             try {
+                // Get response from server
                 const response = await sendMessageWithImage(message, currentAttachedImage);
+
+                // Remove loading message
                 if (loadingMessage && loadingMessage.parentNode) {
                     loadingMessage.remove();
                 }
 
+                // Add response message
                 if (typeof response === 'string') {
                     addMessage({ text_response: response, images: [] });
                 } else {
                     addMessage(response);
                 }
+
             } catch (error) {
                 if (loadingMessage && loadingMessage.parentNode) {
                     loadingMessage.remove();
