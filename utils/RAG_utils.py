@@ -1,8 +1,6 @@
 # Document parsing and RAG-related functions
 import logging
 import fitz  # PyMuPDF for PDFs
-fitz.TOOLS.mupdf_display_errors(False)  # Suppress MuPDF errors
-import docx  # for Word documents
 import openpyxl  # for Excel files
 from docx import Document
 from PIL import Image, UnidentifiedImageError
@@ -10,6 +8,7 @@ from io import BytesIO
 from utils.image_store import ImageStore
 from config import CONFIG
 from pathlib import Path
+fitz.TOOLS.mupdf_display_errors(False)  # Suppress MuPDF errors
 
 # Configure logging at module level
 logger = logging.getLogger(__name__)
@@ -26,16 +25,15 @@ def extract_text_around_image(page, image_bbox, context_range=100):
             block_center_y = (block[1] + block[3]) / 2
             block_center_x = (block[0] + block[2]) / 2
 
-            # Check both vertical and horizontal proximity
             if abs(block_center_y - image_center_y) < context_range and \
-                    abs(block_center_x - image_center_x) < context_range * 2:  # Wider horizontal range
+                    abs(block_center_x - image_center_x) < context_range * 2:
                 text = block[4].strip()
                 if text:
                     nearby_text.append(text)
 
         return " ".join(nearby_text)
     except Exception as e:
-        print(f"Error extracting text context: {e}")
+        logger.error(f"Error extracting text context: {e}")
         return ""
 
 
@@ -43,6 +41,10 @@ def get_relevant_images(query_context: str, image_store: ImageStore, threshold: 
     """Get images relevant to the query with improved matching"""
     relevant_images = []
     query_terms = set(query_context.lower().split())
+
+    if not query_terms:
+        logger.warning("Empty query terms, cannot calculate relevance")
+        return []
 
     for img_id, metadata in image_store.metadata.items():
         try:
@@ -71,12 +73,11 @@ def get_relevant_images(query_context: str, image_store: ImageStore, threshold: 
                             "similarity": score
                         })
         except Exception as e:
-            print(f"Error processing image {img_id}: {e}")
+            logger.error(f"Error processing image {img_id}: {e}")
             continue
 
-    # Sort by relevance
     relevant_images.sort(key=lambda x: x['similarity'], reverse=True)
-    return relevant_images[:5]  # Return top 5 most relevant images
+    return relevant_images[:5]  # 5 most relevant
 
 
 def extract_text_and_images_from_pdf(pdf_path):
@@ -84,6 +85,7 @@ def extract_text_and_images_from_pdf(pdf_path):
     text = ""
     image_data = []
     min_size = 50
+    pdf_document = None
 
     try:
         pdf_document = fitz.open(pdf_path)
@@ -148,22 +150,41 @@ def extract_text_and_images_from_pdf(pdf_path):
                 logger.error(f"Error processing page {page_num}: {e}")
                 continue
 
-        pdf_document.close()
         logger.info(f"Completed processing {doc_name}: {len(image_data)} images extracted")
 
     except Exception as e:
         logger.error(f"Error opening or processing PDF {pdf_path}: {e}")
+    finally:
+        if pdf_document is not None:
+            try:
+                pdf_document.close()
+            except Exception as e:
+                logger.error(f"Error closing PDF document: {e}")
 
     return text, image_data
 
 
 def extract_text_and_images_from_word(doc_path):
-    """Extract text and images from a Word document."""
+    """
+    Extract text and images from a Word document with enhanced image processing.
+
+    Args:
+        doc_path: Path to the Word document
+
+    Returns:
+        tuple: (extracted_text, list of image_data dictionaries)
+        Each image_data dictionary contains:
+            - image: PIL Image object
+            - context: Text context around the image
+            - page_num: Page number (always 1 for Word docs)
+            - caption: Image caption
+    """
     try:
         doc = Document(doc_path)
         doc_name = Path(doc_path).name
         logger.info(f"Processing Word document: {doc_name}")
 
+        # Extract all text from paragraphs
         text = "\n".join([para.text for para in doc.paragraphs])
         images_data = []
 
@@ -171,11 +192,13 @@ def extract_text_and_images_from_word(doc_path):
         for rel in doc.part.rels.values():
             if "image" in rel.target_ref:
                 try:
+                    # Extract image data
                     image_data = rel.target_part.blob
                     image = Image.open(BytesIO(image_data))
 
-                    # Convert to RGB if needed
+                    # Handle image mode conversion
                     if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
+                        # Create white background for transparent images
                         background = Image.new('RGB', image.size, (255, 255, 255))
                         if image.mode == 'P':
                             image = image.convert('RGBA')
@@ -184,24 +207,40 @@ def extract_text_and_images_from_word(doc_path):
                     elif image.mode != 'RGB':
                         image = image.convert('RGB')
 
+                    # Verify image dimensions and quality
+                    if image.width < 50 or image.height < 50:
+                        logger.warning(f"Skipping small image ({image.width}x{image.height}) in {doc_name}")
+                        continue
+
+                    # Try to find text near the image (could be enhanced based on document structure)
+                    surrounding_text = ""
+
+                    # Create image data dictionary with enhanced metadata
                     img_data = {
                         'image': image,
-                        'context': '',  # Context extraction could be improved
+                        'context': surrounding_text,
                         'page_num': 1,  # Word docs don't have native page numbers
-                        'caption': f"Image from {doc_name}"
+                        'caption': f"Image from {doc_name}",
+                        'dimensions': f"{image.width}x{image.height}",
+                        'format': image.format,
+                        'mode': 'RGB'  # We ensure all images are in RGB mode
                     }
-                    images_data.append(img_data)
-                    logger.info(f"Processed image from {doc_name}")
 
+                    images_data.append(img_data)
+                    logger.info(f"Processed image ({img_data['dimensions']}) from {doc_name}")
+
+                except UnidentifiedImageError as uie:
+                    logger.error(f"Invalid or corrupted image in {doc_name}: {uie}")
+                    continue
                 except Exception as e:
-                    logger.error(f"Error processing image from Word document: {e}")
+                    logger.error(f"Error processing image from {doc_name}: {e}")
                     continue
 
-        logger.info(f"Completed processing {doc_name}: {len(images_data)} images extracted")
+        logger.info(f"Completed processing {doc_name}: extracted {len(images_data)} valid images")
         return text, images_data
 
     except Exception as e:
-        logger.error(f"Error processing Word document {doc_path}: {e}")
+        logger.error(f"Error processing Word document {doc_path}: {e}", exc_info=True)
         return "", []
 
 
@@ -249,78 +288,6 @@ def extract_text_and_images_from_excel(excel_path):
         logger.error(f"Error processing Excel file {excel_path}: {e}")
         return "", []
 
-
-def extract_text_and_images_from_word(doc_path):
-    """Extract text and images from a Word document."""
-    try:
-        doc = Document(doc_path)
-        text = "\n".join([para.text for para in doc.paragraphs])
-        images_data = []  # List to store image data with context
-
-        # Extract images from relationships
-        for rel in doc.part.rels.values():
-            if "image" in rel.target_ref:
-                try:
-                    image_data = rel.target_part.blob
-                    image = Image.open(BytesIO(image_data))
-
-                    # Convert to RGB if needed
-                    if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
-                        background = Image.new('RGB', image.size, (255, 255, 255))
-                        if image.mode == 'P':
-                            image = image.convert('RGBA')
-                        background.paste(image, mask=image.split()[-1])
-                        image = background
-                    elif image.mode != 'RGB':
-                        image = image.convert('RGB')
-
-                    # Get context from surrounding paragraphs
-                    img_data = {
-                        'image': image,
-                        'context': '',  # You can add context extraction logic here
-                        'page_num': 1  # Word docs don't have page numbers, using 1 as default
-                    }
-                    images_data.append(img_data)
-
-                except Exception as e:
-                    logging.error(f"Error processing image from Word document: {e}")
-                    continue
-
-        return text, images_data
-
-    except Exception as e:
-        logging.error(f"Error processing Word document {doc_path}: {e}")
-        return "", []
-
-def extract_text_and_images_from_excel(excel_path):
-    """Extract text and images from an Excel file."""
-    try:
-        workbook = openpyxl.load_workbook(excel_path)
-        text = ""
-        images = []
-
-        for sheet in workbook.worksheets:
-            # Extract text
-            try:
-                for row in sheet.iter_rows(values_only=True):
-                    text += " ".join([str(cell) for cell in row if cell]) + "\n"
-            except Exception as e:
-                print(f"Error processing text in sheet {sheet.title}: {e}")
-
-            # Extract images
-            try:
-                for image in sheet._images:
-                    if hasattr(image, '_data'):
-                        img_data = image._data()
-                        img = Image.open(BytesIO(img_data))
-                        images.append(img)
-            except Exception as e:
-                print(f"Error processing images in sheet {sheet.title}: {e}")
-
-        return text, images
-    except Exception as e:
-        print(f"Error opening Excel file {excel_path}: {e}")
-        return "", []
 
 def chunk_text(text, chunk_size=CONFIG.CHUNK_SIZE, overlap=CONFIG.CHUNK_OVERLAP):
     """Split text into chunks with overlap to maintain context."""
