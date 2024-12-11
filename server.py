@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
 import json
 from dotenv import load_dotenv
 from PIL import Image
@@ -42,7 +43,12 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s: %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(CONFIG.LOG_PATH, encoding='utf-8')
+        RotatingFileHandler(
+            CONFIG.LOG_PATH,
+            maxBytes=2 * 1024 * 1024,  # 2 MB
+            backupCount=3,  # Keep up to 3 old log files
+            encoding='utf-8'
+        )
     ]
 )
 
