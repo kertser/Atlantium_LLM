@@ -317,13 +317,15 @@ class RAGQueryServer:
             return None
 
     def prepare_prompt(self, query_text: str, contexts: List[str], query_type: QueryType, images: List[Dict]) -> str:
+        if not contexts and not images:
+            # Use no-answer template if no relevant information
+            return self.formatter.prompt_builder.build_no_answer_message(query_text)
         return self.formatter.prepare_prompt(query_text, contexts, query_type, images)
 
     def prepare_messages(self, prompt: str) -> List[Dict[str, str]]:
         return self.formatter.prepare_messages(prompt)
 
     def process_text_query(self, query_text: str, top_k: int = CONFIG.DEFAULT_TOP_K) -> QueryResponse:
-        """Process a text query and return response with relevant images"""
         try:
             logging.info(f"Processing query: {query_text}")
 
@@ -335,72 +337,63 @@ class RAGQueryServer:
                 )
 
             # Get query results
-            try:
-                results = query_with_context(
-                    index=self.index,
-                    metadata=self.metadata,
-                    model=self.model,
-                    processor=self.processor,
-                    device=self.device,
-                    text_query=query_text,
-                    top_k=top_k * 2
-                )
-            except Exception as e:
-                logging.error(f"Error in query_with_context: {e}")
-                results = []
+            results = query_with_context(
+                index=self.index,
+                metadata=self.metadata,
+                model=self.model,
+                processor=self.processor,
+                device=self.device,
+                text_query=query_text,
+                top_k=top_k * 2
+            )
 
             # Handle empty results
             if not results:
-                text_response = "No relevant information found. Try adding more documents or rephrasing your question."
-                return QueryResponse(
-                    text_response=text_response,
-                    images=[]
-                )
+                logging.info("No results found")
+                text_response = self.formatter.prompt_builder.build_no_answer_message(query_text)[1]['content']
+                return QueryResponse(text_response=text_response, images=[])
 
             # Get contexts and images
             contexts, images = self.get_relevant_contexts(results, query_text)
 
-            # Deduplicate images right after getting them
+            # Handle conflict scenarios
+            if len(contexts) > 1 and "conflicting" in query_text.lower():
+                logging.info("Detected potential conflict in contexts")
+                conflicting_docs = [{"doc": context} for context in contexts]
+                conflict_response = self.formatter.prompt_builder.build_conflict_resolution_message(conflicting_docs)
+                return QueryResponse(text_response=conflict_response[1]['content'], images=[])
+
+            # Handle ambiguity scenarios
+            if "ambiguous" in query_text.lower():
+                logging.info("Detected ambiguous query")
+                ambiguity_response = self.formatter.prompt_builder.build_ambiguity_message(query_text)
+                return QueryResponse(text_response=ambiguity_response[1]['content'], images=[])
+
+            # Deduplicate images
             if images:
                 images = deduplicate_images(images)
                 logging.info(f"After deduplication: {len(images)} unique images")
 
-            # Determine appropriate response based on available information
-            if not contexts and images:
-                text_response = "Here are the relevant images I found:"
-            elif not contexts and not images:
-                text_response = "I couldn't find any specific information about that. Could you please rephrase your question?"
-            else:
-                # Prepare prompt and get GPT response
-                query_type = self.determine_query_type(query_text)
-                prompt = self.prepare_prompt(query_text, contexts, query_type, images)
+            # Prepare prompt and get GPT response
+            query_type = self.determine_query_type(query_text)
+            prompt = self.prepare_prompt(query_text, contexts, query_type, images)
 
-                try:
-                    response = openai_post_request(
-                        messages=self.prepare_messages(prompt),
-                        model_name=CONFIG.GPT_MODEL,
-                        max_tokens=CONFIG.DETAIL_MAX_TOKENS,
-                        temperature=0.3 if query_type.is_technical else 0.7,
-                        api_key=self.openai_api_key
-                    )
-                    text_response = response['choices'][0]['message']['content'].strip()
-                    text_response = self.formatter.format_response(text_response)
-                except Exception as e:
-                    logging.error(f"Error getting GPT response: {e}")
-                    text_response = "I found some relevant information but encountered an error processing it. Please try again."
+            response = openai_post_request(
+                messages=self.prepare_messages(prompt),
+                model_name=CONFIG.GPT_MODEL,
+                max_tokens=CONFIG.DETAIL_MAX_TOKENS,
+                temperature=0.3 if query_type.is_technical else 0.7,
+                api_key=self.openai_api_key
+            )
+
+            text_response = response['choices'][0]['message']['content'].strip()
+            text_response = self.formatter.format_response(text_response)
 
             # Update chat history
             self.chat_history.append({"role": "user", "content": query_text})
-            self.chat_history.append({
-                "role": "assistant",
-                "content": text_response
-            })
+            self.chat_history.append({"role": "assistant", "content": text_response})
 
-            logging.info(f"Returning response with {len(images)} deduplicated images")
-            return QueryResponse(
-                text_response=text_response,
-                images=images
-            )
+            return QueryResponse(text_response=text_response, images=images)
 
         except Exception as e:
             logging.error(f"Error processing query: {e}", exc_info=True)

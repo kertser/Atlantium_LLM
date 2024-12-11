@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import List
 import logging
 import yaml
 
@@ -38,6 +38,10 @@ class PromptLoader:
         """Get a template by key."""
         return self._prompts.get('templates', {}).get(key, '')
 
+    def get_example(self, example_key: str) -> str:
+        """Get an example by key."""
+        return self._prompts.get('examples', {}).get(example_key, '')
+
     def format_template(self, template_key: str, **kwargs) -> str:
         """Format a template with provided kwargs."""
         template = self.get_template(template_key)
@@ -49,3 +53,15 @@ class PromptLoader:
         except Exception as e:
             logging.error(f"Error formatting template: {e}")
             raise
+
+    def get_no_answer_prompt(self) -> str:
+        """Get the no-answer prompt."""
+        return self.get_template('no_answer_prompt')
+
+    def get_conflict_resolution_prompt(self) -> str:
+        """Get the conflict resolution prompt."""
+        return self.get_template('conflict_handling_prompt')
+
+    def get_ambiguity_handling_prompt(self) -> str:
+        """Get the ambiguity handling prompt."""
+        return self.get_template('ambiguity_handling_prompt')
