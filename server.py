@@ -109,11 +109,24 @@ class EnhancedResponseFormatter:
             return text.strip()
 
         def format_lists(content: str) -> str:
-            # Format numbered lists and bullet points
-            content = re.sub(r'(?m)^(\d+)\.\s*', r'\1. ', content)
-            content = re.sub(r'(?m)^[•\-]\s*', '• ', content)
+            # Add <br> before valid numbered list items (number followed by dot and space)
+            content = re.sub(r'([^\n])\s*(\d+\.\s+(?=[A-Za-z]))', r'\1<br>\2', content)
+
+            # Add <br> before blockquotes with emphasis
+            content = re.sub(r'([^\n])\s*(>\s*\*\*)', r'\1<br>\2', content)
+
+            # Add <br> before headers (## or ###)
+            content = re.sub(r'([^\n])\s*(#{2,3}\s+)', r'\1<br>\2', content)
+
+            # Format numbered lists with proper indentation
+            content = re.sub(r'(?m)^(\d+\.\s+)', r'    \1', content)
+
+            # Format bullet points with proper indentation
+            content = re.sub(r'(?m)^[•\-]\s*', r'    • ', content)
+
             # Ensure line breaks between list items
             content = re.sub(r'(?m)((?:^|\n)(?:\d+\.|•)[^\n]+)\n(?!\d+\.|•|$)', r'\1\n', content)
+
             return content
 
         def apply_emphasis(content: str) -> str:
