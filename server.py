@@ -405,6 +405,7 @@ class RAGQueryServer:
 
     async def process_image_query(self, image_data: bytes, query_text: Optional[str] = None) -> str:
         try:
+            # Open and process the image
             image = Image.open(BytesIO(image_data))
             if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
                 background = Image.new('RGB', image.size, (255, 255, 255))
@@ -415,32 +416,38 @@ class RAGQueryServer:
             elif image.mode != 'RGB':
                 image = image.convert('RGB')
 
+            # Convert the processed image to a base64 string
             buffered = BytesIO()
             image.save(buffered, format="JPEG", quality=95)
             base64_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-            messages = [{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": query_text or "What is shown in this image?"},
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{base64_image}",
-                            "detail": CONFIG.VISION_QUALITY
-                        }
-                    }
-                ]
-            }]
+            # Prepare the image context using the PromptBuilder
+            prompt_builder = PromptBuilder()
+            image_context = prompt_builder.loader.format_template(
+                'image_query',
+                base64_image=f"data:image/jpeg;base64,{base64_image}",
+                query_text=query_text or "What is shown in this image?"
+            )
 
+            # Build the final prompt
+            full_prompt = prompt_builder.build_chat_prompt(
+                query_text=query_text or "Analyze this image",
+                contexts=[],
+                images=[{"source": "uploaded", "context": "Uploaded Image"}],
+                chat_history=self.chat_history,
+                is_technical=False
+            )
+
+            # Make the API call with the generated prompt
             response = self.client.chat.completions.create(
                 model=CONFIG.GPT_VISION_MODEL,
-                messages=messages,
+                messages=prompt_builder.build_messages(full_prompt),
                 max_tokens=CONFIG.VISION_MAX_TOKENS
             )
 
             answer = response.choices[0].message.content.strip()
 
+            # Update chat history
             self.chat_history.append({
                 "role": "user",
                 "content": f"[Image Query] {query_text or 'Analyze image'}"
