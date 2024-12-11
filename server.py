@@ -110,16 +110,23 @@ class EnhancedResponseFormatter:
 
         def format_lists(content: str) -> str:
             # Format numbered lists and bullet points
-            content = re.sub(r'(?m)^(\d+\.)\s*', r'\1 ', content)
+            content = re.sub(r'(?m)^(\d+)\.\s*', r'\1. ', content)
             content = re.sub(r'(?m)^[•\-]\s*', '• ', content)
             # Ensure line breaks between list items
             content = re.sub(r'(?m)((?:^|\n)(?:\d+\.|•)[^\n]+)\n(?!\d+\.|•|$)', r'\1\n', content)
+            return content
+
+        def apply_emphasis(content: str) -> str:
+            # Replace **text** and *text* with HTML-like formatting
+            content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', content)
+            content = re.sub(r'\*(.*?)\*', r'<em>\1</em>', content)
             return content
 
         def format_section(title: str, content: str) -> str:
             # Format section with consistent spacing
             formatted_content = clean_text(content)
             formatted_content = format_lists(formatted_content)
+            formatted_content = apply_emphasis(formatted_content)
             return f"# {title}\n\n{formatted_content}"
 
         # Process the content
@@ -141,7 +148,6 @@ class EnhancedResponseFormatter:
             sections.append(format_section(current_title, '\n'.join(current_content)))
 
         return '\n\n'.join(sections)
-
 
 class RAGQueryServer:
     def __init__(self):
