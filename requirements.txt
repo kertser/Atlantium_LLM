@@ -20,6 +20,7 @@ python-multipart
 uvicorn
 imagehash
 pydantic
+pyyaml
 
 # Platform-specific installation for Faiss
 faiss-cpu; platform_system == "Windows"

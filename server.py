@@ -29,6 +29,9 @@ from utils.FAISS_utils import load_faiss_index, load_metadata, query_with_contex
 from utils.LLM_utils import CLIP_init, openai_post_request
 from utils.image_store import ImageStore
 from utils.image_utils import deduplicate_images, zero_shot_classification
+from models.prompt_loader import PromptLoader
+from models.prompts import PromptBuilder
+
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
@@ -81,6 +84,16 @@ class QueryResponse(BaseModel):
 
 
 class EnhancedResponseFormatter:
+
+    def __init__(self):
+        self.prompt_builder = PromptBuilder()
+
+    def prepare_prompt(self, query_text: str, contexts: List[str], query_type: QueryType, images: List[Dict]) -> str:
+        return self.prompt_builder.build_chat_prompt(query_text, contexts, images, [], query_type.is_technical)
+
+    def prepare_messages(self, prompt: str) -> List[Dict[str, str]]:
+        return self.prompt_builder.build_messages(prompt)
+
     @staticmethod
     def format_response(content: str) -> str:
         def clean_text(text: str) -> str:
@@ -133,6 +146,7 @@ class RAGQueryServer:
 
         self.client = OpenAI(api_key=self.openai_api_key)
         self.model, self.processor, self.device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
+        self.prompt_loader = PromptLoader()
 
         # Try to load existing index or create new one
         try:
@@ -297,68 +311,10 @@ class RAGQueryServer:
             return None
 
     def prepare_prompt(self, query_text: str, contexts: List[str], query_type: QueryType, images: List[Dict]) -> str:
-        """Prepare prompt with deduplicated images."""
-        # Get relevant chat history (last few exchanges)
-        chat_context = ""
-        if self.chat_history:
-            last_exchanges = self.chat_history[-(2 * CONFIG.MAX_CHAT_HISTORY):]  # Get last Q&A pairs
-            chat_context = "\nRecent Chat History:\n" + "\n".join([
-                f"{'User' if msg['role'] == 'user' else 'Assistant'}: {msg['content']}"
-                for msg in last_exchanges
-            ])
-
-        context_text = "\n\n".join(contexts) if contexts else "No relevant technical documentation found."
-        image_context = ""
-
-        if images:
-            image_descriptions = []
-            for img in images:
-                desc = f"- Image from {img['source']}"
-                if img.get('caption'):
-                    desc += f": {img['caption']}"
-                if img.get('context'):
-                    desc += f" (Context: {img['context']})"
-                image_descriptions.append(desc)
-            image_context = "\n\nRelevant Images:\n" + "\n".join(image_descriptions)
-
-        instructions = [
-            "1. Provide a clear and structured response",
-            "2. Use technical terminology appropriately",
-            "3. Reference specific documents and images when relevant",
-            "4. Use section headers for organization",
-            "5. Keep responses concise and well-formatted",
-            "6. Consider previous chat context when relevant"
-        ]
-
-        if query_type.is_technical:
-            instructions.extend([
-                "7. Focus on technical details and specifications",
-                "8. Include step-by-step explanations if applicable"
-            ])
-
-        prompt = (
-            f"Query: {query_text}\n\n"
-            f"Available Documentation:\n{context_text}\n"
-            f"{image_context}\n"
-            f"{chat_context}\n\n"
-            f"Instructions:\n{chr(10).join(instructions)}\n\n"
-            "Response:"
-        )
-        return prompt
+        return self.formatter.prepare_prompt(query_text, contexts, query_type, images)
 
     def prepare_messages(self, prompt: str) -> List[Dict[str, str]]:
-        return [
-            {
-                "role": "system",
-                "content": (
-                    "You are Atlantium Technologies technical documentation assistant specialized in providing "
-                    "structured, accurate information. Format your responses with clear "
-                    "sections using Markdown-style headers (##) and bullet points (•). "
-                    "Reference specific documents and images when relevant."
-                )
-            },
-            {"role": "user", "content": prompt}
-        ]
+        return self.formatter.prepare_messages(prompt)
 
     def process_text_query(self, query_text: str, top_k: int = CONFIG.DEFAULT_TOP_K) -> QueryResponse:
         """Process a text query and return response with relevant images"""
