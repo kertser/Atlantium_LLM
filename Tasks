@@ -1,7 +1,4 @@
 # What is to be done:
-
-* Pure Text and Excel - add to the RAG. Add images directly to RAG (with context generation)
-* Keep maximum log size and move all logs to specific folder
 * Test docker-compose with volumes (not working properly - seems like no metadata is initialized)
 * Search in folders and subfolders all-together in case of rag_system.py
 * Make available to be opened as source (raw) documents - Add actual links to the files in the text, where filenames or (link) appears.
@@ -10,8 +7,10 @@
 * Interactive troubleshooting mode (step by step) on request
 * Add option for "chat with live operator" (A button with contacts)
 * Calculator API - connect as agent
-* Think of other Agents (Video Agent)
-* Android mobile app development
+
+
+# TBD:
+* Android mobile app development (TBD)
 * Offline LLMs (TBD)
-* FAISS cannot run GPU on windows - need to change for linux, And install CUDA
 * Multimodal Input - Connect audio model (TBD)
+* Think of other Agents (Video Agent) (TBD)

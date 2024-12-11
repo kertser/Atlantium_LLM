@@ -62,7 +62,7 @@ def clean_duplicate_entries(metadata: List[Dict]) -> List[Dict]:
 
     return cleaned_metadata
 
-def add_to_faiss(embedding, pdf_name, content_type, content, index, metadata, processed_ids: Set[str] = None):
+def add_to_faiss(embedding, source_file_name, content_type, content, index, metadata, processed_ids: Set[str] = None):
     """Add embedding to FAISS with duplicate prevention"""
     try:
         if embedding is None or not isinstance(embedding, np.ndarray):
@@ -89,7 +89,7 @@ def add_to_faiss(embedding, pdf_name, content_type, content, index, metadata, pr
 
         # Create base metadata
         meta_entry = {
-            "pdf": str(pdf_name),
+            "source_file": str(source_file_name),
             "type": content_type
         }
 
@@ -101,11 +101,11 @@ def add_to_faiss(embedding, pdf_name, content_type, content, index, metadata, pr
         elif content_type == "image":
             if isinstance(content, dict):
                 meta_entry = {
-                    "pdf": str(pdf_name),
+                    "source_file": str(source_file_name),
                     "type": content_type,
                     "content": {
                         "image_id": content.get("image_id", ""),
-                        "source_doc": str(content.get("source_doc", pdf_name)),
+                        "source_doc": str(content.get("source_doc", source_file_name)),
                         "context": content.get("context", ""),
                         "caption": content.get("caption", ""),
                         "page": content.get("page", 1),
@@ -113,22 +113,22 @@ def add_to_faiss(embedding, pdf_name, content_type, content, index, metadata, pr
                     }
                 }
             else:
-                doc_name = Path(pdf_name).name
+                doc_name = Path(source_file_name).name
                 meta_entry = {
-                    "pdf": str(pdf_name),
+                    "source_file": str(source_file_name),
                     "type": content_type,
                     "content": {
                         "image_id": "",
                         "caption": f"Image from {doc_name}",
                         "context": "",
-                        "source_doc": str(pdf_name),
+                        "source_doc": str(source_file_name),
                         "page": 1,
                         "path": ""
                     }
                 }
 
         metadata.append(meta_entry)
-        logging.info(f"Added {content_type} embedding to FAISS from {pdf_name}")
+        logging.info(f"Added {content_type} embedding to FAISS from {source_file_name}")
 
     except Exception as e:
         logging.error(f"Error adding embedding to FAISS: {e}")

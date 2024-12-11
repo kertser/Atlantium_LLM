@@ -86,7 +86,7 @@ def process_documents(model, processor, device, index, metadata, image_store, do
                                 try:
                                     add_to_faiss(
                                         embedding=np.array(embedding),
-                                        pdf_name=doc_path,
+                                        source_file_name=doc_path,
                                         content_type="text-chunk",
                                         content=text_chunks[chunk_idx],
                                         index=index,
@@ -135,7 +135,7 @@ def process_documents(model, processor, device, index, metadata, image_store, do
                                 # Add to FAISS with verified image data and duplicate prevention
                                 add_to_faiss(
                                     embedding=embedding_to_use,
-                                    pdf_name=doc_path,
+                                    source_file_name=doc_path,
                                     content_type="image",
                                     content={
                                         "image_id": image_id,
