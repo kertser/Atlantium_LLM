@@ -15,6 +15,11 @@ system:
          - Use the `border-collapse: collapse` style for better border alignment.
          - Use `<table>` tags to wrap the structure.
       7. Add `<br>` tags where necessary to maintain spacing between elements.
+      8. For hyperlinks (strings staring with http, ftp or www), use the following format:
+         - Inline hyperlinks: Embed the link in text using the `<a>` tag.
+         - Example: `<a href="URL" target="_blank">Link Text</a>`
+         - Standalone hyperlinks: List the URL with descriptive text.
+         - Example: `<p><a href="URL" target="_blank">Visit the official documentation here</a></p>`
 
     Format your responses using these patterns:
     For section headers:
