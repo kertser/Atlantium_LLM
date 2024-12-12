@@ -115,31 +115,28 @@ class EnhancedResponseFormatter:
     def format_response(content: str) -> str:
         def clean_text(text: str) -> str:
             # Clean up excess whitespace while preserving structure
-            #text = re.sub(r'\s*\n\s*\n\s*\n+', '\n\n', text)
-            #text = re.sub(r'[ \t]+', ' ', text)
+            text = re.sub(r'\s*\n\s*\n\s*\n+', '\n\n', text)
+            text = re.sub(r'[ \t]+', ' ', text)
             return text.strip()
 
         def format_lists(content: str) -> str:
             # Add <br> before valid numbered list items (number followed by dot and space)
             content = re.sub(r'([^\n])\s*(\d+\.\s+(?=[A-Za-z]))', r'\1<br>\2', content)
 
-            # Add <br> before blockquotes with emphasis
-            #content = re.sub(r'([^\n])\s*(>\s*\*\*)', r'\1<br>\2', content)
-
             # Add <br> before headers (## or ### or **)
             content = re.sub(r'([^\n])\s*(#{2, 3}\s+)', r'\1<br>\2', content)
-            # content = re.sub(r'([^\n])\s*(#{2,3}\s+)', r'\1<br>\2', content)
+
+            # Format bullet points with proper indentation
+            content = re.sub(r'(?m)^[•\-]\s*', r'  • ', content)
+
+            # Remove bulet points from bold text items with bulets
+            content = re.sub(r'\*\*\s*•\s*', r'• ', content)
 
             # Format numbered lists with proper indentation, including bold numbered text
             content = re.sub(r'(?m)^(\d+\.\s+)(\*\*.*?\*\*)', r'    \1\2', content)
-            # content = re.sub(r'(?m)^(\d+\.\s+)', r'<br>    \1', content)
-
-            # Format bullet points with proper indentation
-            content = re.sub(r'(?m)^[•\-]\s*', r'    • ', content)
 
             # Ensure line breaks between list items, including bold list items
             content = re.sub(r'(?<!<br>)(\d+\.\s+)(\*\*.*?\*\*)', r'<br>\1\2', content)
-            # content = re.sub(r'(?m)((?:^|\n)(?:\d+\.|•)[^\n]+)\n(?!\d+\.|•|$)', r'\1<br>', content)
 
             return content
 

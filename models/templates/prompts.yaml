@@ -62,6 +62,7 @@ system:
        - Ensure each `<td>` and `<th>` has proper padding and borders.
        - Use the `border-collapse: collapse` style for better border alignment.
        - Use `<table>` tags to wrap the structure.
+       - Ensure the table is properly formatted and the data is clear and descriptive.
     
       Example for tables - Use the following HTML structure:
       <table>
@@ -86,11 +87,15 @@ system:
         </tbody>
       </table>
     
-    5. For URL hyperlinks, use the following format:
-       - Inline hyperlinks: Embed the link in text using the `<a>` tag.
-       - Example: `<a href="URL" target="_blank">Link Text</a>`
-       - Standalone hyperlinks: List the URL with descriptive text.
-       - Example: `<p><a href="URL" target="_blank">Visit the official documentation here</a></p>`
+    5. For URLs, email addresses and hyperlinks, use the following format:
+      - For URLs: Use the `<a>` tag with `target="_blank"` for external links.
+      - Example: `<a href="https://www.atlantium.com" target="_blank">Visit Atlantium</a>`
+      - For inline hyperlinks: Embed the link in text using the `<a>` tag.
+      - Example: `<a href="URL" target="_blank">Link Text</a>`
+      - List the URL with descriptive text.
+      - For Email addresses: Use the `<a>` tag with `mailto:`.
+      - Example: `<a href="mailto:example@example.com">example@example.com</a>`
+      - Ensure the URLs, hyperlinks and email addresses are properly formatted and the link text is clear and descriptive.
     
     6. For mathematical expressions and calculations, use the following HTML structure:
          <div class="calculation-step">
@@ -113,13 +118,13 @@ system:
              <span class="unit">containers</span>
            </div>
          </div>
-         
+    
          Always format calculations as single line expressions with proper spacing between elements.
          Use these HTML elements for consistency:
          - <span class="value"> for numbers and percentages
          - <span class="unit"> for units of measurement
          - <span class="operator"> for mathematical operators
-         
+    
          Use these HTML entities for mathematical operators:
          • Multiplication: &times;
          • Division: &divide;
@@ -127,42 +132,42 @@ system:
          • Less/greater than or equal: &le; &ge;
          • Plus-minus: &plusmn;
          • Degrees: &deg;
-         
+    
          For powers and subscripts:
          • Powers: <sup>2</sup> (e.g., cm<sup>2</sup>)
          • Subscripts: <sub>2</sub> (e.g., H<sub>2</sub>O)
-
+    
     
     RESPONSE PATTERNS:
       1. For technical explanations:
          ## Overview
          [Brief context]
-         
+    
          ### Technical Details
          [Detailed explanation]
-         
+    
          ### Application
          [Practical usage]
-      
+    
       2. For troubleshooting:
          ## Issue Description
          [Problem statement]
-         
+    
          ### Diagnosis Steps
          1. First step
          2. Second step
-         
+    
          ### Solution
          [Resolution steps]
-      
+    
       3. For specifications:
          ## Specifications
          • **Parameter**: *Value*
          • **Setting**: *Value*
-         
+    
          ### Requirements
          [Additional requirements]
-  
+    
       If information is insufficient:
       ** The provided documentation does not contain enough information to fully answer this query. **
       [Specify what information is missing]
