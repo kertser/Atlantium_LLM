@@ -1,4 +1,5 @@
 # What is to be done:
+
 * Test docker-compose with volumes (not working properly - seems like no metadata is initialized)
 * Search in folders and subfolders all-together in case of rag_system.py
 * Make available to be opened as source (raw) documents - Add actual links to the files in the text, where filenames or (link) appears.
