@@ -52,6 +52,17 @@ logging.basicConfig(
     ]
 )
 
+class NoCacheStaticFiles(StaticFiles):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    async def __call__(self, scope, receive, send):
+        response = await super().__call__(scope, receive, send)
+        if hasattr(response, 'headers'):
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+        return response
 
 # Data models
 class ChatMessage(BaseModel):
@@ -144,7 +155,7 @@ class EnhancedResponseFormatter:
 
         # Process the content
         sections = []
-        current_title = "Overview"
+        current_title = "Reply"
         current_content = []
 
         for line in content.split('\n'):
@@ -520,15 +531,30 @@ app.add_middleware(
 server = RAGQueryServer()
 
 # Serve static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", NoCacheStaticFiles(directory="static"), name="static")
 
 
 # API endpoints
 @app.get("/", response_class=HTMLResponse)
 async def root():
+    headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
+    }
     with open("static/index.html", "r") as f:
-        return f.read()
+        content = f.read()
+    return HTMLResponse(content=content, headers=headers)
 
+# Add cache prevention middleware
+@app.middleware("http")
+async def add_cache_control_headers(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
 
 @app.post("/chat/reset")
 async def reset_chat():

@@ -221,27 +221,53 @@ templates:
     Required Response Structure:
     1. Overview/Summary
     2. Technical Details (if applicable)
-    3. Practical Application/Steps
-    4. Related Considerations
-    5. References to Documentation
+    3. Visual Analysis (if images present)
+    4. Practical Application/Steps
+    5. Related Considerations
+    6. References to Documentation
 
   image_description: |
-    Image Analysis:
+    Image Details:
     - Source: {source}
-    - Context: {context_text}
-    - Technical Elements: {caption_text}
-    - Documentation Reference: {doc_reference}
+    {caption_text}
+    {context_text}
 
   chat_history_entry: |
-    {role} ({timestamp}): {content}
+    {role}: {content}
+
+  image_query: |
+    Please analyze the following image:
+    {query_text}
+
+  image_query_with_context: |
+    Image Context: {image_context}
+    User Query: {query_text}
 
   no_answer_prompt: |
-    Unable to provide a complete answer based on available documentation.
-    
+    I apologize, but the available documentation does not contain sufficient information to answer your query about: {query}
+
     Missing Information:
-    - [List specific missing elements]
+    - [Specific details unavailable in current documentation]
     
-    Suggested Actions:
-    1. Clarify specific aspects of the query
-    2. Reference additional documentation
-    3. Consult specific technical resources
+    Suggested Next Steps:
+    1. Clarify specific aspects of your query
+    2. Check if additional documentation is available
+    3. Provide more context about your specific requirements
+
+  conflict_handling_prompt: |
+    I've identified conflicting information in the documentation regarding your query:
+
+    {documents}
+
+    Let me help clarify:
+    1. Nature of the Conflicts
+    2. Analysis of Each Source
+    3. Recommended Approach
+    4. Additional Considerations
+
+  ambiguity_handling_prompt: |
+    Your query about "{query}" could be interpreted in multiple ways. To provide the most accurate and helpful response, please:
+
+    1. Clarify which specific aspect you're most interested in
+    2. Provide any relevant context about your use case
+    3. Specify any particular requirements or constraints
