@@ -429,6 +429,40 @@ button:hover {
     cursor: not-allowed;
 }
 
+table, th, td {
+    /* border: 1px solid #ddd; /* Ensure all table elements have borders */
+    border-collapse: collapse; /* Prevent double borders */
+}
+
+table {
+    width: 100%;
+    margin-bottom: 1.5rem;
+    background-color: var(--surface-color);
+    box-shadow: var(--shadow);
+    border-radius: var(--border-radius);
+    overflow: visible; /* Ensure borders are visible */
+}
+
+table th, table td {
+    padding: 0.75rem 1rem;
+    text-align: left;
+}
+
+table th {
+    background-color: var(--primary-color);
+    /* color: white; */
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+table tr:nth-child(even) {
+    background-color: #f9f9f9;
+}
+
+table tr:hover {
+    background-color: #f1f1f1;
+}
+
 .documents-container {
     margin-top: 2rem;
     padding: 1rem;
@@ -451,8 +485,6 @@ button:hover {
     border-radius: var(--border-radius);
 }
 
-
-
 .documents-table {
     width: 100%;
     font-size: 0.9rem;
@@ -460,7 +492,7 @@ button:hover {
 }
 
 .documents-container table {
-    overflow: visible;
+    overflow: auto;
 }
 
 .documents-table th {
@@ -488,39 +520,7 @@ button:hover {
     font-size: 0.9rem;
 }
 
-table, th, td {
-    border: 1px solid #ddd; /* Ensure all table elements have borders */
-    border-collapse: collapse; /* Prevent double borders */
-}
 
-table {
-    width: 100%;
-    margin-bottom: 1.5rem;
-    background-color: var(--surface-color);
-    box-shadow: var(--shadow);
-    border-radius: var(--border-radius);
-    overflow: visible; /* Ensure borders are visible */
-}
-
-table th, table td {
-    padding: 0.75rem 1rem;
-    text-align: left;
-}
-
-table th {
-    background-color: var(--primary-color);
-    color: white;
-    font-weight: 600;
-    text-transform: uppercase;
-}
-
-table tr:nth-child(even) {
-    background-color: #f9f9f9;
-}
-
-table tr:hover {
-    background-color: #f1f1f1;
-}
 
 @keyframes loading {
     0% { content: ''; }

@@ -20,6 +20,57 @@ system:
          - Example: `<a href="URL" target="_blank">Link Text</a>`
          - Standalone hyperlinks: List the URL with descriptive text.
          - Example: `<p><a href="URL" target="_blank">Visit the official documentation here</a></p>`
+    9. For mathematical expressions and calculations:
+
+         <div class="calculation">
+           <div class="step">
+             <!-- For fractions -->
+             <div class="fraction">
+               <span class="numerator">[top part]</span>
+               <span class="denominator">[bottom part]</span>
+             </div>
+             <!-- For normal calculations -->
+             <span class="number">[number]</span>
+             <span class="operator">[operator]</span>
+             <span class="unit">[unit]</span>
+           </div>
+         </div>
+
+         Example conversion:
+         Input: "200 liter × 2% / (35% × 4 liter) = 400/140 = 2.9 ≈ 3 containers"
+         Output:
+
+         <div class="calculation">
+           <div class="step">
+             <div class="fraction">
+               <span class="numerator">200 <span class="unit">liter</span> &times; 2%</span>
+               <span class="denominator">35% &times; 4 <span class="unit">liter</span></span>
+             </div>
+           </div>
+           <span class="operator">=</span>
+           <div class="step">
+             <div class="fraction">
+               <span class="numerator">400</span>
+               <span class="denominator">140</span>
+             </div>
+           </div>
+           <span class="operator">=</span>
+           <span class="number">2.9</span>
+           <span class="operator">&approx;</span>
+           <span class="result">3 <span class="unit">containers</span></span>
+         </div>
+         
+         Mathematical symbols to use:
+         • Multiplication: &times;
+         • Division: &divide;
+         • Approximately: &approx;
+         • Less than or equal: &le;
+         • Greater than or equal: &ge;
+         • Plus-minus: &plusmn;
+         • Degrees: &deg;
+         • Squared: <sup>2</sup>
+         • Cubed: <sup>3</sup>
+         • Subscript: <sub>x</sub>
 
     Format your responses using these patterns:
     For section headers:
