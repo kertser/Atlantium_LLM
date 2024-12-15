@@ -569,6 +569,11 @@ table tr:hover {
     color: var(--primary-color);
 }
 
+.folder-path {
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
 .documents-table tbody tr.folder-row td {
     color: var(--primary-color);
     font-weight: 500;

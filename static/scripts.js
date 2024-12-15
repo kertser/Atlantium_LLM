@@ -142,7 +142,7 @@ async function loadDocuments(currentPath = '') {
         // Add current path display
         const pathDisplay = document.createElement('div');
         pathDisplay.className = 'current-path';
-        pathDisplay.textContent = currentPath || 'Root';
+        pathDisplay.innerHTML = `Current Folder: <span class="folder-path">${currentPath || 'Root'}</span>`;
         tableWrapper.insertBefore(pathDisplay, table);
 
         // Add click handlers for folder navigation
