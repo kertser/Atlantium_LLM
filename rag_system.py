@@ -367,18 +367,31 @@ def main():
             if not clip_model or not clip_processor:
                 raise RuntimeError("Failed to initialize CLIP model")
 
-            # Try to load existing index and metadata
+            # Create or load FAISS index with proper error handling
             try:
-                index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
-                metadata = load_metadata(CONFIG.METADATA_PATH)
-                logging.info("Loaded existing FAISS index and metadata")
-            except Exception as e:
-                logging.info(f"Creating new index and metadata: {e}")
-                index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
-                metadata = []
+                # Ensure indices directory exists
+                CONFIG.FAISS_INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-            # Initialize ImageStore
-            image_store = ImageStore(CONFIG.STORED_IMAGES_PATH)
+                if CONFIG.FAISS_INDEX_PATH.exists():
+                    try:
+                        index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
+                        metadata = load_metadata(CONFIG.METADATA_PATH)
+                        logging.info("Loaded existing FAISS index and metadata")
+                    except Exception as e:
+                        logging.warning(f"Failed to load existing index: {e}")
+                        index = None
+
+                if index is None:
+                    logging.info("Creating new FAISS index")
+                    index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
+                    metadata = []
+                    # Save empty index and metadata immediately
+                    save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
+                    save_metadata(metadata, CONFIG.METADATA_PATH)
+
+            except Exception as e:
+                logging.error(f"Critical error with FAISS initialization: {e}")
+                raise
 
             # Process documents in smaller batches to manage memory
             batch_size = 5  # Adjust based on available memory
@@ -393,7 +406,7 @@ def main():
                     device=device,
                     index=index,
                     metadata=metadata,
-                    image_store=image_store,
+                    image_store=ImageStore(CONFIG.STORED_IMAGES_PATH),
                     doc_paths=batch_docs
                 )
 
@@ -442,8 +455,6 @@ def main():
 if __name__ == "__main__":
     try:
         result = main()
-        # After processing, check the stored images
-        check_stored_images()
         sys.exit(result)
     except Exception as e:
         logging.error(f"Fatal error: {str(e)}", exc_info=True)

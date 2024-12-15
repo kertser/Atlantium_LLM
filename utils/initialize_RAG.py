@@ -16,9 +16,9 @@ def get_project_root() -> Path:
 
 
 def initialize_rag_database(
-    paths_to_clean: List[Path] = None,
-    directories_to_clean: List[Path] = None,
-    clean_raw_documents: bool = False
+        paths_to_clean: List[Path] = None,
+        directories_to_clean: List[Path] = None,
+        clean_raw_documents: bool = False
 ) -> None:
     """
     Initialize/reset the RAG database by cleaning all indices and generated files.
@@ -37,14 +37,12 @@ def initialize_rag_database(
         paths_to_clean = [
             CONFIG.FAISS_INDEX_PATH,
             CONFIG.METADATA_PATH,
-            CONFIG.STORED_IMAGES_PATH,
             Path("processed_files.json"),
             Path("system.log")
         ]
 
     if directories_to_clean is None:
         directories_to_clean = [
-            CONFIG.STORED_IMAGES_PATH,
             Path("indices"),
             Path("RAG_Data")
         ]
@@ -72,32 +70,34 @@ def initialize_rag_database(
             except Exception as e:
                 logger.error(f"Error removing file {abs_path}: {e}")
 
-        # Add Raw Documents to directories_to_clean if specified
-        dirs_to_process = list(directories_to_clean)
-        if clean_raw_documents:
-            dirs_to_process.append(CONFIG.RAW_DOCUMENTS_PATH)
-            logger.info("Raw Documents directory will be cleaned")
-
         # Clean and recreate directories
-        for dir_path in dirs_to_process:
+        for dir_path in directories_to_clean:
             if dir_path in handled_paths:
                 continue
 
             abs_path = project_root / dir_path
             try:
                 if abs_path.exists():
-                    shutil.rmtree(abs_path)
+                    # Remove directory and all its contents
+                    shutil.rmtree(abs_path, ignore_errors=True)
                     logger.info(f"Removed directory: {abs_path}")
+            except Exception as e:
+                logger.error(f"Error removing directory {abs_path}: {e}")
+
+        # Create required directory structure
+        required_dirs = [
+            CONFIG.RAW_DOCUMENTS_PATH,
+            Path("indices"),
+            Path("RAG_Data/stored_images/images")  # Create nested structure in correct order
+        ]
+
+        for dir_path in required_dirs:
+            abs_path = project_root / dir_path
+            try:
                 abs_path.mkdir(parents=True, exist_ok=True)
                 logger.info(f"Created directory: {abs_path}")
-                handled_paths.add(dir_path)
             except Exception as e:
-                logger.error(f"Error handling directory {abs_path}: {e}")
-
-        # Always ensure Raw Documents directory exists
-        raw_docs_path = project_root / CONFIG.RAW_DOCUMENTS_PATH
-        raw_docs_path.mkdir(parents=True, exist_ok=True)
-        logger.info("Ensured Raw Documents directory exists")
+                logger.error(f"Error creating directory {abs_path}: {e}")
 
         # Create empty processed_files.json
         try:
@@ -107,20 +107,11 @@ def initialize_rag_database(
         except Exception as e:
             logger.error(f"Error creating processed_files.json: {e}")
 
-        # Create required subdirectories
-        try:
-            images_path = project_root / CONFIG.STORED_IMAGES_PATH / "images"
-            images_path.mkdir(parents=True, exist_ok=True)
-            logger.info("Created images subdirectory")
-        except Exception as e:
-            logger.error(f"Error creating images subdirectory: {e}")
-
         logger.info("RAG database initialization completed successfully")
 
     except Exception as e:
         logger.error(f"Critical error during initialization: {e}")
         raise
-
 
 if __name__ == "__main__":
     # This allows the script to be run directly for testing
