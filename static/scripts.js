@@ -1,3 +1,6 @@
+// Add current path tracking
+let currentFolderPath = '';
+
 // Helper functions (defined outside DOMContentLoaded to be available globally)
 function escapeHtml(unsafe) {
     return unsafe
@@ -27,7 +30,26 @@ function getParentPath(path) {
     return parts.join('/');
 }
 
+async function uploadDocument(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('folder', currentFolderPath); // Add current folder path
+
+    const response = await fetch('/upload/document', {
+        method: 'POST',
+        body: formData
+    });
+
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || `Failed to upload ${file.name}`);
+    }
+
+    return response.json();
+}
+
 async function loadDocuments(currentPath = '') {
+    currentFolderPath = currentPath; // Store current path
     try {
         const response = await fetch(`/get/documents?path=${encodeURIComponent(currentPath)}`);
         if (!response.ok) {
@@ -566,6 +588,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const uploadPromises = Array.from(fileMap.values()).map(async (file) => {
                 const formData = new FormData();
                 formData.append('file', file);
+                formData.append('folder', currentFolderPath); // Add current folder path
 
                 const response = await fetch('/upload/document', {
                     method: 'POST',
@@ -604,8 +627,8 @@ document.addEventListener('DOMContentLoaded', () => {
             uploadList.innerHTML = '';
             fileMap.clear();
 
-            // Refresh documents list
-            await loadDocuments();
+            // Refresh documents list for current folder
+            await loadDocuments(currentFolderPath);
 
             // Reset button after delay
             setTimeout(() => {

@@ -52,6 +52,11 @@ logging.basicConfig(
     ]
 )
 
+def clean_path(path: str) -> str:
+    # Replace both forward and back slashes with system-specific separator
+    cleaned = path.replace('..', '').strip('/').strip('\\')
+    return cleaned.replace('\\', os.path.sep).replace('/', os.path.sep)
+
 class NoCacheStaticFiles(StaticFiles):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -660,11 +665,20 @@ async def image_query(
 
 
 @app.post("/upload/document")
-async def upload_document(file: UploadFile):
-    """Handle document upload"""
+async def upload_document(file: UploadFile, folder: str = Form("")):
+    """Handle document upload to specific folder"""
     try:
-        # Ensure the directory exists
-        CONFIG.RAW_DOCUMENTS_PATH.mkdir(parents=True, exist_ok=True)
+        # Sanitize and validate folder path
+        clean_folder = folder.replace('..', '').strip('/').strip('\\')
+
+        # Create full target directory path
+        target_dir = CONFIG.RAW_DOCUMENTS_PATH
+        if clean_folder:
+            target_dir = target_dir / clean_folder
+            # Ensure target directory exists and is within RAW_DOCUMENTS_PATH
+            if not str(target_dir).startswith(str(CONFIG.RAW_DOCUMENTS_PATH)):
+                raise HTTPException(status_code=403, detail="Invalid folder path")
+            target_dir.mkdir(parents=True, exist_ok=True)
 
         # Sanitize filename
         sanitized_filename = os.path.basename(file.filename)
@@ -676,8 +690,8 @@ async def upload_document(file: UploadFile):
                    for ext in CONFIG.SUPPORTED_EXTENSIONS):
             raise HTTPException(status_code=400, detail="Unsupported file type")
 
-        # Create full path
-        dest_path = CONFIG.RAW_DOCUMENTS_PATH / sanitized_filename
+        # Create full path for the file
+        dest_path = target_dir / sanitized_filename
 
         # Avoid overwriting existing files
         if dest_path.exists():
@@ -694,7 +708,10 @@ async def upload_document(file: UploadFile):
         finally:
             await file.close()
 
-        return {"status": "success", "path": str(dest_path)}
+        return {
+            "status": "success",
+            "path": str(dest_path.relative_to(CONFIG.RAW_DOCUMENTS_PATH))
+        }
 
     except HTTPException:
         raise
@@ -840,8 +857,8 @@ async def get_documents(path: str = ""):
     logger = logging.getLogger(__name__)
     try:
         # Sanitize and validate path
-        clean_path = path.replace('..', '').strip('/').strip('\\')
-        current_path = CONFIG.RAW_DOCUMENTS_PATH / clean_path if clean_path else CONFIG.RAW_DOCUMENTS_PATH
+        clean_folder = clean_path(path)
+        current_path = CONFIG.RAW_DOCUMENTS_PATH / clean_folder if clean_folder else CONFIG.RAW_DOCUMENTS_PATH
 
         if not current_path.exists() or not current_path.is_dir():
             raise HTTPException(status_code=404, detail="Directory not found")

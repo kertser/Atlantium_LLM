@@ -483,6 +483,14 @@ table tr:hover {
     overflow-y: auto;
     border: 1px solid #eee;
     border-radius: var(--border-radius);
+    position: relative; /* For proper sticky positioning context */
+}
+
+.documents-table thead {
+    position: sticky;
+    top: 32px; /* Height of current-path + padding */
+    background: #f8f9fa;
+    z-index: 10;
 }
 
 .documents-table {
@@ -528,6 +536,9 @@ table tr:hover {
     border-bottom: none;
     font-weight: 500;
     color: var(--text-color);
+    position: sticky;
+    top: 0;
+    z-index: 11;
 }
 
 .folder-row {
