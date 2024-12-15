@@ -1,5 +1,6 @@
 // Add current path tracking
 let currentFolderPath = '';
+let activeContextMenu = null;
 
 // Helper functions (defined outside DOMContentLoaded to be available globally)
 function escapeHtml(unsafe) {
@@ -9,6 +10,119 @@ function escapeHtml(unsafe) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+}
+
+function createContextMenu(e, fileName, filePath) {
+    e.preventDefault();
+
+    // Remove any existing context menu
+    removeContextMenu();
+
+    const contextMenu = document.createElement('div');
+    contextMenu.className = 'context-menu';
+
+    // Menu items
+    const menuItems = [
+        {
+            label: 'Open',
+            icon: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M14 3v2H4v13.385L5.763 17H20v-7h2v8a1 1 0 0 1-1 1H5.105L2 22.5V4a1 1 0 0 1 1-1h11zm5 0V0h2v3h3v2h-3v3h-2V5h-3V3h3z"/></svg>',
+            action: () => window.open(`/static/documents/${encodeURIComponent(filePath)}`, '_blank')
+        },
+        {
+            label: 'Download',
+            icon: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M3 19h18v2H3v-2zm10-5.828L19.071 7.1l1.414 1.414L12 17 3.515 8.515 4.929 7.1 11 13.17V2h2v11.172z"/></svg>',
+            action: async () => {
+                try {
+                    const response = await fetch(`/download/document?path=${encodeURIComponent(filePath)}`);
+                    if (!response.ok) throw new Error('Download failed');
+
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = fileName;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                } catch (error) {
+                    console.error('Download error:', error);
+                    alert('Failed to download file');
+                }
+            }
+        },
+        {
+            label: 'Delete',
+            icon: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M7 4V2h10v2h5v2h-2v15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6H2V4h5zM6 6v14h12V6H6zm3 3h2v8H9V9zm4 0h2v8h-2V9z"/></svg>',
+            action: async () => {
+                if (confirm(`Are you sure you want to delete "${fileName}"?`)) {
+                    try {
+                        const response = await fetch(`/delete/document?path=${encodeURIComponent(filePath)}`, {
+                            method: 'DELETE'
+                        });
+
+                        if (!response.ok) throw new Error('Delete failed');
+
+                        // Refresh the documents list
+                        loadDocuments(currentFolderPath);
+                    } catch (error) {
+                        console.error('Delete error:', error);
+                        alert('Failed to delete file');
+                    }
+                }
+            }
+        }
+    ];
+
+    // Create menu items
+    menuItems.forEach((item, index) => {
+        if (index > 0) {
+            const separator = document.createElement('div');
+            separator.className = 'context-menu-separator';
+            contextMenu.appendChild(separator);
+        }
+
+        const menuItem = document.createElement('div');
+        menuItem.className = 'context-menu-item';
+        menuItem.innerHTML = `${item.icon}<span>${item.label}</span>`;
+        menuItem.onclick = () => {
+            item.action();
+            removeContextMenu();
+        };
+        contextMenu.appendChild(menuItem);
+    });
+
+    // Position the menu
+    contextMenu.style.left = `${e.pageX}px`;
+    contextMenu.style.top = `${e.pageY}px`;
+
+    // Ensure menu doesn't go off screen
+    document.body.appendChild(contextMenu);
+    const menuRect = contextMenu.getBoundingClientRect();
+
+    if (menuRect.right > window.innerWidth) {
+        contextMenu.style.left = `${window.innerWidth - menuRect.width - 5}px`;
+    }
+    if (menuRect.bottom > window.innerHeight) {
+        contextMenu.style.top = `${window.innerHeight - menuRect.height - 5}px`;
+    }
+
+    activeContextMenu = contextMenu;
+
+    // Close menu when clicking outside
+    setTimeout(() => {
+        document.addEventListener('click', removeContextMenu);
+        document.addEventListener('contextmenu', removeContextMenu);
+    }, 0);
+}
+
+function removeContextMenu() {
+    if (activeContextMenu && activeContextMenu.parentElement) {
+        activeContextMenu.parentElement.removeChild(activeContextMenu);
+        activeContextMenu = null;
+    }
+    document.removeEventListener('click', removeContextMenu);
+    document.removeEventListener('contextmenu', removeContextMenu);
 }
 
 function formatFileSize(bytes) {
@@ -127,7 +241,9 @@ async function loadDocuments(currentPath = '') {
         data.files.forEach(file => {
             tbody.innerHTML += `
                 <tr>
-                    <td>${escapeHtml(file.name)}</td>
+                    <td>
+                        <span class="document-name" data-path="${encodeURIComponent(file.path)}">${escapeHtml(file.name)}</span>
+                    </td>
                     <td>${escapeHtml(file.type)}</td>
                     <td>${formatFileSize(file.size)}</td>
                     <td>${formatDate(file.modified)}</td>
@@ -154,6 +270,15 @@ async function loadDocuments(currentPath = '') {
                     .map(segment => encodeURIComponent(segment))
                     .join('/');
                 loadDocuments(path);
+            });
+        });
+
+        const documentNames = tableWrapper.querySelectorAll('.document-name');
+        documentNames.forEach(docName => {
+            docName.addEventListener('contextmenu', (e) => {
+                const filePath = docName.dataset.path;
+                const fileName = docName.textContent;
+                createContextMenu(e, fileName, filePath);
             });
         });
 

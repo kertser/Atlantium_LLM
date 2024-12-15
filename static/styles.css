@@ -585,6 +585,56 @@ table tr:hover {
     background: inherit;
 }
 
+/* Add at the end of existing styles.css */
+
+.context-menu {
+    position: fixed;
+    z-index: 1000;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    padding: 4px 0;
+    min-width: 150px;
+}
+
+.context-menu-item {
+    padding: 8px 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-color);
+    transition: background-color 0.2s ease;
+}
+
+.context-menu-item:hover {
+    background-color: #f0f7ff;
+    color: var(--primary-color);
+}
+
+.context-menu-item svg {
+    width: 16px;
+    height: 16px;
+}
+
+.context-menu-separator {
+    height: 1px;
+    background-color: #ddd;
+    margin: 4px 0;
+}
+
+/* Add styles for document name to indicate it's interactive */
+.document-name {
+    cursor: context-menu;
+    color: var(--text-color);
+    text-decoration: none;
+}
+
+.document-name:hover {
+    color: var(--primary-color);
+}
+
 
 @keyframes loading {
     0% { content: ''; }

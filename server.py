@@ -1,3 +1,29 @@
+"""
+This module implements a FastAPI server for a Retrieval-Augmented Generation (RAG) system.
+
+The server uses a combination of FAISS, PyTorch, OpenAI GPT models, and custom utilities
+to process text and image queries. It provides endpoints for document upload, query processing,
+and chat-based retrieval functionalities. Other features include proper logging, CORS configuration,
+document management, and metadata handling for image-text interactions.
+
+Main Components:
+- FastAPI setup and routing for handling API requests.
+- Integration with FAISS for efficient vector-based similarity searches.
+- Enhanced prompt building with GPT transformers for generating responses.
+- Metadata gathering and zero-shot classification for technical images.
+- Image deduplication and storage management.
+- Custom logging for system operations and document management.
+- Configuration management for easy setup and customization of the RAG system.
+
+Note: This server is designed to be run as a standalone application, not as a module.
+It should be executed directly and not imported as a library.
+
+Classes and methods:
+- Server: The main class that sets up and runs the FastAPI application.
+- RAGSystem: Manages the core functionality of the RAG system, including document processing,
+  query handling, and response generation.
+"""
+
 import os
 import sys
 from pathlib import Path
@@ -53,11 +79,25 @@ logging.basicConfig(
 )
 
 def clean_path(path: str) -> str:
-    # Replace both forward and back slashes with system-specific separator
+    """
+    Sanitizes a file path by removing traversal sequences and replacing separators
+    with the system-specific separator.
+
+    Args:
+        path (str): The path to be cleaned.
+
+    Returns:
+        str: The sanitized file path.
+    """
     cleaned = path.replace('..', '').strip('/').strip('\\')
     return cleaned.replace('\\', os.path.sep).replace('/', os.path.sep)
 
 class NoCacheStaticFiles(StaticFiles):
+    """
+    A subclass of FastAPI's StaticFiles to disable caching for static file responses.
+    Ensures that the client always gets the latest version of static files.
+    """
+    
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -71,6 +111,13 @@ class NoCacheStaticFiles(StaticFiles):
 
 # Data models
 class ChatMessage(BaseModel):
+    """
+    Represents a single chat message with role and content.
+
+    Attributes:
+        role (str): The role of the sender, such as 'user' or 'assistant'.
+        content (str): The content of the message.
+    """
     role: str
     content: str
 
@@ -179,7 +226,22 @@ class EnhancedResponseFormatter:
         return '\n\n'.join(sections)
 
 class RAGQueryServer:
+    """
+    Serves as the main backend for processing RAG-based queries, managing the index,
+    metadata, and facilitating GPT-based chat interaction for text and image queries.
+
+    Methods:
+        determine_query_type(query_text): Determines the type of query based on input text.
+        get_relevant_contexts(results, query_text): Filters the most relevant contexts and images.
+        prepare_prompt(query_text, contexts, query_type, images): Constructs a GPT-ready prompt.
+        process_text_query(query_text): Processes and retrieves a response for text queries.
+    """
+    
     def __init__(self):
+        """
+        Initializes the server by loading environment variables, setting up the
+        OpenAI client, and preparing FAISS index and metadata for query processing.
+        """
         load_dotenv()
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         if not self.openai_api_key:
@@ -568,7 +630,15 @@ async def reset_chat():
 
 @app.post("/query/text")
 async def text_query(query: str = Form(...)):
-    """Handle text queries"""
+    """
+    Handles text-based queries by retrieving relevant contexts and generating a response.
+
+    Args:
+        query (str): The user's query input.
+
+    Returns:
+        JSONResponse: Contains the generated text response and any relevant images.
+    """
     try:
         # Process the query
         response = server.process_text_query(query)
@@ -666,7 +736,16 @@ async def image_query(
 
 @app.post("/upload/document")
 async def upload_document(file: UploadFile, folder: str = Form("")):
-    """Handle document upload to specific folder"""
+    """
+    Handles uploading of documents to a specified folder on the server.
+
+    Args:
+        file (UploadFile): The file to be uploaded.
+        folder (str): The target folder for the upload.
+
+    Returns:
+        dict: A success status and the relative path of the saved file.
+    """
     try:
         # Sanitize and validate folder path
         clean_folder = folder.replace('..', '').strip('/').strip('\\')
@@ -945,8 +1024,80 @@ async def list_documents():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/download/document")
+async def download_document(path: str):
+    """Download a document."""
+    try:
+        # Clean and validate the path
+        clean_file_path = clean_path(path)
+        full_path = CONFIG.RAW_DOCUMENTS_PATH / clean_file_path
+
+        # Security check
+        if not str(full_path).startswith(str(CONFIG.RAW_DOCUMENTS_PATH)):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        if not full_path.exists():
+            raise HTTPException(status_code=404, detail="File not found")
+
+        return FileResponse(
+            path=full_path,
+            filename=full_path.name,
+            media_type="application/octet-stream"
+        )
+
+    except Exception as e:
+        logging.error(f"Error downloading document: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/delete/document")
+async def delete_document(path: str):
+    """Delete a document."""
+    try:
+        # Clean and validate the path
+        clean_file_path = clean_path(path)
+        full_path = CONFIG.RAW_DOCUMENTS_PATH / clean_file_path
+
+        # Security check
+        if not str(full_path).startswith(str(CONFIG.RAW_DOCUMENTS_PATH)):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        if not full_path.exists():
+            raise HTTPException(status_code=404, detail="File not found")
+
+        # Remove the file
+        os.remove(full_path)
+
+        # Update processed files list if it exists
+        processed_files_path = Path("processed_files.json")
+        if processed_files_path.exists():
+            try:
+                with open(processed_files_path, 'r') as f:
+                    processed_files = set(json.load(f))
+
+                # Remove the deleted file from processed files
+                if str(full_path) in processed_files:
+                    processed_files.remove(str(full_path))
+
+                with open(processed_files_path, 'w') as f:
+                    json.dump(list(processed_files), f)
+            except Exception as e:
+                logging.error(f"Error updating processed files list: {e}")
+
+        return {"status": "success", "message": "File deleted successfully"}
+
+    except Exception as e:
+        logging.error(f"Error deleting document: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/chat/history")
 async def get_chat_history():
+    """
+    Retrieves the current chat history for the session.
+
+    Returns:
+        dict: Contains a list of chat history messages in chronological order.
+    """
     history = server.get_chat_history()
     return {"history": history}
 

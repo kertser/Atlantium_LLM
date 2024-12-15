@@ -1,3 +1,4 @@
+
 from dataclasses import dataclass
 from typing import List
 from pathlib import Path
@@ -24,9 +25,9 @@ class Config:
     # Document Processing
     CHUNK_OVERLAP: int = 50
     MIN_CHUNK_SIZE: int = 100
-    SIMILARITY_THRESHOLD: float = 0.8 # Text similarity
-    IMAGE_SIMILARITY_THRESHOLD: float = 0.25 # Image similarity
-    TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.8 # Technical confidence
+    SIMILARITY_THRESHOLD: float = 0.8  # Text similarity
+    IMAGE_SIMILARITY_THRESHOLD: float = 0.25  # Image similarity
+    TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.8  # Technical confidence
     MAX_METADATA_SIZE: int = 10000
     CHUNK_SIZE: int = 512
     SUPPORTED_EXTENSIONS: List[str] = None
@@ -62,6 +63,7 @@ class Config:
         self.FAISS_INDEX_PATH = Path(self.FAISS_INDEX_PATH)
         self.METADATA_PATH = Path(self.METADATA_PATH)
         self.LOG_PATH = Path(self.LOG_PATH)
+
 
 # Create global config instance
 CONFIG = Config()

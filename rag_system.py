@@ -1,3 +1,20 @@
+"""
+This module implements a document processing pipeline for creating and maintaining a
+retrieval-augmented generation (RAG) system supported by FAISS and CLIP models.
+
+Key Features:
+- Extracts text and images from various document types (PDF, Word, Excel).
+- Generates embeddings for text chunks and images using the CLIP model.
+- Stores embeddings and metadata in a FAISS index for efficient retrieval.
+- Manages stored images and metadata for validation and processing continuity.
+- Supports dynamic addition of new documents to the system.
+- Implements a basic chat interface for querying the system.
+
+The pipeline is designed to be flexible and can be easily extended to support
+additional document types or advanced RAG features as needed.
+
+"""
+
 import sys
 import logging
 import json
@@ -38,7 +55,22 @@ logging.basicConfig(
 )
 
 def process_documents(model, processor, device, index, metadata, image_store, doc_paths=None):
-    """Process documents and store their content and images."""
+    """
+    Process a list of documents to extract text and images, generate embeddings,
+    and store them in a FAISS index.
+
+    Args:
+        model: The CLIP model instance for embeddings.
+        processor: The CLIP processor for preprocessing.
+        device: The device (CPU or GPU) used for processing.
+        index: The FAISS index for storing embeddings.
+        metadata: A list to store metadata entries corresponding to the embeddings.
+        image_store: An ImageStore instance to manage image storage.
+        doc_paths: List of paths to documents to process. Defaults to None to process all available documents.
+
+    Returns:
+        Tuple containing the updated FAISS index and the generated metadata.
+    """
     try:
         # If no specific docs provided, get all documents
         processed_image_ids = set()
@@ -177,7 +209,16 @@ def process_documents(model, processor, device, index, metadata, image_store, do
         raise
 
 def get_all_documents(base_path: Path, extensions: List[str]) -> List[Path]:
-    """Get all documents recursively from base path."""
+    """
+    Recursively fetch all documents with specified extensions from the base path.
+
+    Args:
+        base_path: Path to the base directory to search.
+        extensions: List of file extensions to include in the search.
+
+    Returns:
+        List of Paths to the matching documents.
+    """
     all_docs = []
     for ext in extensions:
         # Use rglob for recursive search
@@ -185,7 +226,14 @@ def get_all_documents(base_path: Path, extensions: List[str]) -> List[Path]:
     return all_docs
 
 def check_stored_images():
-    """Check if images are properly stored and indexed"""
+    """
+    Validate the storage and indexing of images.
+
+    Checks for:
+    - Presence of image files in the storage directory.
+    - Corresponding metadata entries in the image metadata JSON file.
+    - Presence of image entries in the FAISS metadata file.
+    """
     # Check physical image files
     images_path = CONFIG.STORED_IMAGES_PATH / "images"
     if not images_path.exists():
@@ -225,10 +273,11 @@ def check_stored_images():
 
 
 def update_processed_files(doc_paths):
-    """Update the list of successfully processed files
+    """
+    Update the local record of successfully processed files.
 
     Args:
-        doc_paths: List of paths to documents that were successfully processed
+        doc_paths: List of paths to documents that were successfully processed.
     """
     processed_files_path = Path("processed_files.json")
     try:
@@ -252,7 +301,14 @@ def update_processed_files(doc_paths):
 
 
 def get_unprocessed_documents():
-    """Get list of documents that haven't been processed yet"""
+    """
+    Identify documents that have not been processed yet.
+
+    Retrieves all available documents and filters out those already listed as processed.
+
+    Returns:
+        List of paths to unprocessed documents.
+    """
     try:
         # Get all documents in the raw documents directory
         all_docs = []
@@ -275,7 +331,12 @@ def get_unprocessed_documents():
 # In rag_system.py, update the main function
 
 def get_processed_files():
-    """Load list of already processed files"""
+    """
+    Load the list of documents that have already been processed.
+
+    Returns:
+        Set of absolute file paths to processed documents.
+    """
     processed_files_path = Path("processed_files.json")
     try:
         if processed_files_path.exists():
@@ -289,15 +350,17 @@ def get_processed_files():
 
 def validate_metadata_and_index(metadata: list, index: Any, image_store: ImageStore) -> Tuple[list, Any]:
     """
-    Validate and clean both metadata and FAISS index.
+    Validate and clean both metadata and the FAISS index.
+
+    Ensures metadata integrity and checks the existence of corresponding image data in the ImageStore.
 
     Args:
-        metadata: List of metadata entries
-        index: FAISS index
-        image_store: ImageStore instance
+        metadata: List of metadata entries to validate.
+        index: FAISS index to be cleaned.
+        image_store: Instance of ImageStore for validating image entries.
 
     Returns:
-        Tuple of (cleaned metadata list, cleaned index)
+        Tuple containing the cleaned metadata list and the cleaned FAISS index.
     """
     valid_metadata = []
     valid_indices = []
@@ -332,6 +395,19 @@ def validate_metadata_and_index(metadata: list, index: Any, image_store: ImageSt
 
 
 def main():
+    """
+    Main function to orchestrate the processing pipeline.
+
+    Steps:
+    - Load environment variables and configurations.
+    - Identify unprocessed documents.
+    - Initialize CLIP model and FAISS index.
+    - Process documents in batches to extract content, generate embeddings, and update the index.
+    - Perform cleanup and save intermediate results.
+
+    Returns:
+        int: Exit code (0 for success, 1 for failure).
+    """
     try:
         # Load environment variables
         load_dotenv()

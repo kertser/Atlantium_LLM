@@ -1,17 +1,39 @@
-# What is to be done:
-
-* Test docker-compose with volumes (not working properly - seems like no metadata is initialized)
-* Search in folders and subfolders all-together in case of rag_system.py
-* Make available to be opened as source (raw) documents - Add actual links to the files in the text, where filenames or (link) appears.
+# General Tasks:
+* rename rag_system to RAG_processor
+* Test and fix docker-compose with volumes (not working properly - seems like no metadata is initialized)
+* Test Webhooks
+* Make Documentation
 * Play with similarity scores to have more precise answers. Pictures similarity needs to be better. Or choose the best percentile score
-* Play with prompts to reduce hallucinations. (May be achieved with more data)
-* Interactive troubleshooting mode (step by step) on request
+* Continue playing with prompts to reduce hallucinations. (May be achieved with more data)
+* Interactive troubleshooting mode (analyze step by step) on request
 * Add option for "chat with live operator" (A button with contacts)
 * Calculator API - connect as agent
 
 
-# TBD:
+# TBDs:
 * Android mobile app development (TBD)
-* Offline LLMs (TBD)
+* Offline and fine-tuned LLMs (TBD)
 * Multimodal Input - Connect audio model (TBD)
 * Think of other Agents (Video Agent) (TBD)
+
+# Errors:
+- Improper translation of formula:
+\[ \text{Relative Humidity} = \left(\frac{\text{Actual Vapor Density}}{\text{Saturation Vapor Density}}\right) \times 100 \]
+Need to change instructions in prompt to write all equations in latex format and use the LaTeX-to-HTML Render Service:
+<script type="math/tex">x^2 + y^2 = z^2</script>:
+
+<!DOCTYPE html>
+<html>
+<head>
+  <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+  <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</head>
+<body>
+  <p>Here is a formula: \(x^2 + y^2 = z^2\)</p>
+</body>
+</html>
+
+- On Delete Document - The document shall be removed from RAG with all the related images.
+- On Open document it shall be opened with system program (Word, excel, pdf viewer) if possible, and system agnostic.
+- Rescan button for documents may be added
+- Delete folder functionality. Create Folder button
