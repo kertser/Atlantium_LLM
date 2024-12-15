@@ -520,6 +520,41 @@ table tr:hover {
     font-size: 0.9rem;
 }
 
+.current-path {
+    padding: 0.5rem 1rem;
+    background: #f8f9fa;
+    border-radius: var(--border-radius) var(--border-radius) 0 0;
+    border: 1px solid #dee2e6;
+    border-bottom: none;
+    font-weight: 500;
+    color: var(--text-color);
+}
+
+.folder-row {
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.folder-row:hover {
+    background-color: #f0f7ff !important;
+}
+
+.folder-name {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.folder-icon {
+    width: 20px;
+    height: 20px;
+    color: var(--primary-color);
+}
+
+.documents-table tbody tr.folder-row td {
+    color: var(--primary-color);
+    font-weight: 500;
+}
 
 
 @keyframes loading {

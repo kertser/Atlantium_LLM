@@ -835,38 +835,67 @@ async def process_documents():
 
 
 @app.get("/get/documents")
-async def get_documents():
-    """Get list of documents with metadata recursively"""
+async def get_documents(path: str = ""):
+    """Get list of documents and folders with metadata recursively"""
     logger = logging.getLogger(__name__)
     try:
-        documents = []
-        logger.info(f"Scanning directory recursively: {CONFIG.RAW_DOCUMENTS_PATH}")
+        # Sanitize and validate path
+        clean_path = path.replace('..', '').strip('/').strip('\\')
+        current_path = CONFIG.RAW_DOCUMENTS_PATH / clean_path if clean_path else CONFIG.RAW_DOCUMENTS_PATH
 
-        # Ensure the directory exists
-        CONFIG.RAW_DOCUMENTS_PATH.mkdir(parents=True, exist_ok=True)
+        if not current_path.exists() or not current_path.is_dir():
+            raise HTTPException(status_code=404, detail="Directory not found")
 
-        # Get all files recursively
-        for ext in CONFIG.SUPPORTED_EXTENSIONS:
-            for file_path in CONFIG.RAW_DOCUMENTS_PATH.rglob(f"*{ext}"):
+        if not str(current_path).startswith(str(CONFIG.RAW_DOCUMENTS_PATH)):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        folders = []
+        files = []
+
+        # Get directories and files in current path
+        try:
+            for item in current_path.iterdir():
                 try:
-                    stat = file_path.stat()
-                    rel_path = file_path.relative_to(CONFIG.RAW_DOCUMENTS_PATH)
-                    documents.append({
-                        "name": file_path.name,
-                        "path": str(rel_path),
-                        "type": file_path.suffix[1:].upper(),
-                        "size": stat.st_size,
-                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
-                    })
+                    stat = item.stat()
+                    rel_path = item.relative_to(CONFIG.RAW_DOCUMENTS_PATH)
+
+                    if item.is_dir():
+                        folders.append({
+                            "name": item.name,
+                            "path": str(rel_path),
+                            "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                        })
+                    elif item.is_file() and any(item.name.lower().endswith(ext) for ext in CONFIG.SUPPORTED_EXTENSIONS):
+                        files.append({
+                            "name": item.name,
+                            "path": str(rel_path),
+                            "type": item.suffix[1:].upper(),
+                            "size": stat.st_size,
+                            "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                        })
                 except Exception as e:
-                    logger.error(f"Error processing file {file_path}: {e}")
+                    logger.error(f"Error processing item {item}: {e}")
                     continue
 
-        logger.info(f"Found {len(documents)} documents")
-        return documents
+            # Sort folders and files alphabetically
+            folders.sort(key=lambda x: x['name'].lower())
+            files.sort(key=lambda x: x['name'].lower())
 
+            logger.info(f"Found {len(folders)} folders and {len(files)} files in {current_path}")
+            return {
+                "current_path": str(clean_path),
+                "folders": folders,
+                "files": files
+            }
+
+        except Exception as e:
+            logger.error(f"Error reading directory {current_path}: {e}")
+            raise HTTPException(status_code=500, detail="Error reading directory")
+
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error getting documents: {e}")
+        logger.error(f"Error listing documents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

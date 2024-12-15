@@ -21,56 +21,120 @@ function formatDate(dateString) {
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
 }
 
-async function loadDocuments() {
+function getParentPath(path) {
+    const parts = path.split('/');
+    parts.pop();
+    return parts.join('/');
+}
+
+async function loadDocuments(currentPath = '') {
     try {
-        const response = await fetch('/get/documents');
+        const response = await fetch(`/get/documents?path=${encodeURIComponent(currentPath)}`);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        const documents = await response.json();
+        const data = await response.json();
+
+        const tableWrapper = document.querySelector('.documents-table-wrapper');
+        if (!tableWrapper) return;
 
         // Update document count
         const docCount = document.getElementById('doc-count');
         if (docCount) {
-            docCount.textContent = documents.length;
+            docCount.textContent = data.files.length + data.folders.length;
         }
 
-        // Update documents table
-        const tableWrapper = document.querySelector('.documents-table-wrapper');
-        if (tableWrapper) {
-            const table = document.createElement('table');
-            table.className = 'documents-table';
+        // Create table structure
+        const table = document.createElement('table');
+        table.className = 'documents-table';
 
-            // Create table header
-            const thead = document.createElement('thead');
-            thead.innerHTML = `
-                <tr>
-                    <th>Name</th>
-                    <th>Type</th>
-                    <th>Size</th>
-                    <th>Modified</th>
+        // Create table header
+        const thead = document.createElement('thead');
+        thead.innerHTML = `
+            <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Size</th>
+                <th>Modified</th>
+            </tr>
+        `;
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+
+        // Add "up" navigation if not in root
+        if (currentPath) {
+            tbody.innerHTML += `
+                <tr class="folder-row" data-path="${encodeURIComponent(getParentPath(currentPath))}">
+                    <td>
+                        <div class="folder-name">
+                            <svg class="folder-icon" viewBox="0 0 24 24" width="24" height="24">
+                                <path fill="currentColor" d="M3 3l18 0v18H3V3zm2 2v14h14V5H5z"/>
+                                <path fill="currentColor" d="M15 11v6h-6v-6h6zm-2-2V7H7v2h6z"/>
+                            </svg>
+                            ..
+                        </div>
+                    </td>
+                    <td>Folder</td>
+                    <td>-</td>
+                    <td>-</td>
                 </tr>
             `;
-            table.appendChild(thead);
-
-            // Create table body
-            const tbody = document.createElement('tbody');
-            tbody.innerHTML = documents.map(doc => `
-                <tr>
-                    <td>${escapeHtml(doc.name)}</td>
-                    <td>${escapeHtml(doc.type)}</td>
-                    <td>${formatFileSize(doc.size)}</td>
-                    <td>${formatDate(doc.modified)}</td>
-                </tr>
-            `).join('');
-            table.appendChild(tbody);
-
-            // Clear and update table
-            tableWrapper.innerHTML = '';
-            tableWrapper.appendChild(table);
-
-            console.log(`Updated document list with ${documents.length} documents`);
         }
+
+        // Add folders
+        data.folders.forEach(folder => {
+            tbody.innerHTML += `
+                <tr class="folder-row" data-path="${encodeURIComponent(folder.path)}">
+                    <td>
+                        <div class="folder-name">
+                            <svg class="folder-icon" viewBox="0 0 24 24" width="24" height="24">
+                                <path fill="currentColor" d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>
+                            </svg>
+                            ${escapeHtml(folder.name)}
+                        </div>
+                    </td>
+                    <td>Folder</td>
+                    <td>-</td>
+                    <td>${formatDate(folder.modified)}</td>
+                </tr>
+            `;
+        });
+
+        // Add files
+        data.files.forEach(file => {
+            tbody.innerHTML += `
+                <tr>
+                    <td>${escapeHtml(file.name)}</td>
+                    <td>${escapeHtml(file.type)}</td>
+                    <td>${formatFileSize(file.size)}</td>
+                    <td>${formatDate(file.modified)}</td>
+                </tr>
+            `;
+        });
+
+        table.appendChild(tbody);
+        tableWrapper.innerHTML = '';
+        tableWrapper.appendChild(table);
+
+        // Add current path display
+        const pathDisplay = document.createElement('div');
+        pathDisplay.className = 'current-path';
+        pathDisplay.textContent = currentPath || 'Root';
+        tableWrapper.insertBefore(pathDisplay, table);
+
+        // Add click handlers for folder navigation
+        const folderRows = tableWrapper.querySelectorAll('.folder-row');
+        folderRows.forEach(row => {
+            row.addEventListener('click', () => {
+                const path = decodeURIComponent(row.dataset.path)
+                    .split('/')
+                    .map(segment => encodeURIComponent(segment))
+                    .join('/');
+                loadDocuments(path);
+            });
+        });
+
     } catch (error) {
         console.error('Error loading documents:', error);
         const tableWrapper = document.querySelector('.documents-table-wrapper');
