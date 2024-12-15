@@ -836,22 +836,24 @@ async def process_documents():
 
 @app.get("/get/documents")
 async def get_documents():
-    """Get list of documents with metadata"""
+    """Get list of documents with metadata recursively"""
     logger = logging.getLogger(__name__)
     try:
         documents = []
-        logger.info(f"Scanning directory: {CONFIG.RAW_DOCUMENTS_PATH}")
+        logger.info(f"Scanning directory recursively: {CONFIG.RAW_DOCUMENTS_PATH}")
 
         # Ensure the directory exists
         CONFIG.RAW_DOCUMENTS_PATH.mkdir(parents=True, exist_ok=True)
 
-        # Get all files with supported extensions
+        # Get all files recursively
         for ext in CONFIG.SUPPORTED_EXTENSIONS:
-            for file_path in CONFIG.RAW_DOCUMENTS_PATH.glob(f"*{ext}"):
+            for file_path in CONFIG.RAW_DOCUMENTS_PATH.rglob(f"*{ext}"):
                 try:
                     stat = file_path.stat()
+                    rel_path = file_path.relative_to(CONFIG.RAW_DOCUMENTS_PATH)
                     documents.append({
                         "name": file_path.name,
+                        "path": str(rel_path),
                         "type": file_path.suffix[1:].upper(),
                         "size": stat.st_size,
                         "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()

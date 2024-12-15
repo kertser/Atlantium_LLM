@@ -288,14 +288,15 @@ def extract_text_and_images_from_excel(excel_path):
         return "", []
 
 
-def chunk_text(text, chunk_size=CONFIG.CHUNK_SIZE, overlap=CONFIG.CHUNK_OVERLAP):
-    """Split text into chunks with overlap to maintain context."""
+def chunk_text(text: str, source_path: str, chunk_size=CONFIG.CHUNK_SIZE, overlap=CONFIG.CHUNK_OVERLAP):
+    """Split text into chunks with overlap and enhanced metadata."""
     if not text or chunk_size < CONFIG.MIN_CHUNK_SIZE:
         return []
 
     words = text.split()
     chunks = []
     start_idx = 0
+    chunk_number = 0
 
     while start_idx < len(words):
         # Calculate end index for current chunk
@@ -311,9 +312,19 @@ def chunk_text(text, chunk_size=CONFIG.CHUNK_SIZE, overlap=CONFIG.CHUNK_OVERLAP)
                     break
             end_idx = breakpoint
 
-        # Create chunk
-        chunk = ' '.join(words[start_idx:end_idx])
+        # Create chunk with metadata
+        chunk = {
+            'text': ' '.join(words[start_idx:end_idx]),
+            'metadata': {
+                'source_path': source_path,
+                'chunk_number': chunk_number,
+                'start_idx': start_idx,
+                'end_idx': end_idx,
+                'relative_path': str(Path(source_path).relative_to(CONFIG.RAW_DOCUMENTS_PATH))
+            }
+        }
         chunks.append(chunk)
+        chunk_number += 1
 
         # Move start index, accounting for overlap
         start_idx = end_idx - overlap if end_idx < len(words) else end_idx

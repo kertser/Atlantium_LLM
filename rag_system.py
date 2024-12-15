@@ -6,7 +6,7 @@ import glob
 import numpy as np
 from pathlib import Path
 from config import CONFIG
-from typing import Any, Tuple
+from typing import Any, Tuple, List
 import faiss
 from utils.FAISS_utils import (
     initialize_faiss_index,
@@ -77,9 +77,10 @@ def process_documents(model, processor, device, index, metadata, image_store, do
 
                 # Process text content
                 if text and text.strip():
-                    text_chunks = chunk_text(text, CONFIG.CHUNK_SIZE)
+                    text_chunks = chunk_text(text, str(doc_path))  # Fixed: Pass source path
                     if text_chunks:
-                        text_embeddings, _ = encode_with_clip(text_chunks, [], model, processor, device)
+                        chunk_texts = [chunk['text'] for chunk in text_chunks]  # Get just the text for embedding
+                        text_embeddings, _ = encode_with_clip(chunk_texts, [], model, processor, device)
 
                         for chunk_idx, embedding in enumerate(text_embeddings):
                             if embedding is not None:
@@ -88,7 +89,7 @@ def process_documents(model, processor, device, index, metadata, image_store, do
                                         embedding=np.array(embedding),
                                         source_file_name=doc_path,
                                         content_type="text-chunk",
-                                        content=text_chunks[chunk_idx],
+                                        content=text_chunks[chunk_idx],  # Pass the full chunk dict
                                         index=index,
                                         metadata=metadata
                                     )
@@ -175,6 +176,13 @@ def process_documents(model, processor, device, index, metadata, image_store, do
         logging.error(f"Error during document processing: {e}")
         raise
 
+def get_all_documents(base_path: Path, extensions: List[str]) -> List[Path]:
+    """Get all documents recursively from base path."""
+    all_docs = []
+    for ext in extensions:
+        # Use rglob for recursive search
+        all_docs.extend([p for p in base_path.rglob(f"*{ext}")])
+    return all_docs
 
 def check_stored_images():
     """Check if images are properly stored and indexed"""
@@ -328,19 +336,19 @@ def main():
         # Load environment variables
         load_dotenv()
 
-        # Get list of all documents with proper error handling
-        all_docs = []
-        for ext in CONFIG.SUPPORTED_EXTENSIONS:
-            try:
-                docs = glob.glob(str(CONFIG.RAW_DOCUMENTS_PATH / f"*{ext}"))
-                all_docs.extend(docs)
-            except Exception as e:
-                logging.error(f"Error searching for {ext} files: {e}")
-                continue
+        # Get all documents recursively with proper error handling
+        try:
+            all_docs = get_all_documents(CONFIG.RAW_DOCUMENTS_PATH, CONFIG.SUPPORTED_EXTENSIONS)
+            if not all_docs:
+                logging.warning("No documents found to process")
+                return 0
 
-        if not all_docs:
-            logging.warning("No documents found to process")
-            return 0
+            # Convert to strings for compatibility
+            all_docs = [str(doc) for doc in all_docs]
+            logging.info(f"Found {len(all_docs)} documents in total")
+        except Exception as e:
+            logging.error(f"Error finding documents: {e}")
+            return 1
 
         # Load already processed files with error handling
         try:

@@ -63,7 +63,7 @@ def clean_duplicate_entries(metadata: List[Dict]) -> List[Dict]:
     return cleaned_metadata
 
 def add_to_faiss(embedding, source_file_name, content_type, content, index, metadata, processed_ids: Set[str] = None):
-    """Add embedding to FAISS with duplicate prevention"""
+    """Add embedding to FAISS with enhanced metadata"""
     try:
         if embedding is None or not isinstance(embedding, np.ndarray):
             raise ValueError("Embedding must be a valid NumPy array")
@@ -87,48 +87,63 @@ def add_to_faiss(embedding, source_file_name, content_type, content, index, meta
 
         index.add(embedding)
 
-        # Create base metadata
-        meta_entry = {
-            "source_file": str(source_file_name),
-            "type": content_type
-        }
+        # Create enhanced metadata with full path information
+        try:
+            source_path = Path(source_file_name)
+            if not source_path.is_absolute():
+                source_path = CONFIG.RAW_DOCUMENTS_PATH / source_path
 
-        # For text chunks, add content directly
+            try:
+                relative_path = source_path.relative_to(CONFIG.RAW_DOCUMENTS_PATH)
+            except ValueError:
+                # If path is not relative to RAW_DOCUMENTS_PATH, use the full path
+                relative_path = source_path
+                logging.warning(f"Path {source_path} is not relative to RAW_DOCUMENTS_PATH")
+
+            meta_entry = {
+                "source_file": str(source_path),
+                "relative_path": str(relative_path),
+                "type": content_type,
+                "directory": str(source_path.parent),
+            }
+
+        except Exception as e:
+            logging.error(f"Error handling paths in add_to_faiss: {e}")
+            raise
+
+        # Handle content based on type
         if content_type == "text-chunk":
-            meta_entry["content"] = content
+            if isinstance(content, dict):
+                meta_entry["content"] = content['text']
+                meta_entry.update(content.get('metadata', {}))
+            else:
+                meta_entry["content"] = content
 
-        # For images, handle potentially missing fields with defaults
         elif content_type == "image":
             if isinstance(content, dict):
-                meta_entry = {
-                    "source_file": str(source_file_name),
-                    "type": content_type,
-                    "content": {
-                        "image_id": content.get("image_id", ""),
-                        "source_doc": str(content.get("source_doc", source_file_name)),
-                        "context": content.get("context", ""),
-                        "caption": content.get("caption", ""),
-                        "page": content.get("page", 1),
-                        "path": content.get("path", "")
-                    }
+                meta_entry["content"] = {
+                    "image_id": content.get("image_id", ""),
+                    "source_doc": str(content.get("source_doc", source_file_name)),
+                    "context": content.get("context", ""),
+                    "caption": content.get("caption", ""),
+                    "page": content.get("page", 1),
+                    "path": content.get("path", ""),
+                    "relative_path": str(relative_path)
                 }
             else:
-                doc_name = Path(source_file_name).name
-                meta_entry = {
-                    "source_file": str(source_file_name),
-                    "type": content_type,
-                    "content": {
-                        "image_id": "",
-                        "caption": f"Image from {doc_name}",
-                        "context": "",
-                        "source_doc": str(source_file_name),
-                        "page": 1,
-                        "path": ""
-                    }
+                doc_name = source_path.name
+                meta_entry["content"] = {
+                    "image_id": "",
+                    "caption": f"Image from {doc_name}",
+                    "context": "",
+                    "source_doc": str(source_file_name),
+                    "page": 1,
+                    "path": "",
+                    "relative_path": str(relative_path)
                 }
 
         metadata.append(meta_entry)
-        logging.info(f"Added {content_type} embedding to FAISS from {source_file_name}")
+        logging.info(f"Added {content_type} embedding to FAISS from {relative_path}")
 
     except Exception as e:
         logging.error(f"Error adding embedding to FAISS: {e}")
