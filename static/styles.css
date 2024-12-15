@@ -430,7 +430,6 @@ button:hover {
 }
 
 table, th, td {
-    /* border: 1px solid #ddd; /* Ensure all table elements have borders */
     border-collapse: collapse; /* Prevent double borders */
 }
 
@@ -481,22 +480,24 @@ table tr:hover {
 .documents-table-wrapper {
     max-height: 300px;
     overflow-y: auto;
-    border: 1px solid #eee;
     border-radius: var(--border-radius);
     position: relative; /* For proper sticky positioning context */
+    scroll-behavior: smooth;
+    border: #2c3e50;
 }
 
 .documents-table thead {
     position: sticky;
-    top: 32px; /* Height of current-path + padding */
-    background: #f8f9fa;
+    top: 35px; /* Exactly match the current-path height */
+    background: var(--surface-color);
     z-index: 10;
 }
 
 .documents-table {
     width: 100%;
     font-size: 0.9rem;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
 }
 
 .documents-container table {
@@ -504,19 +505,23 @@ table tr:hover {
 }
 
 .documents-table th {
+    height: 35px; /* Match the height for consistency */
+    padding: 0.75rem 1rem;
     font-weight: 600;
     font-size: 0.9rem;
-    position: sticky;
-    top: 0;
     background: #f8f9fa;
-    padding: 0.75rem;
-    text-align: left;
-    border-bottom: 2px solid #dee2e6;
+    border-bottom: 1px solid #dee2e6;
+    border-left: 1px solid #eee;
+    border-right: 1px solid #eee;
+    text-transform: uppercase;
+    white-space: nowrap;
 }
 
 .documents-table td {
-    padding: 0.5rem 0.75rem;
+    padding: 0.5rem 1rem;
     border-bottom: 1px solid #eee;
+    border-left: 1px solid #eee;
+    border-right: 1px solid #eee;
 }
 
 .documents-table tr:hover {
@@ -529,16 +534,18 @@ table tr:hover {
 }
 
 .current-path {
-    padding: 0.5rem 1rem;
+    padding: 0.75rem 1rem;
     background: #f8f9fa;
     border-radius: var(--border-radius) var(--border-radius) 0 0;
-    border: 1px solid #dee2e6;
+    border: 1px solid #eee;
     border-bottom: none;
     font-weight: 500;
     color: var(--text-color);
     position: sticky;
     top: 0;
     z-index: 11;
+    margin-bottom: 0;
+    height: 35px; /* Fixed height: padding (0.75rem * 16 = 12px) * 2 + line-height (~19px) */
 }
 
 .folder-row {
@@ -565,6 +572,12 @@ table tr:hover {
 .documents-table tbody tr.folder-row td {
     color: var(--primary-color);
     font-weight: 500;
+}
+
+.documents-table tbody td {
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid #eee;
+    background: inherit;
 }
 
 
