@@ -28,7 +28,7 @@ class Config:
     SIMILARITY_THRESHOLD: float = 0.8  # Text similarity
     IMAGE_SIMILARITY_THRESHOLD: float = 0.25  # Image similarity
     TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.8  # Technical confidence
-    MAX_METADATA_SIZE: int = 10000
+    MAX_METADATA_SIZE: int = 100000
     CHUNK_SIZE: int = 512
     SUPPORTED_EXTENSIONS: List[str] = None
 

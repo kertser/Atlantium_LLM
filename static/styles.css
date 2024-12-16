@@ -470,18 +470,30 @@ table tr:hover {
     box-shadow: var(--shadow);
 }
 
+.document-stats-actions {
+    display: flex;
+    align-items: center; /* Align "Total" and buttons vertically */
+    gap: 1rem; /* Add spacing between "Total" and buttons */
+}
+
 .documents-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 1rem;
-    gap: 1rem; /* added */
+    gap: 1rem;
 }
 
 .documents-title {
     display: flex;
     align-items: center;
     gap: 1rem;
+}
+
+.document-actions {
+    display: flex;
+    align-items: center; /* Align buttons vertically */
+    gap: 0.2rem; /* Add spacing between buttons */
 }
 
 .icon-button {
@@ -510,6 +522,14 @@ table tr:hover {
 .icon-button.loading {
     opacity: 0.7;
     cursor: not-allowed;
+}
+
+#rescan-button {
+    margin-right: 0; /* Remove auto margin */
+}
+
+#new-folder-button {
+    margin-left: 0; /* Remove auto margin */
 }
 
 .documents-table-wrapper {

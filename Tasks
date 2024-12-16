@@ -17,23 +17,5 @@
 * Think of other Agents (Video Agent) (TBD)
 
 # Errors:
-- Improper translation of formula:
-\[ \text{Relative Humidity} = \left(\frac{\text{Actual Vapor Density}}{\text{Saturation Vapor Density}}\right) \times 100 \]
-Need to change instructions in prompt to write all equations in latex format and use the LaTeX-to-HTML Render Service:
-<script type="math/tex">x^2 + y^2 = z^2</script>:
-
-<!DOCTYPE html>
-<html>
-<head>
-  <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
-  <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-</head>
-<body>
-  <p>Here is a formula: \(x^2 + y^2 = z^2\)</p>
-</body>
-</html>
-
 - On Delete Document - The document shall be removed from RAG with all the related images.
-- On Open document it shall be opened with system program (Word, excel, pdf viewer) if possible, and system agnostic.
 - Rescan button for documents may be added
-- Delete folder functionality. Create Folder button
