@@ -62,6 +62,7 @@ def clean_duplicate_entries(metadata: List[Dict]) -> List[Dict]:
 
     return cleaned_metadata
 
+
 def add_to_faiss(embedding, source_file_name, content_type, content, index, metadata, processed_ids: Set[str] = None):
     """Add embedding to FAISS with enhanced metadata"""
     try:
@@ -87,18 +88,20 @@ def add_to_faiss(embedding, source_file_name, content_type, content, index, meta
 
         index.add(embedding)
 
-        # Create enhanced metadata with full path information
+        # Create enhanced metadata with proper path handling
         try:
-            source_path = Path(source_file_name)
-            if not source_path.is_absolute():
-                source_path = CONFIG.RAW_DOCUMENTS_PATH / source_path
+            # Convert source_file_name to Path object and resolve it
+            source_path = Path(source_file_name).resolve()
+            raw_docs_path = Path(CONFIG.RAW_DOCUMENTS_PATH).resolve()
 
+            # Check if the path is already relative to RAW_DOCUMENTS_PATH
             try:
-                relative_path = source_path.relative_to(CONFIG.RAW_DOCUMENTS_PATH)
+                # This will raise ValueError if source_path is not under raw_docs_path
+                relative_path = source_path.relative_to(raw_docs_path)
             except ValueError:
-                # If path is not relative to RAW_DOCUMENTS_PATH, use the full path
-                relative_path = source_path
-                logging.warning(f"Path {source_path} is not relative to RAW_DOCUMENTS_PATH")
+                # If not under raw_docs_path, treat source_path as relative
+                source_path = raw_docs_path / source_file_name
+                relative_path = Path(source_file_name)
 
             meta_entry = {
                 "source_file": str(source_path),
@@ -123,7 +126,7 @@ def add_to_faiss(embedding, source_file_name, content_type, content, index, meta
             if isinstance(content, dict):
                 meta_entry["content"] = {
                     "image_id": content.get("image_id", ""),
-                    "source_doc": str(content.get("source_doc", source_file_name)),
+                    "source_doc": str(source_path),
                     "context": content.get("context", ""),
                     "caption": content.get("caption", ""),
                     "page": content.get("page", 1),
@@ -136,7 +139,7 @@ def add_to_faiss(embedding, source_file_name, content_type, content, index, meta
                     "image_id": "",
                     "caption": f"Image from {doc_name}",
                     "context": "",
-                    "source_doc": str(source_file_name),
+                    "source_doc": str(source_path),
                     "page": 1,
                     "path": "",
                     "relative_path": str(relative_path)

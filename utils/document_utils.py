@@ -232,7 +232,7 @@ def delete_folder_from_rag(folder_path: Path) -> tuple[bool, str, List[str]]:
 
 def rename_folder_in_rag(old_path: Path, new_path: Path) -> tuple[bool, str]:
     """
-    Renames a folder and updates all RAG references.
+    Renames a folder and updates all RAG references using recursive traversal.
 
     Args:
         old_path: Current folder path
@@ -242,64 +242,118 @@ def rename_folder_in_rag(old_path: Path, new_path: Path) -> tuple[bool, str]:
         Tuple of (success: bool, message: str)
     """
     try:
-        # Load current metadata
-        metadata = load_metadata(CONFIG.METADATA_PATH)
+        # Load all metadata files
+        faiss_metadata_path = CONFIG.METADATA_PATH
+        image_metadata_path = CONFIG.STORED_IMAGES_PATH / "image_metadata.json"
+        processed_files_path = Path("processed_files.json")
 
-        # Update paths in metadata
-        old_path_str = str(old_path)
-        new_path_str = str(new_path)
+        # Get the old and new folder names for replacement
+        old_folder_name = old_path.name
+        new_folder_name = new_path.name
 
-        for entry in metadata:
-            # Update source_file
-            source_file = entry.get('source_file', '')
-            if source_file.startswith(old_path_str):
-                entry['source_file'] = source_file.replace(old_path_str, new_path_str)
+        def replace_folder_name(value: str) -> str:
+            """Replace old folder name with new folder name in a string."""
+            if not isinstance(value, str):
+                return value
+            return value.replace(old_folder_name, new_folder_name)
 
-            # Update relative_path
-            rel_path = entry.get('relative_path', '')
-            if rel_path.startswith(str(old_path.relative_to(CONFIG.RAW_DOCUMENTS_PATH))):
-                entry['relative_path'] = rel_path.replace(
-                    str(old_path.relative_to(CONFIG.RAW_DOCUMENTS_PATH)),
-                    str(new_path.relative_to(CONFIG.RAW_DOCUMENTS_PATH))
-                )
+        def update_recursively(obj: Any) -> Any:
+            """
+            Recursively traverse through data structure and replace folder names.
 
-            # Update directory
-            directory = entry.get('directory', '')
-            if directory.startswith(old_path_str):
-                entry['directory'] = directory.replace(old_path_str, new_path_str)
+            Args:
+                obj: The object to traverse (dict, list, or primitive type)
 
-            # Update image paths if present
-            if entry.get('type') == 'image' and isinstance(entry.get('content'), dict):
-                content = entry['content']
-                source_doc = content.get('source_doc', '')
-                if source_doc.startswith(old_path_str):
-                    content['source_doc'] = source_doc.replace(old_path_str, new_path_str)
+            Returns:
+                Updated object with replaced folder names
+            """
+            if isinstance(obj, dict):
+                return {key: update_recursively(value) for key, value in obj.items()}
+            elif isinstance(obj, list):
+                return [update_recursively(item) for item in obj]
+            elif isinstance(obj, str):
+                return replace_folder_name(obj)
+            return obj
 
-        # Save updated metadata
-        save_metadata(metadata, CONFIG.METADATA_PATH)
+        # Track updates
+        updated_count = 0
 
-        # Update processed files list
-        with open("processed_files.json", 'r') as f:
-            processed_files = json.load(f)
+        # Update FAISS metadata
+        try:
+            with open(faiss_metadata_path, 'r', encoding='utf-8') as f:
+                faiss_metadata = json.load(f)
 
-        updated_files = []
-        for file_path in processed_files:
-            if file_path.startswith(old_path_str):
-                updated_files.append(file_path.replace(old_path_str, new_path_str))
-            else:
-                updated_files.append(file_path)
+            # Update the metadata recursively
+            updated_faiss_metadata = update_recursively(faiss_metadata)
 
-        with open("processed_files.json", 'w') as f:
-            json.dump(updated_files, f, indent=2)
+            # Count updates
+            def count_differences(old_obj, new_obj):
+                if isinstance(old_obj, dict) and isinstance(new_obj, dict):
+                    return sum(count_differences(old_obj.get(k), new_obj.get(k))
+                               for k in set(old_obj) | set(new_obj))
+                elif isinstance(old_obj, list) and isinstance(new_obj, list):
+                    return sum(count_differences(o, n) for o, n in zip(old_obj, new_obj))
+                elif isinstance(old_obj, str) and isinstance(new_obj, str):
+                    return 1 if old_obj != new_obj else 0
+                return 0
+
+            updated_count += count_differences(faiss_metadata, updated_faiss_metadata)
+
+            # Save updated metadata
+            with open(faiss_metadata_path, 'w', encoding='utf-8') as f:
+                json.dump(updated_faiss_metadata, f, indent=2, ensure_ascii=False)
+            logger.info("Updated FAISS metadata")
+
+        except Exception as e:
+            logger.error(f"Error updating FAISS metadata: {e}")
+            return False, f"Failed to update FAISS metadata: {e}"
+
+        # Update image metadata
+        try:
+            with open(image_metadata_path, 'r', encoding='utf-8') as f:
+                image_metadata = json.load(f)
+
+            updated_image_metadata = update_recursively(image_metadata)
+            updated_count += count_differences(image_metadata, updated_image_metadata)
+
+            with open(image_metadata_path, 'w', encoding='utf-8') as f:
+                json.dump(updated_image_metadata, f, indent=2, ensure_ascii=False)
+            logger.info("Updated image metadata")
+
+        except Exception as e:
+            logger.error(f"Error updating image metadata: {e}")
+            return False, f"Failed to update image metadata: {e}"
+
+        # Update processed_files.json
+        try:
+            if processed_files_path.exists():
+                with open(processed_files_path, 'r', encoding='utf-8') as f:
+                    processed_files = json.load(f)
+
+                updated_processed_files = update_recursively(processed_files)
+                updated_count += count_differences(processed_files, updated_processed_files)
+
+                with open(processed_files_path, 'w', encoding='utf-8') as f:
+                    json.dump(updated_processed_files, f, indent=2)
+                logger.info("Updated processed_files.json")
+
+        except Exception as e:
+            logger.error(f"Error updating processed_files.json: {e}")
+            return False, f"Failed to update processed files list: {e}"
 
         # Rename the actual folder
-        old_path.rename(new_path)
+        try:
+            old_path.rename(new_path)
+            logger.info(f"Renamed folder from {old_path} to {new_path}")
+        except Exception as e:
+            logger.error(f"Error renaming folder: {e}")
+            return False, f"Failed to rename folder: {e}"
 
-        return True, "Folder renamed successfully"
+        return True, f"Folder renamed successfully. Updated {updated_count} paths across all metadata files."
 
     except Exception as e:
-        logger.error(f"Error renaming folder: {str(e)}")
-        return False, f"Failed to rename folder: {str(e)}"
+        logger.error(f"Error during folder rename: {e}")
+        return False, f"Failed to rename folder: {e}"
 
 
 def validate_folder_name(name: str) -> tuple[bool, str]:

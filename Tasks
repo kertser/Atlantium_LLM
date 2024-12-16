@@ -17,4 +17,4 @@
 * Think of other Agents (Video Agent) (TBD)
 
 # Errors:
-- On Delete Document - The document shall be removed from RAG with all the related images.
+- On Rename folder - need to fix the rename in metadata files
