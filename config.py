@@ -38,8 +38,8 @@ class Config:
     DETAIL_MAX_TOKENS: int = 1500  # Setting for detailed responses
 
     # Query Configuration
-    DEFAULT_TOP_K: int = 3
-    TEMPERATURE: float = 0.1
+    DEFAULT_TOP_K: int = 5
+    TEMPERATURE: float = 0.01
     GPT_MODEL: str = "gpt-4o-mini"
 
     # Vision model settings

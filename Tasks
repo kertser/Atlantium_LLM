@@ -1,11 +1,10 @@
 # General Tasks:
-* rename rag_system to RAG_processor
 * Test and fix docker-compose with volumes (not working properly - seems like no metadata is initialized)
 * Test Webhooks
 * Make Documentation
 * Play with similarity scores to have more precise answers. Pictures similarity needs to be better. Or choose the best percentile score
-* Continue playing with prompts to reduce hallucinations. (May be achieved with more data)
-* Interactive troubleshooting mode (analyze step by step) on request
+* Continue playing with prompts, top_K and chunking to reduce hallucinations. (May be achieved with more data)
+* Add prompt template for Interactive troubleshooting mode (analyze step by step)
 * Add option for "chat with live operator" (A button with contacts)
 * Calculator API - connect as agent
 

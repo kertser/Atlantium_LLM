@@ -435,7 +435,7 @@ table, th, td {
 
 table {
     width: 100%;
-    margin-bottom: 1.5rem;
+    margin-bottom: 0.5rem;
     background-color: var(--surface-color);
     box-shadow: var(--shadow);
     border-radius: var(--border-radius);
@@ -533,7 +533,7 @@ table tr:hover {
 }
 
 .documents-table-wrapper {
-    max-height: 300px;
+    max-height: 334px;
     overflow-y: auto;
     border-radius: var(--border-radius);
     position: relative; /* For proper sticky positioning context */
@@ -575,8 +575,8 @@ table tr:hover {
 .documents-table td {
     padding: 0.5rem 1rem;
     border-bottom: 1px solid #eee;
-    border-left: 1px solid #eee;
-    border-right: 1px solid #eee;
+    border-left: 0 solid #eee;
+    border-right: 0 solid #eee;
 }
 
 .documents-table tr:hover {
