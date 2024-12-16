@@ -47,13 +47,12 @@ def open_file_with_default_program(file_path: str) -> tuple[bool, str]:
         logger.error(f"Error opening file {file_path}: {str(e)}")
         return False, f"Unexpected error: {str(e)}"
 
+
 def remove_document_from_rag(doc_path: Path) -> tuple[bool, str]:
     """
     Removes a document and all its associated data from the RAG system.
-
     Args:
         doc_path: Path to the document to remove
-
     Returns:
         Tuple of (success: bool, message: str)
     """
@@ -77,11 +76,17 @@ def remove_document_from_rag(doc_path: Path) -> tuple[bool, str]:
 
         # Find all entries and images related to this document
         for idx, entry in enumerate(metadata):
-            # Check against full path
+            # Check against full path and normalized paths
             entry_source = entry.get('source_file', '')
-            if entry_source and Path(entry_source).name == doc_name:
-                logger.info(f"Found matching entry by source file: {entry_source}")
-                indices_to_remove.append(idx)
+            entry_source_normalized = str(Path(entry_source)).replace('\\', '/')
+            doc_path_normalized = str(doc_path).replace('\\', '/')
+
+            # Check if paths match after normalization or if filenames match
+            if (Path(entry_source_normalized).name == doc_name or
+                    Path(doc_path_normalized).name == doc_name):
+                logger.info(f"Found matching entry by filename: {entry_source}")
+                if idx not in indices_to_remove:
+                    indices_to_remove.append(idx)
 
                 # If it's an image entry, collect image ID
                 if entry.get('type') == 'image':
@@ -116,19 +121,27 @@ def remove_document_from_rag(doc_path: Path) -> tuple[bool, str]:
                 except Exception as e:
                     logger.error(f"Error deleting image {image_id}: {e}")
                     # Continue with other images instead of failing the whole operation
-                    continue
 
         try:
-            # Create new index without removed entries
-            new_index = faiss.IndexFlatL2(index.d)
-            new_metadata = []
+            # Create lists for keeping valid entries and their vectors
+            valid_indices = [i for i in range(len(metadata)) if i not in indices_to_remove]
+            new_metadata = [metadata[i] for i in valid_indices]
 
-            # Build new index excluding removed entries
-            for idx in range(len(metadata)):
-                if idx not in indices_to_remove:
-                    vector = faiss.vector_float_to_array(index.reconstruct(idx))
-                    new_index.add(vector.reshape(1, -1))
-                    new_metadata.append(metadata[idx])
+            # Create new index and add valid vectors
+            new_index = faiss.IndexFlatL2(index.d)
+            if valid_indices:  # Only add vectors if we have valid indices
+                vectors = []
+                for idx in valid_indices:
+                    try:
+                        vector = faiss.vector_float_to_array(index.reconstruct(idx))
+                        vectors.append(vector)
+                    except RuntimeError as e:
+                        logger.error(f"Error reconstructing vector at index {idx}: {e}")
+                        continue
+
+                if vectors:  # Only add if we have valid vectors
+                    vectors_array = np.vstack(vectors)
+                    new_index.add(vectors_array)
 
             # Verify index integrity
             if new_index.ntotal != len(new_metadata):
@@ -143,11 +156,6 @@ def remove_document_from_rag(doc_path: Path) -> tuple[bool, str]:
             # Update processed files list
             update_processed_files_list(doc_path, remove=True)
             logger.info("Updated processed files list")
-
-            # Log summary
-            logger.info(f"Successfully removed document {doc_path.name} from RAG system:")
-            logger.info(f"- Removed {len(indices_to_remove)} FAISS entries")
-            logger.info(f"- Removed {len(images_to_remove)} associated images")
 
             return True, f"Document and {len(images_to_remove)} associated images removed successfully"
 
