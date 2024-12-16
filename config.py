@@ -27,13 +27,13 @@ class Config:
 
     # Document Processing
     BATCH_SIZE: int = 5  # Document processing in batches. For limited RAM it is 2-5. For GPU 8-16GB it is 8-16
-    CHUNK_OVERLAP: int = 50
+    CHUNK_OVERLAP: int = 100
     MIN_CHUNK_SIZE: int = 100
+    CHUNK_SIZE: int = 1000  # Optimal for larger content. Smaller chunks are more selective, but harder to compare
     SIMILARITY_THRESHOLD: float = 0.75  # Text similarity
     IMAGE_SIMILARITY_THRESHOLD: float = 0.25  # Image similarity
     TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.8  # Technical confidence
     MAX_METADATA_SIZE: int = 10000000  # We have to keep it large, since 100-200 docs can take 15Gb space
-    CHUNK_SIZE: int = 512  # Optimal for larger content. Smaller chunks are more selective, but harder to compare
     SUPPORTED_EXTENSIONS: List[str] = None
 
     # Token limits for completeness
