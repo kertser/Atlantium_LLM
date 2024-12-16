@@ -25,6 +25,7 @@ from pathlib import Path
 from config import CONFIG
 from typing import Any, Tuple, List
 import faiss
+from tqdm import tqdm
 from utils.FAISS_utils import (
     initialize_faiss_index,
     add_to_faiss,
@@ -49,33 +50,25 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s: %(message)s',
     handlers=[
-        logging.StreamHandler(),
+        # logging.StreamHandler(), # into CLI
         logging.FileHandler(CONFIG.LOG_PATH)
     ]
 )
+
+# Create a separate console handler for critical/final information
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setLevel(logging.WARNING)  # Only WARNING and above go to console
+console_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+logging.getLogger().addHandler(console_handler)
 
 def process_documents(model, processor, device, index, metadata, image_store, doc_paths=None):
     """
     Process a list of documents to extract text and images, generate embeddings,
     and store them in a FAISS index.
-
-    Args:
-        model: The CLIP model instance for embeddings.
-        processor: The CLIP processor for preprocessing.
-        device: The device (CPU or GPU) used for processing.
-        index: The FAISS index for storing embeddings.
-        metadata: A list to store metadata entries corresponding to the embeddings.
-        image_store: An ImageStore instance to manage image storage.
-        doc_paths: List of paths to documents to process. Defaults to None to process all available documents.
-
-    Returns:
-        Tuple containing the updated FAISS index and the generated metadata.
     """
     try:
         # If no specific docs provided, get all documents
         processed_image_ids = set()
-
-        # Track image IDs that have been added to FAISS
         faiss_processed_ids = set()
 
         if doc_paths is None:
@@ -88,109 +81,100 @@ def process_documents(model, processor, device, index, metadata, image_store, do
             return index, metadata
 
         logging.info(f"Found {len(doc_paths)} documents to process")
-
-        # Track successful embeddings
         embeddings_added = False
 
-        # Process each document
-        for doc_path in doc_paths:
-            try:
-                text = ""
-                images_data = []
-                file_extension = Path(doc_path).suffix.lower()
+        # Main document processing loop with tqdm
+        with tqdm(total=len(doc_paths), desc="Processing documents", unit="doc", position=0, leave=True) as pbar:
+            for doc_path in doc_paths:
+                try:
+                    text = ""
+                    images_data = []
+                    file_extension = Path(doc_path).suffix.lower()
+                    pbar.set_postfix({"File": Path(doc_path).name}, refresh=True)
 
-                # Extract content based on file type
-                if file_extension == '.pdf':
-                    text, images_data = extract_text_and_images_from_pdf(doc_path)
-                elif file_extension == '.docx':
-                    text, images_data = extract_text_and_images_from_word(doc_path)
-                elif file_extension == '.xlsx':
-                    text, images_data = extract_text_and_images_from_excel(doc_path)
+                    # Extract content based on file type
+                    if file_extension == '.pdf':
+                        text, images_data = extract_text_and_images_from_pdf(doc_path)
+                    elif file_extension == '.docx':
+                        text, images_data = extract_text_and_images_from_word(doc_path)
+                    elif file_extension == '.xlsx':
+                        text, images_data = extract_text_and_images_from_excel(doc_path)
 
-                # Process text content
-                if text and text.strip():
-                    text_chunks = chunk_text(text, str(doc_path))  # Fixed: Pass source path
-                    if text_chunks:
-                        chunk_texts = [chunk['text'] for chunk in text_chunks]  # Get just the text for embedding
-                        text_embeddings, _ = encode_with_clip(chunk_texts, [], model, processor, device)
+                    # Process text content with nested progress bar
+                    if text and text.strip():
+                        text_chunks = chunk_text(text, str(doc_path))
+                        if text_chunks:
+                            chunk_texts = [chunk['text'] for chunk in text_chunks]
+                            with tqdm(total=len(chunk_texts), desc="Processing text chunks", position=1, leave=True) as chunk_pbar:
+                                text_embeddings, _ = encode_with_clip(chunk_texts, [], model, processor, device)
+                                for chunk_idx, embedding in enumerate(text_embeddings):
+                                    if embedding is not None:
+                                        try:
+                                            add_to_faiss(
+                                                embedding=np.array(embedding),
+                                                source_file_name=doc_path,
+                                                content_type="text-chunk",
+                                                content=text_chunks[chunk_idx],
+                                                index=index,
+                                                metadata=metadata
+                                            )
+                                            embeddings_added = True
+                                            chunk_pbar.update(1)
+                                        except Exception as e:
+                                            logging.error(f"Error adding text chunk {chunk_idx}: {e}")
 
-                        for chunk_idx, embedding in enumerate(text_embeddings):
-                            if embedding is not None:
+                    # Process images with nested progress bar
+                    if images_data:
+                        with tqdm(total=len(images_data), desc="Processing images",  position=0, leave=True) as img_pbar:
+                            for img_data in images_data:
                                 try:
-                                    add_to_faiss(
-                                        embedding=np.array(embedding),
-                                        source_file_name=doc_path,
-                                        content_type="text-chunk",
-                                        content=text_chunks[chunk_idx],  # Pass the full chunk dict
-                                        index=index,
-                                        metadata=metadata
+                                    image_id = image_store.store_image(
+                                        image=img_data['image'],
+                                        source_doc=str(doc_path),
+                                        page_num=img_data['page_num'],
+                                        context=img_data.get('context', ''),
+                                        caption=img_data.get('caption', f"Image from {Path(doc_path).name}")
                                     )
-                                    embeddings_added = True
-                                    logging.info(f"Added text chunk {chunk_idx} from {doc_path}")
+
+                                    if image_id not in processed_image_ids:
+                                        processed_image_ids.add(image_id)
+                                        stored_image, _ = image_store.get_image(image_id)
+
+                                        if stored_image is not None:
+                                            _, image_embedding = encode_with_clip([], [img_data['image']], model,
+                                                                                  processor, device)
+
+                                            if isinstance(image_embedding, np.ndarray) and image_embedding.size > 0:
+                                                embedding_to_use = image_embedding[0] if len(
+                                                    image_embedding.shape) > 1 else image_embedding
+                                                add_to_faiss(
+                                                    embedding=embedding_to_use,
+                                                    source_file_name=doc_path,
+                                                    content_type="image",
+                                                    content={
+                                                        "image_id": image_id,
+                                                        "source_doc": str(doc_path),
+                                                        "context": img_data.get('context', ''),
+                                                        "caption": img_data.get('caption', ''),
+                                                        "page": img_data['page_num'],
+                                                        "path": str(image_store.images_path / f"{image_id}.png")
+                                                    },
+                                                    index=index,
+                                                    metadata=metadata,
+                                                    processed_ids=faiss_processed_ids
+                                                )
+                                                embeddings_added = True
+
+                                    img_pbar.update(1)
                                 except Exception as e:
-                                    logging.error(f"Error adding text chunk {chunk_idx}: {e}")
+                                    logging.error(f"Error processing image from {doc_path}: {e}")
+                                    continue
 
-                # Process images
-                if images_data:
-                    for img_data in images_data:
-                        try:
-                            # Store image first and ensure it's stored successfully
-                            image_id = image_store.store_image(
-                                image=img_data['image'],
-                                source_doc=str(doc_path),
-                                page_num=img_data['page_num'],
-                                context=img_data.get('context', ''),
-                                caption=img_data.get('caption', f"Image from {Path(doc_path).name}")
-                            )
+                    pbar.update(1)
 
-                            # Skip if we've already processed this image
-                            if image_id in processed_image_ids:
-                                logging.info(f"Skipping duplicate image {image_id}")
-                                continue
-
-                            processed_image_ids.add(image_id)
-
-                            # Verify image was stored successfully
-                            stored_image, _ = image_store.get_image(image_id)
-                            if stored_image is None:
-                                logging.error(f"Failed to verify stored image {image_id}")
-                                continue
-
-                            # Create image embedding
-                            _, image_embedding = encode_with_clip([], [img_data['image']], model, processor, device)
-
-                            if isinstance(image_embedding, np.ndarray) and image_embedding.size > 0:
-                                if len(image_embedding.shape) > 1:
-                                    embedding_to_use = image_embedding[0]
-                                else:
-                                    embedding_to_use = image_embedding
-
-                                # Add to FAISS with verified image data and duplicate prevention
-                                add_to_faiss(
-                                    embedding=embedding_to_use,
-                                    source_file_name=doc_path,
-                                    content_type="image",
-                                    content={
-                                        "image_id": image_id,
-                                        "source_doc": str(doc_path),
-                                        "context": img_data.get('context', ''),
-                                        "caption": img_data.get('caption', ''),
-                                        "page": img_data['page_num'],
-                                        "path": str(image_store.images_path / f"{image_id}.png")
-                                    },
-                                    index=index,
-                                    metadata=metadata,
-                                    processed_ids=faiss_processed_ids  # Pass set to track processed IDs
-                                )
-                                embeddings_added = True
-                                logging.info(f"Added image embedding for {image_id}")
-                        except Exception as e:
-                            logging.error(f"Error processing image from {doc_path}: {e}")
-                            continue
-
-            except Exception as e:
-                logging.error(f"Error processing document {doc_path}: {e}")
-                continue
+                except Exception as e:
+                    logging.error(f"Error processing document {doc_path}: {e}")
+                    continue
 
         if not embeddings_added:
             logging.warning("No embeddings were added during processing")
@@ -200,8 +184,10 @@ def process_documents(model, processor, device, index, metadata, image_store, do
             logging.warning("No metadata generated during processing")
             return index, []
 
+        logging.info("Processing completed successfully")
         logging.info(f"Successfully processed {len(doc_paths)} documents")
         logging.info(f"Generated {len(metadata)} metadata entries")
+
         return index, metadata
 
     except Exception as e:
@@ -395,45 +381,28 @@ def validate_metadata_and_index(metadata: list, index: Any, image_store: ImageSt
 
 
 def main():
-    """
-    Main function to orchestrate the processing pipeline.
-
-    Steps:
-    - Load environment variables and configurations.
-    - Identify unprocessed documents.
-    - Initialize CLIP model and FAISS index.
-    - Process documents in batches to extract content, generate embeddings, and update the index.
-    - Perform cleanup and save intermediate results.
-
-    Returns:
-        int: Exit code (0 for success, 1 for failure).
-    """
+    """Main function with progress bars for batch processing."""
     try:
-        # Load environment variables
         load_dotenv()
 
-        # Get all documents recursively with proper error handling
         try:
             all_docs = get_all_documents(CONFIG.RAW_DOCUMENTS_PATH, CONFIG.SUPPORTED_EXTENSIONS)
             if not all_docs:
                 logging.warning("No documents found to process")
                 return 0
 
-            # Convert to strings for compatibility
             all_docs = [str(doc) for doc in all_docs]
             logging.info(f"Found {len(all_docs)} documents in total")
         except Exception as e:
             logging.error(f"Error finding documents: {e}")
             return 1
 
-        # Load already processed files with error handling
         try:
             processed_files = get_processed_files()
         except Exception as e:
             logging.error(f"Error loading processed files: {e}")
             processed_files = set()
 
-        # Filter out already processed files using absolute paths
         new_docs = [path for path in all_docs if str(Path(path).absolute()) not in processed_files]
 
         if not new_docs:
@@ -442,69 +411,67 @@ def main():
 
         logging.info(f"Found {len(new_docs)} new documents to process")
 
-        # Initialize components with proper cleanup
         clip_model = None
         index = None
         try:
-            # Initialize CLIP model
-            clip_model, clip_processor, device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
-            if not clip_model or not clip_processor:
-                raise RuntimeError("Failed to initialize CLIP model")
+            with tqdm(desc="Initializing", total=2) as init_pbar:
+                clip_model, clip_processor, device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
+                if not clip_model or not clip_processor:
+                    raise RuntimeError("Failed to initialize CLIP model")
+                init_pbar.update(1)
 
-            # Create or load FAISS index with proper error handling
-            try:
-                # Ensure indices directory exists
-                CONFIG.FAISS_INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    CONFIG.FAISS_INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-                if CONFIG.FAISS_INDEX_PATH.exists():
-                    try:
-                        index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
-                        metadata = load_metadata(CONFIG.METADATA_PATH)
-                        logging.info("Loaded existing FAISS index and metadata")
-                    except Exception as e:
-                        logging.warning(f"Failed to load existing index: {e}")
-                        index = None
+                    if CONFIG.FAISS_INDEX_PATH.exists():
+                        try:
+                            index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
+                            metadata = load_metadata(CONFIG.METADATA_PATH)
+                            logging.info("Loaded existing FAISS index and metadata")
+                        except Exception as e:
+                            logging.warning(f"Failed to load existing index: {e}")
+                            index = None
 
-                if index is None:
-                    logging.info("Creating new FAISS index")
-                    index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
-                    metadata = []
-                    # Save empty index and metadata immediately
-                    save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
-                    save_metadata(metadata, CONFIG.METADATA_PATH)
+                    if index is None:
+                        logging.info("Creating new FAISS index")
+                        index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
+                        metadata = []
+                        save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
+                        save_metadata(metadata, CONFIG.METADATA_PATH)
 
-            except Exception as e:
-                logging.error(f"Critical error with FAISS initialization: {e}")
-                raise
+                    init_pbar.update(1)
 
-            # Process documents in smaller batches to manage memory
-            batch_size = 5  # Adjust based on available memory
-            for i in range(0, len(new_docs), batch_size):
-                batch_docs = new_docs[i:i + batch_size]
-                logging.info(
-                    f"Processing batch {i // batch_size + 1} of {(len(new_docs) + batch_size - 1) // batch_size}")
+                except Exception as e:
+                    logging.error(f"Critical error with FAISS initialization: {e}")
+                    raise
 
-                updated_index, new_metadata = process_documents(
-                    model=clip_model,
-                    processor=clip_processor,
-                    device=device,
-                    index=index,
-                    metadata=metadata,
-                    image_store=ImageStore(CONFIG.STORED_IMAGES_PATH),
-                    doc_paths=batch_docs
-                )
+            # Process documents in batches with progress bar
+            batch_size = CONFIG.BATCH_SIZE
+            num_batches = (len(new_docs) + batch_size - 1) // batch_size
 
-                # Update index and metadata after each batch
-                if new_metadata:
-                    index = updated_index
-                    metadata.extend(new_metadata)
+            with tqdm(total=num_batches, desc="Processing batches", unit="batch", position=0, leave=True) as batch_pbar:
+                for i in range(0, len(new_docs), batch_size):
+                    batch_docs = new_docs[i:i + batch_size]
+                    batch_pbar.set_postfix({"Batch": f"{(i // batch_size) + 1}/{num_batches}"}, refresh=True)
 
-                    # Save intermediate results
-                    save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
-                    save_metadata(metadata, CONFIG.METADATA_PATH)
-                    update_processed_files(batch_docs)
+                    updated_index, new_metadata = process_documents(
+                        model=clip_model,
+                        processor=clip_processor,
+                        device=device,
+                        index=index,
+                        metadata=metadata,
+                        image_store=ImageStore(CONFIG.STORED_IMAGES_PATH),
+                        doc_paths=batch_docs
+                    )
 
-                    logging.info(f"Saved progress after batch {i // batch_size + 1}")
+                    if new_metadata:
+                        index = updated_index
+                        metadata.extend(new_metadata)
+                        save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
+                        save_metadata(metadata, CONFIG.METADATA_PATH)
+                        update_processed_files(batch_docs)
+
+                    batch_pbar.update(1)
 
             logging.info("Processing completed successfully")
             return 0
@@ -514,10 +481,9 @@ def main():
             return 1
 
         finally:
-            # Cleanup
             if clip_model is not None and hasattr(clip_model, 'cpu'):
                 try:
-                    clip_model.cpu()  # Move model to CPU to free GPU memory
+                    clip_model.cpu()
                     del clip_model
                 except Exception as e:
                     logging.error(f"Error cleaning up CLIP model: {e}")
@@ -529,7 +495,7 @@ def main():
                     logging.error(f"Error cleaning up FAISS index: {e}")
 
             import gc
-            gc.collect()  # Force garbage collection
+            gc.collect()
 
     except Exception as e:
         logging.error(f"Unhandled exception in main: {str(e)}", exc_info=True)

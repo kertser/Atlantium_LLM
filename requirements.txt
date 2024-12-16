@@ -21,6 +21,7 @@ uvicorn
 imagehash
 pydantic
 pyyaml
+tqdm
 
 # Platform-specific installation for Faiss
 faiss-cpu; platform_system == "Windows"

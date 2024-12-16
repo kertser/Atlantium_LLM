@@ -1,4 +1,6 @@
 # General Tasks:
+* Add TDQM for CLI RAG_processor
+* Move indices folder into RAG_data
 * Test and fix docker-compose with volumes (not working properly - seems like no metadata is initialized)
 * Test Webhooks
 * Make Documentation
@@ -19,3 +21,13 @@
 - some formulas still not displayed correctly: \[
 UVT = \left( \frac{I}{I_0} \right) \times 100
 \]
+- Rescan button (from internal folder) - seems to be a bug. Stuck in loop. Need to check
+- Some strange results - extremely large metadata entries. Need to store text chunks in RAG_Data
+RAG_Data/
+  stored_text_chunks/
+    document1/
+      chunk_001.txt
+      chunk_002.txt
+    document2/
+      chunk_001.txt
+      chunk_002.txt

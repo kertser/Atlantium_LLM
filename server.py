@@ -33,7 +33,7 @@ from logging.handlers import RotatingFileHandler
 import json
 from dotenv import load_dotenv
 from PIL import Image
-from typing import Optional, List, Dict, Tuple, Any
+from typing import Optional, List, Dict, Tuple, Any, Union
 from dataclasses import field
 import base64
 from io import BytesIO

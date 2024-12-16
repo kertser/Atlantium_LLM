@@ -233,27 +233,19 @@ def query_with_context(index, metadata, model, processor, device="cpu", text_que
     return results
 
 def save_faiss_index(index, filepath):
-    """
-    Save the FAISS index to a file.
-    :param index: FAISS index to save.
-    :param filepath: Path or string to save the FAISS index file.
-    """
-    # Convert Path to string if necessary
+    """Save the FAISS index to a file."""
     filepath_str = str(filepath)
     faiss.write_index(index, filepath_str)
-    print(f"FAISS index saved to {filepath_str}.")
+    logging.info(f"FAISS index saved to {filepath_str}")  # Changed to logging
 
 
 def save_metadata(metadata: List[Dict[str, Any]], filepath: Union[str, Path]) -> None:
     """Save metadata to a file with duplicate cleaning"""
     filepath_str = str(filepath)
-
-    # Clean duplicates before saving
     cleaned_metadata = clean_duplicate_entries(metadata)
-
     with open(filepath_str, 'w', encoding='utf-8') as f:
         json.dump(cleaned_metadata, f, ensure_ascii=False, indent=2)
-    print(f"Metadata saved to {filepath_str}.")
+    logging.info(f"Metadata saved to {filepath_str}")  # Changed to logging
 
 def load_faiss_index(filepath):
     """

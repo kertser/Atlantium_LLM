@@ -43,8 +43,8 @@ def initialize_rag_database(
 
     if directories_to_clean is None:
         directories_to_clean = [
-            Path("indices"),
-            Path("RAG_Data")
+            Path(CONFIG.INDICES),
+            Path(CONFIG.RAG_DATA)
         ]
 
     logging.basicConfig(level=logging.INFO)
@@ -87,8 +87,8 @@ def initialize_rag_database(
         # Create required directory structure
         required_dirs = [
             CONFIG.RAW_DOCUMENTS_PATH,
-            Path("indices"),
-            Path("RAG_Data/stored_images/images")  # Create nested structure in correct order
+            Path(CONFIG.INDICES),
+            Path(CONFIG.RAG_DATA+"/stored_images/images")  # Create nested structure in correct order
         ]
 
         for dir_path in required_dirs:

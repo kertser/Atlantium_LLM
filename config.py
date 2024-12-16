@@ -11,8 +11,10 @@ class Config:
     # Paths
     RAW_DOCUMENTS_PATH: Path = Path("Raw Documents")
 
-    FAISS_INDEX_PATH: Path = Path("indices/faiss_index.bin")
-    METADATA_PATH: Path = Path("indices/faiss_metadata.json")
+    INDICES: str = "RAG_Data/indices"
+    RAG_DATA:  str = "RAG_Data"
+    FAISS_INDEX_PATH: Path = Path("RAG_Data/indices/faiss_index.bin")
+    METADATA_PATH: Path = Path("RAG_Data/indices/faiss_metadata.json")
 
     LOG_PATH: Path = Path("system.log")
     STORED_IMAGES_PATH: Path = Path("RAG_Data/stored_images")
@@ -23,13 +25,14 @@ class Config:
     USE_GPU: bool = True
 
     # Document Processing
+    BATCH_SIZE: int = 5  # Document processing in batches. For limited RAM it is 2-5. For GPU 8-16GB it is 8-16
     CHUNK_OVERLAP: int = 50
     MIN_CHUNK_SIZE: int = 100
     SIMILARITY_THRESHOLD: float = 0.75  # Text similarity
     IMAGE_SIMILARITY_THRESHOLD: float = 0.25  # Image similarity
     TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.8  # Technical confidence
-    MAX_METADATA_SIZE: int = 100000
-    CHUNK_SIZE: int = 1000
+    MAX_METADATA_SIZE: int = 30000000  # We have to keep it large, since 100-200 docs can take 15Gb space
+    CHUNK_SIZE: int = 512  # Optimal for larger content. Smaller chunks are more selective, but harder to compare
     SUPPORTED_EXTENSIONS: List[str] = None
 
     # Token limits for completeness
