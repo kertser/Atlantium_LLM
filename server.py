@@ -329,12 +329,18 @@ class RAGQueryServer:
 
                 if metadata.get('type') == 'text-chunk':
                     if result['distance'] < 1 / CONFIG.SIMILARITY_THRESHOLD:
-                        relevant_contexts.append(metadata.get('content', '').strip())
-                        logging.info("Added text context")
+                        # Use the get_content function provided by query_with_context
+                        if 'get_content' in metadata:
+                            chunk_text = metadata['get_content']()
+                            if chunk_text:
+                                relevant_contexts.append(chunk_text.strip())
+                                logging.info("Added text context")
 
                 elif metadata.get('type') == 'image':
                     logging.info(f"Image metadata: {json.dumps(metadata, indent=2)}")
-                    image_id = metadata.get('image_id') or metadata.get('content', {}).get('image_id')
+                    # Get image ID from new metadata structure
+                    image_data = metadata.get('image', {})
+                    image_id = image_data.get('id')
                     logging.info(f"Image ID: {image_id}")
 
                     if image_id:
@@ -365,9 +371,17 @@ class RAGQueryServer:
                                     logging.info(f"Similarity score for image {image_id}: {similarity}")
 
                                     if similarity > CONFIG.IMAGE_SIMILARITY_THRESHOLD:
-                                        image_data = self.get_image_data(image_id, metadata, similarity)
-                                        if image_data:
-                                            image_data['technical_confidence'] = confidence
+                                        base64_image = self.image_store.get_base64_image(image_id)
+                                        if base64_image:
+                                            image_data = {
+                                                'image': base64_image,
+                                                'image_id': image_id,
+                                                'caption': image_data.get('caption', ''),
+                                                'context': image_data.get('context', ''),
+                                                'source': str(metadata.get('path', '')),
+                                                'similarity': similarity,
+                                                'technical_confidence': confidence
+                                            }
                                             relevant_images.append(image_data)
                                             logging.info(
                                                 f"Added technical image {image_id} with similarity {similarity}")

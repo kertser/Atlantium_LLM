@@ -59,7 +59,7 @@ def grok_post_request(messages, model_name="grok-beta", max_tokens=128, temperat
                 max_tokens=max_tokens,
                 temperature=temperature
             )
-            print(response.choices[0].message)
+            logging.info(response.choices[0].message)
             return {"choices": [{"message": {"content": response.choices[0].message.content}}]}
 
         except Exception as e:
@@ -77,7 +77,7 @@ def CLIP_init(model_name="openai/clip-vit-base-patch32"):
     try:
         # Set device (GPU if available, otherwise CPU)
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"Using device: {device}")
+        logging.info(f"Using device: {device}")
 
         # Initialize CLIP model and processor
         clip_model = CLIPModel.from_pretrained(model_name).to(device)
@@ -89,7 +89,7 @@ def CLIP_init(model_name="openai/clip-vit-base-patch32"):
 
         # Set model to evaluation mode
         clip_model.eval()
-        print(f"CLIP model {model_name} initialized on {device}.")
+        logging.info("CLIP model {model_name} initialized successfully on {device}")
 
         return clip_model, clip_processor, device
 

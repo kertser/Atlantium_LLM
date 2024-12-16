@@ -25,6 +25,7 @@ from pathlib import Path
 from config import CONFIG
 from typing import Any, Tuple, List
 import faiss
+import hashlib
 from tqdm import tqdm
 from utils.FAISS_utils import (
     initialize_faiss_index,
@@ -82,6 +83,7 @@ def process_documents(model, processor, device, index, metadata, image_store, do
 
         logging.info(f"Found {len(doc_paths)} documents to process")
         embeddings_added = False
+        chunks_processed = set()
 
         # Main document processing loop with tqdm
         with tqdm(total=len(doc_paths), desc="Processing documents", unit="doc", position=0, leave=True) as pbar:
@@ -90,7 +92,8 @@ def process_documents(model, processor, device, index, metadata, image_store, do
                     text = ""
                     images_data = []
                     file_extension = Path(doc_path).suffix.lower()
-                    pbar.set_postfix({"File": Path(doc_path).name}, refresh=True)
+                    doc_path = Path(doc_path)
+                    pbar.set_postfix({"File": doc_path.name}, refresh=True)
 
                     # Extract content based on file type
                     if file_extension == '.pdf':
@@ -104,22 +107,40 @@ def process_documents(model, processor, device, index, metadata, image_store, do
                     if text and text.strip():
                         text_chunks = chunk_text(text, str(doc_path))
                         if text_chunks:
+                            # Create directory for document chunks
+                            doc_chunks_dir = CONFIG.STORED_TEXT_CHUNKS_PATH / doc_path.stem
+                            doc_chunks_dir.mkdir(parents=True, exist_ok=True)
+
                             chunk_texts = [chunk['text'] for chunk in text_chunks]
-                            with tqdm(total=len(chunk_texts), desc="Processing text chunks", position=1, leave=True) as chunk_pbar:
+                            with tqdm(total=len(chunk_texts), desc="Processing text chunks", position=1,
+                                      leave=True) as chunk_pbar:
                                 text_embeddings, _ = encode_with_clip(chunk_texts, [], model, processor, device)
+
                                 for chunk_idx, embedding in enumerate(text_embeddings):
                                     if embedding is not None:
                                         try:
-                                            add_to_faiss(
-                                                embedding=np.array(embedding),
-                                                source_file_name=doc_path,
-                                                content_type="text-chunk",
-                                                content=text_chunks[chunk_idx],
-                                                index=index,
-                                                metadata=metadata
-                                            )
-                                            embeddings_added = True
+                                            # Generate chunk hash for deduplication
+                                            chunk_hash = hashlib.md5(chunk_texts[chunk_idx].encode()).hexdigest()
+
+                                            if chunk_hash not in chunks_processed:
+                                                chunks_processed.add(chunk_hash)
+
+                                                # Add to FAISS with file storage
+                                                add_to_faiss(
+                                                    embedding=np.array(embedding),
+                                                    source_file_name=str(doc_path),
+                                                    content_type="text-chunk",
+                                                    content={
+                                                        'text': chunk_texts[chunk_idx],
+                                                        'metadata': text_chunks[chunk_idx].get('metadata', {})
+                                                    },
+                                                    index=index,
+                                                    metadata=metadata
+                                                )
+                                                embeddings_added = True
+
                                             chunk_pbar.update(1)
+
                                         except Exception as e:
                                             logging.error(f"Error adding text chunk {chunk_idx}: {e}")
 
@@ -176,6 +197,17 @@ def process_documents(model, processor, device, index, metadata, image_store, do
                     logging.error(f"Error processing document {doc_path}: {e}")
                     continue
 
+        if embeddings_added:
+            # Save first to ensure metadata is up to date
+            save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
+            save_metadata(metadata, CONFIG.METADATA_PATH)
+
+            # Then clean up orphaned chunks
+            try:
+                clean_orphaned_chunks()
+            except Exception as e:
+                logging.error(f"Warning: Cleanup error (processing will continue): {e}")
+
         if not embeddings_added:
             logging.warning("No embeddings were added during processing")
             return index, []
@@ -183,10 +215,6 @@ def process_documents(model, processor, device, index, metadata, image_store, do
         if not metadata:
             logging.warning("No metadata generated during processing")
             return index, []
-
-        logging.info("Processing completed successfully")
-        logging.info(f"Successfully processed {len(doc_paths)} documents")
-        logging.info(f"Generated {len(metadata)} metadata entries")
 
         return index, metadata
 
@@ -285,6 +313,50 @@ def update_processed_files(doc_paths):
         logging.error(f"Error updating processed files list: {e}")
         raise
 
+def clean_orphaned_chunks():
+    """Clean up orphaned text chunk files not referenced in metadata."""
+    try:
+        # Load metadata to get referenced chunk paths
+        metadata = load_metadata(CONFIG.METADATA_PATH)
+        referenced_chunks = {
+            Path(meta['chunk'])  # Paths are now relative to STORED_TEXT_CHUNKS_PATH
+            for meta in metadata
+            if meta['type'] == 'text-chunk' and 'chunk' in meta
+        }
+
+        # Get all existing chunk files
+        all_chunks = set()
+        for doc_dir in CONFIG.STORED_TEXT_CHUNKS_PATH.iterdir():
+            if doc_dir.is_dir():
+                for chunk_file in doc_dir.glob('chunk_*.txt'):
+                    # Get path relative to STORED_TEXT_CHUNKS_PATH
+                    rel_path = chunk_file.relative_to(CONFIG.STORED_TEXT_CHUNKS_PATH)
+                    all_chunks.add(rel_path)
+
+        # Find and remove orphaned chunks
+        orphaned_chunks = all_chunks - referenced_chunks
+        for chunk_path in orphaned_chunks:
+            # Construct full path using STORED_TEXT_CHUNKS_PATH
+            full_path = CONFIG.STORED_TEXT_CHUNKS_PATH / chunk_path
+            try:
+                if full_path.exists():
+                    full_path.unlink()
+                    logging.info(f"Removed orphaned chunk: {chunk_path}")
+            except Exception as e:
+                logging.error(f"Error removing orphaned chunk {chunk_path}: {e}")
+
+        # Remove empty directories
+        for doc_dir in CONFIG.STORED_TEXT_CHUNKS_PATH.iterdir():
+            if doc_dir.is_dir() and not any(doc_dir.iterdir()):
+                try:
+                    doc_dir.rmdir()
+                    logging.info(f"Removed empty directory: {doc_dir}")
+                except Exception as e:
+                    logging.error(f"Error removing empty directory {doc_dir}: {e}")
+
+    except Exception as e:
+        logging.error(f"Error cleaning orphaned chunks: {e}")
+        raise
 
 def get_unprocessed_documents():
     """

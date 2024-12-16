@@ -38,11 +38,11 @@ def initialize_faiss_index(dimension: int, use_gpu: bool = False) -> faiss.Index
         gpu_resource = _get_gpu_resources()
         if gpu_resource is not None:
             index = _cpu_to_gpu(gpu_resource, 0, index)
-            print("FAISS index initialized on GPU.")
+            logging.info("GPU support available in FAISS installation.")
         else:
-            print("GPU support not available in FAISS installation.")
+            logging.warning("GPU support not available in FAISS installation.")
     else:
-        print("FAISS index initialized on CPU.")
+        logging.info("Using CPU for FAISS index.")
     return index
 
 
@@ -63,9 +63,26 @@ def clean_duplicate_entries(metadata: List[Dict]) -> List[Dict]:
     return cleaned_metadata
 
 
-def add_to_faiss(embedding, source_file_name, content_type, content, index, metadata, processed_ids: Set[str] = None):
-    """Add embedding to FAISS with enhanced metadata"""
+def get_chunk_text(chunk_path: str) -> str:
+    """Retrieve text chunk content from file."""
     try:
+        # Construct full path using STORED_TEXT_CHUNKS_PATH
+        full_path = CONFIG.STORED_TEXT_CHUNKS_PATH / chunk_path
+        if not full_path.exists():
+            logging.error(f"Chunk file not found: {full_path}")
+            return ""
+
+        with open(full_path, 'r', encoding='utf-8') as f:
+            return f.read().strip()
+    except Exception as e:
+        logging.error(f"Error reading chunk file {chunk_path}: {e}")
+        return ""
+
+
+def add_to_faiss(embedding, source_file_name, content_type, content, index, metadata, processed_ids: Set[str] = None):
+    """Add embedding to FAISS with optimized metadata storage."""
+    try:
+        # Validate embedding
         if embedding is None or not isinstance(embedding, np.ndarray):
             raise ValueError("Embedding must be a valid NumPy array")
 
@@ -78,75 +95,76 @@ def add_to_faiss(embedding, source_file_name, content_type, content, index, meta
         if embedding.ndim != 2 or embedding.shape[1] != index.d:
             raise ValueError(f"Embedding shape mismatch. Expected shape: [1, {index.d}]")
 
-        # For images, check if already processed
+        # Process paths
+        source_path = Path(source_file_name)
+        if not source_path.is_absolute():
+            source_path = CONFIG.RAW_DOCUMENTS_PATH / source_path
+
+        try:
+            relative_path = source_path.relative_to(CONFIG.RAW_DOCUMENTS_PATH)
+            meta_entry = {
+                "path": str(relative_path),
+                "type": content_type
+            }
+        except ValueError as e:
+            logging.error(f"Error processing path {source_path}: {e}")
+            raise
+
+        # Handle images
         if content_type == "image" and processed_ids is not None:
             image_id = content.get("image_id", "")
             if image_id in processed_ids:
-                logging.info(f"Skipping duplicate FAISS entry for image {image_id}")
+                logging.info(f"Skipping duplicate image {image_id}")
                 return
             processed_ids.add(image_id)
 
+        # Add embedding to index
         index.add(embedding)
 
-        # Create enhanced metadata with proper path handling
-        try:
-            # Convert source_file_name to Path object and resolve it
-            source_path = Path(source_file_name).resolve()
-            raw_docs_path = Path(CONFIG.RAW_DOCUMENTS_PATH).resolve()
-
-            # Check if the path is already relative to RAW_DOCUMENTS_PATH
-            try:
-                # This will raise ValueError if source_path is not under raw_docs_path
-                relative_path = source_path.relative_to(raw_docs_path)
-            except ValueError:
-                # If not under raw_docs_path, treat source_path as relative
-                source_path = raw_docs_path / source_file_name
-                relative_path = Path(source_file_name)
-
-            meta_entry = {
-                "source_file": str(source_path),
-                "relative_path": str(relative_path),
-                "type": content_type,
-                "directory": str(source_path.parent),
-            }
-
-        except Exception as e:
-            logging.error(f"Error handling paths in add_to_faiss: {e}")
-            raise
-
-        # Handle content based on type
+        # Process content based on type
         if content_type == "text-chunk":
             if isinstance(content, dict):
-                meta_entry["content"] = content['text']
-                meta_entry.update(content.get('metadata', {}))
+                # Create directory for document chunks
+                doc_chunks_dir = CONFIG.STORED_TEXT_CHUNKS_PATH / relative_path.stem
+                doc_chunks_dir.mkdir(parents=True, exist_ok=True)
+
+                # Generate unique chunk filename
+                chunk_number = len(list(doc_chunks_dir.glob('chunk_*.txt')))
+                chunk_filename = f"chunk_{chunk_number:03d}.txt"
+                chunk_path = doc_chunks_dir / chunk_filename
+
+                # Write chunk to file
+                with open(chunk_path, 'w', encoding='utf-8') as f:
+                    f.write(content['text'])
+
+                # Store path relative to STORED_TEXT_CHUNKS_PATH
+                meta_entry["chunk"] = str(Path(relative_path.stem) / chunk_filename)
+
+                # Store only non-empty additional metadata
+                extra_meta = content.get('metadata', {})
+                if extra_meta:
+                    meta_entry["meta"] = {k: v for k, v in extra_meta.items() if v}
             else:
-                meta_entry["content"] = content
+                raise ValueError("Text chunk content must be a dictionary")
 
         elif content_type == "image":
             if isinstance(content, dict):
-                meta_entry["content"] = {
-                    "image_id": content.get("image_id", ""),
-                    "source_doc": str(source_path),
-                    "context": content.get("context", ""),
-                    "caption": content.get("caption", ""),
-                    "page": content.get("page", 1),
-                    "path": content.get("path", ""),
-                    "relative_path": str(relative_path)
-                }
-            else:
-                doc_name = source_path.name
-                meta_entry["content"] = {
-                    "image_id": "",
-                    "caption": f"Image from {doc_name}",
-                    "context": "",
-                    "source_doc": str(source_path),
-                    "page": 1,
-                    "path": "",
-                    "relative_path": str(relative_path)
+                # Store only essential image information
+                image_data = {
+                    "id": content.get("image_id", ""),
+                    "page": content.get("page", 1)
                 }
 
+                # Only store non-empty fields
+                if content.get("context"):
+                    image_data["context"] = content["context"]
+                if content.get("caption"):
+                    image_data["caption"] = content["caption"]
+
+                meta_entry["image"] = image_data
+
         metadata.append(meta_entry)
-        logging.info(f"Added {content_type} embedding to FAISS from {relative_path}")
+        logging.info(f"Added {content_type} embedding from {relative_path}")
 
     except Exception as e:
         logging.error(f"Error adding embedding to FAISS: {e}")
@@ -224,13 +242,32 @@ def query_with_context(index, metadata, model, processor, device="cpu", text_que
     query_embeddings = np.vstack(query_embeddings)
 
     # Query FAISS
-    results = query_faiss(index, metadata, query_embeddings, top_k * 2)  # Get more results for filtering
+    results = query_faiss(index, metadata, query_embeddings, top_k * 2)
 
     if not results or not results[0]:
         logging.error("No results retrieved from FAISS index")
         return []
 
-    return results
+    # Process results with new metadata structure
+    processed_results = []
+    for result_group in results:
+        processed_group = []
+        for result in result_group:
+            processed_result = {
+                "idx": result["idx"],
+                "distance": result["distance"],
+                "metadata": result["metadata"].copy()
+            }
+
+            if result['metadata']['type'] == 'text-chunk':
+                chunk_path = result['metadata'].get('chunk')
+                if chunk_path:
+                    processed_result['metadata']['get_content'] = lambda p=chunk_path: get_chunk_text(p)
+
+            processed_group.append(processed_result)
+        processed_results.append(processed_group)
+
+    return processed_results
 
 def save_faiss_index(index, filepath):
     """Save the FAISS index to a file."""
@@ -256,7 +293,7 @@ def load_faiss_index(filepath):
     # Convert Path to string if necessary
     filepath_str = str(filepath)
     index = faiss.read_index(filepath_str)
-    print(f"FAISS index loaded from {filepath_str}.")
+    logging.info(f"FAISS index loaded from {filepath_str}")
     return index
 
 
@@ -274,5 +311,5 @@ def load_metadata(filepath: Union[str, Path]) -> List[Dict[str, Any]]:
         logging.info(f"Removed {len(metadata) - len(cleaned_metadata)} duplicate entries")
         save_metadata(cleaned_metadata, filepath)
 
-    print(f"Metadata loaded from {filepath_str}.")
+    logging.info(f"Loaded metadata from {filepath_str}")
     return cleaned_metadata

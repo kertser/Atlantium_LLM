@@ -26,7 +26,7 @@ def initialize_rag_database(
     Args:
         paths_to_clean: List of specific files to remove
         directories_to_clean: List of directories to clean/recreate
-        clean_raw_documents: If True, also cleans the Raw Documents directory. Default is False.
+        clean_raw_documents: If True, also cleans the Raw Documents directory
     """
     # Change to project root directory
     project_root = get_project_root()
@@ -44,7 +44,9 @@ def initialize_rag_database(
     if directories_to_clean is None:
         directories_to_clean = [
             Path(CONFIG.INDICES),
-            Path(CONFIG.RAG_DATA)
+            Path(CONFIG.RAG_DATA),
+            CONFIG.STORED_TEXT_CHUNKS_PATH,  # Add text chunks directory
+            CONFIG.STORED_IMAGES_PATH
         ]
 
     logging.basicConfig(level=logging.INFO)
@@ -79,7 +81,7 @@ def initialize_rag_database(
             try:
                 if abs_path.exists():
                     # Remove directory and all its contents
-                    shutil.rmtree(abs_path, ignore_errors=True)
+                    shutil.rmtree(abs_path)
                     logger.info(f"Removed directory: {abs_path}")
             except Exception as e:
                 logger.error(f"Error removing directory {abs_path}: {e}")
@@ -88,7 +90,8 @@ def initialize_rag_database(
         required_dirs = [
             CONFIG.RAW_DOCUMENTS_PATH,
             Path(CONFIG.INDICES),
-            Path(CONFIG.RAG_DATA+"/stored_images/images")  # Create nested structure in correct order
+            CONFIG.STORED_TEXT_CHUNKS_PATH,  # Add text chunks directory
+            Path(CONFIG.RAG_DATA + "/stored_images/images")
         ]
 
         for dir_path in required_dirs:
@@ -112,6 +115,7 @@ def initialize_rag_database(
     except Exception as e:
         logger.error(f"Critical error during initialization: {e}")
         raise
+
 
 if __name__ == "__main__":
     # This allows the script to be run directly for testing

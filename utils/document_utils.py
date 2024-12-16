@@ -66,61 +66,84 @@ def remove_document_from_rag(doc_path: Path) -> tuple[bool, str]:
 
         logger.info(f"Loaded FAISS index with {len(metadata)} entries")
 
-        # Track indices to remove and image IDs
+        # Track indices to remove, images, and chunks
         indices_to_remove = []
         images_to_remove = set()
-        doc_path_str = str(doc_path)
-        doc_name = doc_path.name  # Get just the filename
+        chunks_to_remove = set()
 
-        logger.info(f"Searching for entries related to {doc_name}")
+        # Get relative path for comparison
+        try:
+            relative_path = doc_path.relative_to(CONFIG.RAW_DOCUMENTS_PATH)
+        except ValueError:
+            relative_path = doc_path
 
-        # Find all entries and images related to this document
+        logger.info(f"Searching for entries related to {relative_path}")
+
+        # Find all entries related to this document
         for idx, entry in enumerate(metadata):
-            # Check against full path and normalized paths
-            entry_source = entry.get('source_file', '')
-            entry_source_normalized = str(Path(entry_source)).replace('\\', '/')
-            doc_path_normalized = str(doc_path).replace('\\', '/')
+            # Compare using the new path field
+            entry_path = Path(entry.get('path', ''))
 
-            # Check if paths match after normalization or if filenames match
-            if (Path(entry_source_normalized).name == doc_name or
-                    Path(doc_path_normalized).name == doc_name):
-                logger.info(f"Found matching entry by filename: {entry_source}")
+            # Check if paths match or if filenames match
+            if (entry_path == relative_path or
+                    entry_path.name == doc_path.name):
+                logger.info(f"Found matching entry: {entry_path}")
+
                 if idx not in indices_to_remove:
                     indices_to_remove.append(idx)
 
-                # If it's an image entry, collect image ID
+                # Collect image IDs
                 if entry.get('type') == 'image':
-                    content = entry.get('content', {})
-                    if isinstance(content, dict):
-                        image_id = content.get('image_id')
+                    image_data = entry.get('image', {})
+                    if isinstance(image_data, dict):
+                        image_id = image_data.get('id')
                         if image_id:
                             images_to_remove.add(image_id)
 
-            # Check relative path
-            rel_path = entry.get('relative_path', '')
-            if rel_path and Path(rel_path).name == doc_name:
-                logger.info(f"Found matching entry by relative path: {rel_path}")
-                if idx not in indices_to_remove:
-                    indices_to_remove.append(idx)
+                # Collect chunk paths
+                elif entry.get('type') == 'text-chunk':
+                    chunk_path = entry.get('chunk')
+                    if chunk_path:
+                        chunks_to_remove.add(chunk_path)
 
         if not indices_to_remove:
-            logger.info(f"Document {doc_name} not found in RAG system")
+            logger.info(f"Document {doc_path.name} not found in RAG system")
             return True, "Document not found in RAG system"
 
         logger.info(f"Found {len(indices_to_remove)} entries to remove")
+
+        # Remove images
         if images_to_remove:
             logger.info(f"Found {len(images_to_remove)} images to remove")
-
-            # Remove all associated images
             for image_id in images_to_remove:
                 try:
                     if not image_store.delete_image(image_id):
                         logger.warning(f"Image ID not found or already deleted: {image_id}")
                     else:
-                        logger.info(f"Deleted image {image_id} associated with {doc_path.name}")
+                        logger.info(f"Deleted image {image_id}")
                 except Exception as e:
                     logger.error(f"Error deleting image {image_id}: {e}")
-                    # Continue with other images instead of failing the whole operation
+
+        # Remove text chunks
+        if chunks_to_remove:
+            logger.info(f"Found {len(chunks_to_remove)} text chunks to remove")
+            for chunk_path in chunks_to_remove:
+                try:
+                    full_path = CONFIG.RAG_DATA / chunk_path
+                    if full_path.exists():
+                        full_path.unlink()
+                        logger.info(f"Deleted chunk file: {chunk_path}")
+                except Exception as e:
+                    logger.error(f"Error deleting chunk file {chunk_path}: {e}")
+
+            # Clean up empty chunk directories
+            chunk_dir = CONFIG.STORED_TEXT_CHUNKS_PATH / relative_path.stem
+            if chunk_dir.exists() and not any(chunk_dir.iterdir()):
+                try:
+                    chunk_dir.rmdir()
+                    logger.info(f"Removed empty chunk directory: {chunk_dir}")
+                except Exception as e:
+                    logger.error(f"Error removing chunk directory: {e}")
 
         try:
             # Create lists for keeping valid entries and their vectors
@@ -129,7 +152,7 @@ def remove_document_from_rag(doc_path: Path) -> tuple[bool, str]:
 
             # Create new index and add valid vectors
             new_index = faiss.IndexFlatL2(index.d)
-            if valid_indices:  # Only add vectors if we have valid indices
+            if valid_indices:
                 vectors = []
                 for idx in valid_indices:
                     try:
@@ -139,7 +162,7 @@ def remove_document_from_rag(doc_path: Path) -> tuple[bool, str]:
                         logger.error(f"Error reconstructing vector at index {idx}: {e}")
                         continue
 
-                if vectors:  # Only add if we have valid vectors
+                if vectors:
                     vectors_array = np.vstack(vectors)
                     new_index.add(vectors_array)
 
@@ -157,7 +180,7 @@ def remove_document_from_rag(doc_path: Path) -> tuple[bool, str]:
             update_processed_files_list(doc_path, remove=True)
             logger.info("Updated processed files list")
 
-            return True, f"Document and {len(images_to_remove)} associated images removed successfully"
+            return True, f"Document removal completed: {len(indices_to_remove)} entries, {len(images_to_remove)} images, {len(chunks_to_remove)} chunks"
 
         except Exception as e:
             logger.error(f"Error rebuilding FAISS index: {str(e)}")
