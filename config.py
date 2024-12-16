@@ -25,11 +25,11 @@ class Config:
     # Document Processing
     CHUNK_OVERLAP: int = 50
     MIN_CHUNK_SIZE: int = 100
-    SIMILARITY_THRESHOLD: float = 0.8  # Text similarity
+    SIMILARITY_THRESHOLD: float = 0.75  # Text similarity
     IMAGE_SIMILARITY_THRESHOLD: float = 0.25  # Image similarity
     TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.8  # Technical confidence
     MAX_METADATA_SIZE: int = 100000
-    CHUNK_SIZE: int = 512
+    CHUNK_SIZE: int = 1000
     SUPPORTED_EXTENSIONS: List[str] = None
 
     # Token limits for completeness

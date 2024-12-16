@@ -17,4 +17,6 @@
 * Think of other Agents (Video Agent) (TBD)
 
 # Errors:
-- TBD
+- some formulas still not displayed correctly: \[
+UVT = \left( \frac{I}{I_0} \right) \times 100
+\]

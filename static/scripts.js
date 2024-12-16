@@ -752,7 +752,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!isUser) {
             textDiv.innerHTML = formatMessageText(content.text_response);
         } else {
-            textDiv.textContent = content.text || content;
+            const safeContent = (content.text || content).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            textDiv.innerHTML = safeContent.replace(/\n/g, '<br>');
         }
 
         messageDiv.appendChild(textDiv);
