@@ -97,46 +97,19 @@ system:
       - Example: `<a href="mailto:example@example.com">example@example.com</a>`
       - Ensure the URLs, hyperlinks and email addresses are properly formatted and the link text is clear and descriptive.
     
-    6. For mathematical expressions and calculations, use the following HTML structure:
-         <div class="calculation-step">
-           [Previous text explanation if needed]
-           <div class="calculation-inline">
-             <!-- For formula line -->
-             <span class="value">200</span>
-             <span class="unit">liter</span>
-             <span class="operator">&times;</span>
-             <span class="value">2%</span>
-             <span class="operator">/</span>
-             <span class="value">35%</span>
-             <span class="operator">&times;</span>
-             <span class="value">4</span>
-             <span class="unit">liter</span>
-             <span class="operator">=</span>
-             <span class="value">2.9</span>
-             <span class="operator">&approx;</span>
-             <span class="value">3</span>
-             <span class="unit">containers</span>
-           </div>
-         </div>
-    
-         Always format calculations as single line expressions with proper spacing between elements.
-         Use these HTML elements for consistency:
-         - <span class="value"> for numbers and percentages
-         - <span class="unit"> for units of measurement
-         - <span class="operator"> for mathematical operators
-    
-         Use these HTML entities for mathematical operators:
-         • Multiplication: &times;
-         • Division: &divide;
-         • Approximately equals: &approx;
-         • Less/greater than or equal: &le; &ge;
-         • Plus-minus: &plusmn;
-         • Degrees: &deg;
-    
-         For powers and subscripts:
-         • Powers: <sup>2</sup> (e.g., cm<sup>2</sup>)
-         • Subscripts: <sub>2</sub> (e.g., H<sub>2</sub>O)
-    
+    6. For mathematical expressions, formulas, and equations:
+      - Use MathJax for rendering mathematical notation
+      - For inline math, use single $ or \( and \)
+      - For display math, use double $$ or \[ and \]
+      - Support LaTeX math syntax
+      - Ensure the HTML output includes the required MathJax CDN and configuration
+
+      Example:
+        <p>Here's your equation:</p>
+        $$
+        RH = \left( \frac{E}{E_s} \right) \times 100
+        $$
+        <p>And here's an inline example: $RH = \frac{E}{E_s} \times 100$</p>
     
     RESPONSE PATTERNS:
       1. For technical explanations:

@@ -624,16 +624,42 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Chat Functions
+
     function formatMessageText(text) {
+        // 1. Extract all math segments (inline and display math)
+        // This regex will match $...$ or $$...$$ blocks.
+        // Note: This is a simplistic regex that assumes the math won't contain unmatched $ signs.
+        // It matches either $...$ or $$...$$ and stores them for later.
+        const mathSegments = [];
+        let mathIndex = 0;
+        text = text.replace(/(\${1,2})([\s\S]*?\1)/g, (match) => {
+            const placeholder = `<MATH_${mathIndex}>`;
+            mathSegments.push(match);
+            mathIndex++;
+            return placeholder;
+        });
+
+        // 2. Apply formatting to the non-math text
+        // Make sure none of these replacements affect math placeholders
         text = text.replace(/^# (.+)$/gm, '<h3 class="message-header">$1</h3>');
         text = text.replace(/^([A-Za-z].+)$/gm, '<h4 class="message-subheader">$1</h4>');
         text = text.replace(/(.+?)(?=\n*?• |\n*?$)/g, '<p>$1</p>\n');
         text = text.replace(/• (.+)/g, '<li class="message-bullet">$1</li>');
-        text = text.replace(/(<li[^>]*>.*<\/li>\n?)+/g,
-            match => `<ul class="message-list">\n${match.split('\n').map(item => `  ${item}`).join('\n')}\n</ul>`);
+        text = text.replace(/(<li[^>]*>.*<\/li>\n?)+/g, match => {
+            const items = match.split('\n').map(item => `  ${item}`).join('\n');
+            return `<ul class="message-list">\n${items}\n</ul>`;
+        });
         text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+        // 3. Restore math segments
+        mathSegments.forEach((segment, i) => {
+            text = text.replace(`<MATH_${i}>`, segment);
+        });
+
         return text;
     }
+
+
 
     function createImageElement(imageData) {
         const container = document.createElement('div');
@@ -777,6 +803,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
+        MathJax.typesetPromise()
         // Always scroll immediately after adding the message
         scrollChatToBottom();
     }
