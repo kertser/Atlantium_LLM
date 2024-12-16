@@ -59,7 +59,7 @@ from utils.image_store import ImageStore
 from utils.image_utils import deduplicate_images, zero_shot_classification
 from models.prompt_loader import PromptLoader
 from models.prompts import PromptBuilder
-from urllib.parse import unquote
+from urllib.parse import unquote, quote
 from utils.document_utils import (
     open_file_with_default_program,
     remove_document_from_rag,
@@ -944,8 +944,9 @@ async def get_documents(path: str = ""):
     """Get list of documents and folders with metadata recursively"""
     logger = logging.getLogger(__name__)
     try:
-        # Sanitize and validate path
-        clean_folder = clean_path(unquote(path))
+        # Decode URL-encoded path and clean it
+        decoded_path = unquote(path)
+        clean_folder = clean_path(decoded_path)
         current_path = CONFIG.RAW_DOCUMENTS_PATH / clean_folder if clean_folder else CONFIG.RAW_DOCUMENTS_PATH
 
         if not current_path.exists() or not current_path.is_dir():
@@ -967,13 +968,13 @@ async def get_documents(path: str = ""):
                     if item.is_dir():
                         folders.append({
                             "name": item.name,
-                            "path": str(rel_path),
+                            "path": str(rel_path),  # No need to URL encode here
                             "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
                         })
                     elif item.is_file() and any(item.name.lower().endswith(ext) for ext in CONFIG.SUPPORTED_EXTENSIONS):
                         files.append({
                             "name": item.name,
-                            "path": str(rel_path),
+                            "path": str(rel_path),  # No need to URL encode here
                             "type": item.suffix[1:].upper(),
                             "size": stat.st_size,
                             "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
@@ -988,7 +989,7 @@ async def get_documents(path: str = ""):
 
             logger.info(f"Found {len(folders)} folders and {len(files)} files in {current_path}")
             return {
-                "current_path": str(clean_path),
+                "current_path": str(clean_folder),  # Use unencoded path for display
                 "folders": folders,
                 "files": files
             }
@@ -1184,10 +1185,15 @@ async def delete_folder(path: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.put("/folder/rename")
-async def rename_folder(path: str, new_name: str):
+async def rename_folder(
+    path: str = Body(..., embed=True),
+    new_name: str = Body(..., embed=True)
+):
     """Rename a folder and update RAG references."""
     try:
-        clean_folder_path = clean_path(unquote(path))
+        # Decode the URL-encoded path
+        decoded_path = unquote(path)
+        clean_folder_path = clean_path(decoded_path)
         full_path = CONFIG.RAW_DOCUMENTS_PATH / clean_folder_path
 
         # Security check
