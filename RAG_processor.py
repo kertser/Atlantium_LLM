@@ -328,7 +328,7 @@ def get_unprocessed_documents():
         return []
 
 
-# In rag_system.py, update the main function
+# In RAG_processor.py, update the main function
 
 def get_processed_files():
     """

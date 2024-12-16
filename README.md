@@ -136,7 +136,7 @@ $ python run.py
 ### Testing Document Processing
 Use the `rag_system.py` script to process documents:
 ```bash
-$ python rag_system.py
+$ python RAG_processor.py
 ```
 
 ### Logs

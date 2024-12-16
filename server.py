@@ -880,9 +880,9 @@ async def process_documents():
     try:
         logger.info("Starting document processing...")
 
-        # Run rag_system.py with proper encoding environment variable
+        # Run RAG_processor.py with proper encoding environment variable
         process = subprocess.Popen(
-            [sys.executable, 'rag_system.py'],
+            [sys.executable, 'RAG_processor.py'],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -1227,9 +1227,9 @@ async def rename_folder(
 async def rescan_documents():
     """Rescan for new documents and update RAG."""
     try:
-        # Run rag_system.py in a subprocess
+        # Run RAG_processor.py in a subprocess
         process = subprocess.Popen(
-            [sys.executable, 'rag_system.py'],
+            [sys.executable, 'RAG_processor.py'],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,

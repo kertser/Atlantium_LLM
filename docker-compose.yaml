@@ -28,7 +28,7 @@ services:
       - index_data:/app/indices
     env_file:
       - .env
-    command: python rag_system.py
+    command: python RAG_processor.py
     networks:
       - rag_network
 
