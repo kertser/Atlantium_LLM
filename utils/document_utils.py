@@ -47,10 +47,9 @@ def open_file_with_default_program(file_path: str) -> tuple[bool, str]:
         logger.error(f"Error opening file {file_path}: {str(e)}")
         return False, f"Unexpected error: {str(e)}"
 
-
 def remove_document_from_rag(doc_path: Path) -> tuple[bool, str]:
     """
-    Removes a document and its associated data from the RAG system.
+    Removes a document and all its associated data from the RAG system.
 
     Args:
         doc_path: Path to the document to remove
@@ -59,53 +58,102 @@ def remove_document_from_rag(doc_path: Path) -> tuple[bool, str]:
         Tuple of (success: bool, message: str)
     """
     try:
+        logger.info(f"Starting removal of document: {doc_path}")
+
         # Load current index and metadata
         index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
         metadata = load_metadata(CONFIG.METADATA_PATH)
         image_store = ImageStore(CONFIG.STORED_IMAGES_PATH)
 
-        # Track indices to remove
+        logger.info(f"Loaded FAISS index with {len(metadata)} entries")
+
+        # Track indices to remove and image IDs
         indices_to_remove = []
         images_to_remove = set()
+        doc_path_str = str(doc_path)
+        doc_name = doc_path.name  # Get just the filename
 
-        # Find all entries related to this document
+        logger.info(f"Searching for entries related to {doc_name}")
+
+        # Find all entries and images related to this document
         for idx, entry in enumerate(metadata):
-            entry_path = Path(entry.get('source_file', ''))
-            if entry_path == doc_path:
+            # Check against full path
+            entry_source = entry.get('source_file', '')
+            if entry_source and Path(entry_source).name == doc_name:
+                logger.info(f"Found matching entry by source file: {entry_source}")
                 indices_to_remove.append(idx)
 
-                # If it's an image entry, add to images to remove
+                # If it's an image entry, collect image ID
                 if entry.get('type') == 'image':
-                    if isinstance(entry.get('content'), dict):
-                        image_id = entry['content'].get('image_id')
+                    content = entry.get('content', {})
+                    if isinstance(content, dict):
+                        image_id = content.get('image_id')
                         if image_id:
                             images_to_remove.add(image_id)
 
+            # Check relative path
+            rel_path = entry.get('relative_path', '')
+            if rel_path and Path(rel_path).name == doc_name:
+                logger.info(f"Found matching entry by relative path: {rel_path}")
+                if idx not in indices_to_remove:
+                    indices_to_remove.append(idx)
+
         if not indices_to_remove:
+            logger.info(f"Document {doc_name} not found in RAG system")
             return True, "Document not found in RAG system"
 
-        # Remove images from image store
-        for image_id in images_to_remove:
-            image_store.delete_image(image_id)
+        logger.info(f"Found {len(indices_to_remove)} entries to remove")
+        if images_to_remove:
+            logger.info(f"Found {len(images_to_remove)} images to remove")
 
-        # Create new index without removed entries
-        new_index = faiss.IndexFlatL2(index.d)
-        new_metadata = []
+            # Remove all associated images
+            for image_id in images_to_remove:
+                try:
+                    if not image_store.delete_image(image_id):
+                        logger.warning(f"Image ID not found or already deleted: {image_id}")
+                    else:
+                        logger.info(f"Deleted image {image_id} associated with {doc_path.name}")
+                except Exception as e:
+                    logger.error(f"Error deleting image {image_id}: {e}")
+                    # Continue with other images instead of failing the whole operation
+                    continue
 
-        for idx in range(len(metadata)):
-            if idx not in indices_to_remove:
-                vector = faiss.vector_float_to_array(index.reconstruct(idx))
-                new_index.add(vector.reshape(1, -1))
-                new_metadata.append(metadata[idx])
+        try:
+            # Create new index without removed entries
+            new_index = faiss.IndexFlatL2(index.d)
+            new_metadata = []
 
-        # Save updated index and metadata
-        save_faiss_index(new_index, CONFIG.FAISS_INDEX_PATH)
-        save_metadata(new_metadata, CONFIG.METADATA_PATH)
+            # Build new index excluding removed entries
+            for idx in range(len(metadata)):
+                if idx not in indices_to_remove:
+                    vector = faiss.vector_float_to_array(index.reconstruct(idx))
+                    new_index.add(vector.reshape(1, -1))
+                    new_metadata.append(metadata[idx])
 
-        # Update processed files list
-        update_processed_files_list(doc_path, remove=True)
+            # Verify index integrity
+            if new_index.ntotal != len(new_metadata):
+                logger.error(f"Index/metadata mismatch after rebuild: {new_index.ntotal} vs {len(new_metadata)}")
+                return False, "Index and metadata are out of sync after removal"
 
-        return True, "Document removed from RAG system successfully"
+            # Save updated index and metadata
+            save_faiss_index(new_index, CONFIG.FAISS_INDEX_PATH)
+            save_metadata(new_metadata, CONFIG.METADATA_PATH)
+            logger.info(f"Saved updated FAISS index with {len(new_metadata)} entries")
+
+            # Update processed files list
+            update_processed_files_list(doc_path, remove=True)
+            logger.info("Updated processed files list")
+
+            # Log summary
+            logger.info(f"Successfully removed document {doc_path.name} from RAG system:")
+            logger.info(f"- Removed {len(indices_to_remove)} FAISS entries")
+            logger.info(f"- Removed {len(images_to_remove)} associated images")
+
+            return True, f"Document and {len(images_to_remove)} associated images removed successfully"
+
+        except Exception as e:
+            logger.error(f"Error rebuilding FAISS index: {str(e)}")
+            return False, f"Failed to rebuild FAISS index: {str(e)}"
 
     except Exception as e:
         logger.error(f"Error removing document from RAG: {str(e)}")

@@ -42,6 +42,7 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi import Body
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 import shutil
@@ -58,7 +59,15 @@ from utils.image_store import ImageStore
 from utils.image_utils import deduplicate_images, zero_shot_classification
 from models.prompt_loader import PromptLoader
 from models.prompts import PromptBuilder
-
+from urllib.parse import unquote
+from utils.document_utils import (
+    open_file_with_default_program,
+    remove_document_from_rag,
+    delete_folder_from_rag,
+    rename_folder_in_rag,
+    create_folder,
+    validate_folder_name
+)
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
@@ -1024,6 +1033,30 @@ async def list_documents():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/open/document")
+async def open_document(path: str = Body(..., embed=True)):
+    """Open a document with the default system program."""
+    try:
+        clean_file_path = clean_path(path)
+        full_path = CONFIG.RAW_DOCUMENTS_PATH / clean_file_path
+
+        # Security check
+        if not str(full_path).startswith(str(CONFIG.RAW_DOCUMENTS_PATH)):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        if not full_path.exists():
+            raise HTTPException(status_code=404, detail="File not found")
+
+        success, message = open_file_with_default_program(str(full_path))
+        if not success:
+            raise HTTPException(status_code=500, detail=message)
+
+        return {"status": "success", "message": message}
+
+    except Exception as e:
+        logging.error(f"Error opening document: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/download/document")
 async def download_document(path: str):
     """Download a document."""
@@ -1052,42 +1085,186 @@ async def download_document(path: str):
 
 @app.delete("/delete/document")
 async def delete_document(path: str):
-    """Delete a document."""
+    """Delete a document and remove it from RAG."""
     try:
-        # Clean and validate the path
-        clean_file_path = clean_path(path)
+        # Properly decode URL-encoded path
+        decoded_path = unquote(path)
+        clean_file_path = clean_path(decoded_path)
         full_path = CONFIG.RAW_DOCUMENTS_PATH / clean_file_path
+
+        logging.info(f"Received request to delete document: {full_path}")
+
+        # Security check
+        if not str(full_path).startswith(str(CONFIG.RAW_DOCUMENTS_PATH)):
+            logging.warning(f"Access denied: Path {full_path} is outside of allowed directory")
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        if not full_path.exists():
+            logging.warning(f"File not found: {full_path}")
+            raise HTTPException(status_code=404, detail="File not found")
+
+        # Remove from RAG first
+        success, message = remove_document_from_rag(full_path)
+        if not success:
+            logging.error(f"Failed to remove document from RAG: {message}")
+            raise HTTPException(status_code=500, detail=message)
+
+        # Delete the file
+        try:
+            os.remove(full_path)
+            logging.info(f"Successfully deleted file: {full_path}")
+        except Exception as e:
+            logging.error(f"Failed to delete file {full_path}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
+
+        return {"status": "success", "message": "File deleted and removed from RAG"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error deleting document: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/folder/create")
+async def create_new_folder(
+    parent_path: str = Body(..., embed=True),
+    folder_name: str = Body(..., embed=True)
+):
+    """Create a new folder."""
+    try:
+        clean_parent_path = clean_path(parent_path)
+        full_parent_path = CONFIG.RAW_DOCUMENTS_PATH / clean_parent_path
+
+        # Security check
+        if not str(full_parent_path).startswith(str(CONFIG.RAW_DOCUMENTS_PATH)):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        success, message = create_folder(full_parent_path, folder_name)
+        if not success:
+            raise HTTPException(status_code=400, detail=message)
+
+        return {"status": "success", "message": message}
+
+    except Exception as e:
+        logging.error(f"Error creating folder: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/folder/delete")
+async def delete_folder(path: str):
+    """Delete a folder and remove its contents from RAG."""
+    try:
+        clean_folder_path = clean_path(path)
+        full_path = CONFIG.RAW_DOCUMENTS_PATH / clean_folder_path
 
         # Security check
         if not str(full_path).startswith(str(CONFIG.RAW_DOCUMENTS_PATH)):
             raise HTTPException(status_code=403, detail="Access denied")
 
         if not full_path.exists():
-            raise HTTPException(status_code=404, detail="File not found")
+            raise HTTPException(status_code=404, detail="Folder not found")
 
-        # Remove the file
-        os.remove(full_path)
+        success, message, errors = delete_folder_from_rag(full_path)
+        if not success:
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "message": message,
+                    "errors": errors
+                }
+            )
 
-        # Update processed files list if it exists
-        processed_files_path = Path("processed_files.json")
-        if processed_files_path.exists():
-            try:
-                with open(processed_files_path, 'r') as f:
-                    processed_files = set(json.load(f))
-
-                # Remove the deleted file from processed files
-                if str(full_path) in processed_files:
-                    processed_files.remove(str(full_path))
-
-                with open(processed_files_path, 'w') as f:
-                    json.dump(list(processed_files), f)
-            except Exception as e:
-                logging.error(f"Error updating processed files list: {e}")
-
-        return {"status": "success", "message": "File deleted successfully"}
+        return {
+            "status": "success",
+            "message": message,
+            "errors": errors if errors else None
+        }
 
     except Exception as e:
-        logging.error(f"Error deleting document: {e}")
+        logging.error(f"Error deleting folder: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/folder/rename")
+async def rename_folder(path: str, new_name: str):
+    """Rename a folder and update RAG references."""
+    try:
+        clean_folder_path = clean_path(path)
+        full_path = CONFIG.RAW_DOCUMENTS_PATH / clean_folder_path
+
+        # Security check
+        if not str(full_path).startswith(str(CONFIG.RAW_DOCUMENTS_PATH)):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        if not full_path.exists():
+            raise HTTPException(status_code=404, detail="Folder not found")
+
+        # Validate new name
+        valid, message = validate_folder_name(new_name)
+        if not valid:
+            raise HTTPException(status_code=400, detail=message)
+
+        # Create new path
+        new_path = full_path.parent / new_name
+        if new_path.exists():
+            raise HTTPException(status_code=400, detail="A folder with this name already exists")
+
+        success, message = rename_folder_in_rag(full_path, new_path)
+        if not success:
+            raise HTTPException(status_code=500, detail=message)
+
+        return {"status": "success", "message": message}
+
+    except Exception as e:
+        logging.error(f"Error renaming folder: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/rescan")
+async def rescan_documents():
+    """Rescan for new documents and update RAG."""
+    try:
+        # Run rag_system.py in a subprocess
+        process = subprocess.Popen(
+            [sys.executable, 'rag_system.py'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"}
+        )
+
+        stdout, stderr = process.communicate()
+
+        # Log the output
+        if stdout:
+            for line in stdout.splitlines():
+                if 'ERROR' in line:
+                    logging.error(line)
+                else:
+                    logging.info(line)
+
+        if stderr:
+            for line in stderr.splitlines():
+                if 'ERROR' in line:
+                    logging.error(f"Processing error: {line}")
+                else:
+                    logging.info(line)
+
+        if process.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Rescan failed with code {process.returncode}"
+            )
+
+        # Wait for files to be written
+        await asyncio.sleep(1)
+
+        # Verify results
+        success, message = check_processing_status()
+        if not success:
+            raise HTTPException(status_code=500, detail=message)
+
+        return {"status": "success", "message": "Rescan completed successfully"}
+
+    except Exception as e:
+        logging.error(f"Error during rescan: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/chat/history")

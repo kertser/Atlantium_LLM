@@ -26,7 +26,25 @@ function createContextMenu(e, fileName, filePath) {
         {
             label: 'Open',
             icon: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M14 3v2H4v13.385L5.763 17H20v-7h2v8a1 1 0 0 1-1 1H5.105L2 22.5V4a1 1 0 0 1 1-1h11zm5 0V0h2v3h3v2h-3v3h-2V5h-3V3h3z"/></svg>',
-            action: () => window.open(`/static/documents/${encodeURIComponent(filePath)}`, '_blank')
+            action: async () => {
+                try {
+                    const response = await fetch('/open/document', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ path: filePath })  // Fixed: wrap path in an object
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.detail || 'Failed to open file');
+                    }
+                } catch (error) {
+                    console.error('Open file error:', error);
+                    alert(error.message || 'Failed to open file');
+                }
+            }
         },
         {
             label: 'Download',
@@ -142,6 +160,231 @@ function getParentPath(path) {
     const parts = path.split('/');
     parts.pop();
     return parts.join('/');
+}
+
+// Modal component
+function createModal(title, content, onConfirm, onCancel) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>${title}</h3>
+            </div>
+            <div class="modal-body">
+                ${content}
+            </div>
+            <div class="modal-footer">
+                <button class="icon-button" data-action="cancel">Cancel</button>
+                <button class="icon-button" data-action="confirm">Confirm</button>
+            </div>
+        </div>
+    `;
+
+    modal.querySelector('[data-action="confirm"]').onclick = () => {
+        onConfirm();
+        document.body.removeChild(modal);
+    };
+
+    modal.querySelector('[data-action="cancel"]').onclick = () => {
+        onCancel?.();
+        document.body.removeChild(modal);
+    };
+
+    document.body.appendChild(modal);
+    return modal;
+}
+
+// Update folder context menu
+function createFolderContextMenu(e, folderPath, folderName) {
+    e.preventDefault();
+
+    removeContextMenu(); // Remove any existing context menu
+
+    const contextMenu = document.createElement('div');
+    contextMenu.className = 'folder-context-menu';
+
+    const menuItems = [
+        {
+            label: 'Rename',
+            icon: `
+                <svg viewBox="0 0 24 24" width="16" height="16">
+                    <path fill="currentColor" d="M16.293 2.293l3.414 3.414-1.414 1.414-3.414-3.414 1.414-1.414zM13.172 5.414L3 15.586V19h3.414l10.172-10.172-3.414-3.414z"/>
+                </svg>
+            `,
+            action: () => {
+                const modal = createModal(
+                    'Rename Folder',
+                    `
+                        <input type="text" class="modal-input" value="${folderName}" 
+                               maxlength="255" autofocus>
+                    `,
+                    async () => {
+                        const input = modal.querySelector('.modal-input');
+                        const newName = input.value.trim();
+
+                        if (!newName || newName === folderName) return;
+
+                        try {
+                            const response = await fetch('/folder/rename', {
+                                method: 'PUT',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                    path: folderPath,
+                                    new_name: newName
+                                })
+                            });
+
+                            if (!response.ok) {
+                                const error = await response.json();
+                                throw new Error(error.detail);
+                            }
+
+                            await loadDocuments(currentFolderPath);
+                        } catch (error) {
+                            console.error('Rename folder error:', error);
+                            alert(error.message || 'Failed to rename folder');
+                        }
+                    }
+                );
+            }
+        },
+        {
+            label: 'Delete',
+            icon: `
+                <svg viewBox="0 0 24 24" width="16" height="16">
+                    <path fill="currentColor" d="M7 4V2h10v2h5v2h-2v15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6H2V4h5zM6 6v14h12V6H6zm3 3h2v8H9V9zm4 0h2v8h-2V9z"/>
+                </svg>
+            `,
+            className: 'delete',
+            action: () => {
+                const modal = createModal(
+                    'Delete Folder',
+                    `
+                        <p>Are you sure you want to delete the folder "${folderName}" and all its contents?</p>
+                        <p style="color: #dc3545; margin-top: 0.5rem;">This action cannot be undone.</p>
+                    `,
+                    async () => {
+                        try {
+                            const response = await fetch(`/folder/delete?path=${encodeURIComponent(folderPath)}`, {
+                                method: 'DELETE'
+                            });
+
+                            if (!response.ok) {
+                                const error = await response.json();
+                                throw new Error(error.detail.message || 'Delete failed');
+                            }
+
+                            const result = await response.json();
+                            if (result.errors && result.errors.length > 0) {
+                                console.warn('Delete completed with errors:', result.errors);
+                            }
+
+                            await loadDocuments(currentFolderPath);
+                        } catch (error) {
+                            console.error('Delete folder error:', error);
+                            alert(error.message || 'Failed to delete folder');
+                        }
+                    }
+                );
+            }
+        }
+    ];
+
+    // Create menu items
+    menuItems.forEach((item, index) => {
+        if (index > 0) {
+            const separator = document.createElement('div');
+            separator.className = 'folder-context-menu-separator';
+            contextMenu.appendChild(separator);
+        }
+
+        const menuItem = document.createElement('div');
+        menuItem.className = `folder-context-menu-item${item.className ? ' ' + item.className : ''}`;
+        menuItem.innerHTML = `${item.icon}<span>${item.label}</span>`;
+        menuItem.onclick = () => {
+            item.action();
+            removeContextMenu();
+        };
+        contextMenu.appendChild(menuItem);
+    });
+
+    // Position the menu
+    contextMenu.style.left = `${e.pageX}px`;
+    contextMenu.style.top = `${e.pageY}px`;
+
+    // Ensure menu doesn't go off screen
+    document.body.appendChild(contextMenu);
+    const menuRect = contextMenu.getBoundingClientRect();
+
+    if (menuRect.right > window.innerWidth) {
+        contextMenu.style.left = `${window.innerWidth - menuRect.width - 5}px`;
+    }
+    if (menuRect.bottom > window.innerHeight) {
+        contextMenu.style.top = `${window.innerHeight - menuRect.height - 5}px`;
+    }
+
+    activeContextMenu = contextMenu;
+
+    // Close menu when clicking outside
+    setTimeout(() => {
+        document.addEventListener('click', removeContextMenu);
+        document.addEventListener('contextmenu', removeContextMenu);
+    }, 0);
+}
+
+function updateFolderContextMenuHandlers() {
+    const folderRows = document.querySelectorAll('.folder-row');
+    folderRows.forEach(row => {
+        const folderNameElement = row.querySelector('.folder-name');
+        if (!folderNameElement) return;
+
+        row.addEventListener('contextmenu', (e) => {
+            const path = decodeURIComponent(row.dataset.path);
+            const name = folderNameElement.textContent.trim();
+            if (name !== '..') { // Don't show context menu for parent folder
+                createFolderContextMenu(e, path, name);
+            }
+        });
+    });
+}
+
+// Update the document context menu to include the system open functionality
+function updateDocumentContextMenu() {
+    const menuItems = [
+        {
+            label: 'Open',
+            icon: `
+                <svg viewBox="0 0 24 24" width="16" height="16">
+                    <path fill="currentColor" d="M14 3v2H4v13.385L5.763 17H20v-7h2v8a1 1 0 0 1-1 1H5.105L2 22.5V4a1 1 0 0 1 1-1h11zm5 0V0h2v3h3v2h-3v3h-2V5h-3V3h3z"/>
+                </svg>
+            `,
+            action: async (filePath) => {
+                try {
+                    const response = await fetch('/open/document', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ path: filePath })
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.detail);
+                    }
+                } catch (error) {
+                    console.error('Open file error:', error);
+                    alert(error.message || 'Failed to open file');
+                }
+            }
+        },
+        // ... [existing menu items for download and delete]
+    ];
+
+    // Update your existing createContextMenu function to use this menuItems array
 }
 
 async function uploadDocument(file) {
@@ -314,6 +557,13 @@ document.addEventListener('DOMContentLoaded', () => {
     chatImageInput.accept = 'image/*';
     chatImageInput.style.display = 'none';
     document.body.appendChild(chatImageInput);
+
+    // Update the loadDocuments function to include new handlers
+    const originalLoadDocuments = loadDocuments;
+    loadDocuments = async (path = '') => {
+        await originalLoadDocuments(path);
+        updateFolderContextMenuHandlers();
+    };
 
     // Document Upload Functions
     function preventDefaults(e) {
@@ -779,7 +1029,73 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Initial setup
+    // Add event listeners for action buttons
+    const rescanButton = document.getElementById('rescan-button');
+    if (rescanButton) {
+        rescanButton.addEventListener('click', async () => {
+            if (rescanButton.classList.contains('loading')) return;
+
+            rescanButton.classList.add('loading');
+            const originalContent = rescanButton.innerHTML;
+            rescanButton.innerHTML = `<div class="spinner"></div>Rescanning...`;
+
+            try {
+                const response = await fetch('/rescan', { method: 'POST' });
+                if (!response.ok) throw new Error('Rescan failed');
+
+                await loadDocuments(currentFolderPath);
+            } catch (error) {
+                console.error('Rescan error:', error);
+                alert('Failed to rescan documents');
+            } finally {
+                rescanButton.classList.remove('loading');
+                rescanButton.innerHTML = originalContent;
+            }
+        });
+    }
+
+    const newFolderButton = document.getElementById('new-folder-button');
+    if (newFolderButton) {
+        newFolderButton.addEventListener('click', () => {
+            const modal = createModal(
+                'Create New Folder',
+                `<input type="text" class="modal-input" placeholder="Folder name" maxlength="255" autofocus>`,
+                async () => {
+                    const input = modal.querySelector('.modal-input');
+                    const folderName = input.value.trim();
+
+                    if (!folderName) {
+                        alert('Please enter a folder name');
+                        return;
+                    }
+
+                    try {
+                        const response = await fetch('/folder/create', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                parent_path: currentFolderPath,
+                                folder_name: folderName
+                            })
+                        });
+
+                        if (!response.ok) {
+                            const error = await response.json();
+                            throw new Error(error.detail);
+                        }
+
+                        await loadDocuments(currentFolderPath);
+                    } catch (error) {
+                        console.error('Create folder error:', error);
+                        alert(error.message || 'Failed to create folder');
+                    }
+                }
+            );
+        });
+    }
+
     loadDocuments();
     input.focus();
 });

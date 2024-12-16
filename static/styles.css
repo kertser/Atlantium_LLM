@@ -475,6 +475,41 @@ table tr:hover {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 1rem;
+    gap: 1rem; /* added */
+}
+
+.documents-title {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.icon-button {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: var(--border-radius);
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background-color 0.2s ease;
+}
+
+.icon-button:hover {
+    background: var(--primary-dark);
+}
+
+.icon-button svg {
+    width: 16px;
+    height: 16px;
+}
+
+.icon-button.loading {
+    opacity: 0.7;
+    cursor: not-allowed;
 }
 
 .documents-table-wrapper {
@@ -574,6 +609,40 @@ table tr:hover {
     color: var(--primary-color);
 }
 
+.folder-context-menu {
+    position: fixed;
+    z-index: 1000;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    padding: 4px 0;
+    min-width: 150px;
+}
+
+.folder-context-menu-item {
+    padding: 8px 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-color);
+    transition: background-color 0.2s ease;
+}
+
+.folder-context-menu-item:hover {
+    background-color: #f0f7ff;
+    color: var(--primary-color);
+}
+
+.folder-context-menu-item.delete {
+    color: #dc3545;
+}
+
+.folder-context-menu-item.delete:hover {
+    background-color: #fee;
+}
+
 .documents-table tbody tr.folder-row td {
     color: var(--primary-color);
     font-weight: 500;
@@ -584,8 +653,6 @@ table tr:hover {
     border-bottom: 1px solid #eee;
     background: inherit;
 }
-
-/* Add at the end of existing styles.css */
 
 .context-menu {
     position: fixed;
@@ -624,7 +691,6 @@ table tr:hover {
     margin: 4px 0;
 }
 
-/* Add styles for document name to indicate it's interactive */
 .document-name {
     cursor: context-menu;
     color: var(--text-color);
@@ -635,6 +701,18 @@ table tr:hover {
     color: var(--primary-color);
 }
 
+
+/* Loading spinner */
+.spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-radius: 50%;
+    border-top-color: white;
+    animation: spin 1s ease-in-out infinite;
+    transform-origin: center;  /* Add this */
+}
 
 @keyframes loading {
     0% { content: ''; }
@@ -654,15 +732,67 @@ table tr:hover {
     position: absolute;
     right: 1rem;
     top: 50%;
-    transform: translateY(-50%);
     width: 1rem;
     height: 1rem;
     border: 2px solid #fff;
     border-radius: 50%;
     border-top-color: transparent;
     animation: spin 1s linear infinite;
+    transform-origin: center;
+}
+
+/* Modal styles */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: white;
+    padding: 1.5rem;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow);
+    width: 100%;
+    max-width: 400px;
+}
+
+.modal-header {
+    margin-bottom: 1rem;
+}
+
+.modal-body {
+    margin-bottom: 1.5rem;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+.modal-input {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+}
+
+.modal-input:focus {
+    border-color: var(--primary-color);
+    outline: none;
 }
 
 @keyframes spin {
-    to { transform: translateY(-50%) rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
