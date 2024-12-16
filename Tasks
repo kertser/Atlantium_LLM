@@ -18,4 +18,4 @@
 
 # Errors:
 - On Delete Document - The document shall be removed from RAG with all the related images.
-- Rescan button for documents may be added
+- Folder names with 2 words, like "More Data" - error on entering

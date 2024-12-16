@@ -819,7 +819,7 @@ def update_processed_files(doc_paths):
             processed_files = set()
 
         # Add new files
-        processed_files.update([str(path) for path in doc_paths])
+        processed_files.update([str(unquote(path)) for path in doc_paths])
 
         # Save updated list
         with open(processed_files_path, 'w') as f:
@@ -945,7 +945,7 @@ async def get_documents(path: str = ""):
     logger = logging.getLogger(__name__)
     try:
         # Sanitize and validate path
-        clean_folder = clean_path(path)
+        clean_folder = clean_path(unquote(path))
         current_path = CONFIG.RAW_DOCUMENTS_PATH / clean_folder if clean_folder else CONFIG.RAW_DOCUMENTS_PATH
 
         if not current_path.exists() or not current_path.is_dir():
@@ -1037,7 +1037,7 @@ async def list_documents():
 async def open_document(path: str = Body(..., embed=True)):
     """Open a document with the default system program."""
     try:
-        clean_file_path = clean_path(path)
+        clean_file_path = clean_path(unquote(path))
         full_path = CONFIG.RAW_DOCUMENTS_PATH / clean_file_path
 
         # Security check
@@ -1062,7 +1062,7 @@ async def download_document(path: str):
     """Download a document."""
     try:
         # Clean and validate the path
-        clean_file_path = clean_path(path)
+        clean_file_path = clean_path(unquote(path))
         full_path = CONFIG.RAW_DOCUMENTS_PATH / clean_file_path
 
         # Security check
@@ -1132,7 +1132,7 @@ async def create_new_folder(
 ):
     """Create a new folder."""
     try:
-        clean_parent_path = clean_path(parent_path)
+        clean_parent_path = clean_path(unquote(parent_path))
         full_parent_path = CONFIG.RAW_DOCUMENTS_PATH / clean_parent_path
 
         # Security check
@@ -1153,7 +1153,7 @@ async def create_new_folder(
 async def delete_folder(path: str):
     """Delete a folder and remove its contents from RAG."""
     try:
-        clean_folder_path = clean_path(path)
+        clean_folder_path = clean_path(unquote(path))
         full_path = CONFIG.RAW_DOCUMENTS_PATH / clean_folder_path
 
         # Security check
@@ -1187,7 +1187,7 @@ async def delete_folder(path: str):
 async def rename_folder(path: str, new_name: str):
     """Rename a folder and update RAG references."""
     try:
-        clean_folder_path = clean_path(path)
+        clean_folder_path = clean_path(unquote(path))
         full_path = CONFIG.RAW_DOCUMENTS_PATH / clean_folder_path
 
         # Security check
