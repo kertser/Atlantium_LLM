@@ -37,15 +37,15 @@ def initialize_rag_database(
         paths_to_clean = [
             CONFIG.FAISS_INDEX_PATH,
             CONFIG.METADATA_PATH,
+            CONFIG.IMAGE_METADATA_PATH,
             Path("processed_files.json"),
             Path("system.log")
         ]
 
     if directories_to_clean is None:
         directories_to_clean = [
-            Path(CONFIG.INDICES),
-            Path(CONFIG.RAG_DATA),
-            CONFIG.STORED_TEXT_CHUNKS_PATH,  # Add text chunks directory
+            CONFIG.RAG_DATA,
+            CONFIG.STORED_TEXT_CHUNKS_PATH,
             CONFIG.STORED_IMAGES_PATH
         ]
 
@@ -89,9 +89,9 @@ def initialize_rag_database(
         # Create required directory structure
         required_dirs = [
             CONFIG.RAW_DOCUMENTS_PATH,
-            Path(CONFIG.INDICES),
-            CONFIG.STORED_TEXT_CHUNKS_PATH,  # Add text chunks directory
-            Path(CONFIG.RAG_DATA + "/stored_images/images")
+            CONFIG.RAG_DATA,
+            CONFIG.STORED_TEXT_CHUNKS_PATH,
+            CONFIG.STORED_IMAGES_PATH
         ]
 
         for dir_path in required_dirs:
@@ -119,5 +119,4 @@ def initialize_rag_database(
 
 if __name__ == "__main__":
     # This allows the script to be run directly for testing
-    # Example: python -m utils.initialize_RAG
     initialize_rag_database()

@@ -124,18 +124,21 @@ def add_to_faiss(embedding, source_file_name, content_type, content, index, meta
 
         # Process paths
         source_path = Path(source_file_name)
-        if not source_path.is_absolute():
-            source_path = CONFIG.RAW_DOCUMENTS_PATH / source_path
+        if source_path.is_absolute():
+            try:
+                # Get path relative to RAW_DOCUMENTS_PATH
+                relative_path = source_path.relative_to(CONFIG.RAW_DOCUMENTS_PATH)
+            except ValueError:
+                # If path is not relative to RAW_DOCUMENTS_PATH, use the filename only
+                relative_path = source_path.name
+        else:
+            # Already a relative path, ensure it's clean
+            relative_path = Path(str(source_path).replace('Raw Documents\\Raw Documents', 'Raw Documents'))
 
-        try:
-            relative_path = source_path.relative_to(CONFIG.RAW_DOCUMENTS_PATH)
-            meta_entry = {
-                "path": str(relative_path),
-                "type": content_type
-            }
-        except ValueError as e:
-            logging.error(f"Error processing path {source_path}: {e}")
-            raise
+        meta_entry = {
+            "path": str(relative_path),
+            "type": content_type
+        }
 
         # Handle images
         if content_type == "image":
@@ -150,16 +153,16 @@ def add_to_faiss(embedding, source_file_name, content_type, content, index, meta
                     return
                 processed_ids.add(image_id)
 
-            # Store complete image metadata
+            # Ensure source_doc uses clean relative path
+            clean_source_doc = str(relative_path)
             meta_entry["image"] = {
                 "id": image_id,
                 "page": content.get("page", 1),
                 "context": content.get("context", ""),
                 "caption": content.get("caption", ""),
-                "source_doc": str(source_path)
+                "source_doc": clean_source_doc
             }
 
-            # Log the complete metadata entry for verification
             logging.info(f"Adding image metadata: {meta_entry}")
 
         # Handle text chunks

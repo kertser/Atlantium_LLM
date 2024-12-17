@@ -8,17 +8,15 @@ from typing import Tuple, List, Set, Dict, Optional
 from functools import lru_cache
 import logging
 import imagehash
-
+from config import CONFIG
 
 class ImageStore:
     def __init__(self, base_path: Path):
         """Initialize the ImageStore with a base path for storing images and metadata"""
         self.base_path = Path(base_path)
-        self.images_path = self.base_path / "images"
-        self.metadata_path = self.base_path / "image_metadata.json"
+        self.metadata_path = CONFIG.IMAGE_METADATA_PATH
 
-        # Create directories if they don't exist
-        self.images_path.mkdir(parents=True, exist_ok=True)
+        # Create directory if it doesn't exist
         self.base_path.mkdir(parents=True, exist_ok=True)
 
         self.metadata = self._load_metadata()
@@ -111,8 +109,8 @@ class ImageStore:
             elif image.mode != 'RGB':
                 image = image.convert('RGB')
 
-            # Save image
-            image_path = self.images_path / f"{image_id}.png"
+            # Save image directly in base_path
+            image_path = self.base_path / f"{image_id}.png"
             image.save(image_path, "PNG")
             logging.info(f"Saved image to {image_path}")
 

@@ -8,17 +8,19 @@ class Config:
     # Ports and URLs
     SERVER_PORT: int = 9000
 
-    # Paths
+    # Base Paths
     RAW_DOCUMENTS_PATH: Path = Path("Raw Documents")
+    RAG_DATA: Path = Path("RAG_Data")  # Base directory for all RAG data
 
-    INDICES: str = "RAG_Data/indices"
-    RAG_DATA:  str = "RAG_Data"
-    FAISS_INDEX_PATH: Path = Path("RAG_Data/indices/faiss_index.bin")
-    METADATA_PATH: Path = Path("RAG_Data/indices/faiss_metadata.json")
+    # Specific Data Paths
+    FAISS_INDEX_PATH: Path = Path("RAG_Data/faiss_index.bin")
+    METADATA_PATH: Path = Path("RAG_Data/faiss_metadata.json")
+    IMAGE_METADATA_PATH: Path = Path("RAG_Data/image_metadata.json")
+    STORED_IMAGES_PATH: Path = Path("RAG_Data/stored_images")
     STORED_TEXT_CHUNKS_PATH: Path = Path("RAG_Data/stored_text_chunks")
 
+    # Logging
     LOG_PATH: Path = Path("system.log")
-    STORED_IMAGES_PATH: Path = Path("RAG_Data/stored_images")
 
     # CLIP Configuration
     CLIP_MODEL_NAME: str = "openai/clip-vit-base-patch32"
@@ -62,11 +64,20 @@ class Config:
         if self.SUPPORTED_EXTENSIONS is None:
             self.SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.xlsx']
 
-        # Ensure paths are Path objects
-        self.RAW_DOCUMENTS_PATH = Path(self.RAW_DOCUMENTS_PATH)
-        self.FAISS_INDEX_PATH = Path(self.FAISS_INDEX_PATH)
-        self.METADATA_PATH = Path(self.METADATA_PATH)
-        self.LOG_PATH = Path(self.LOG_PATH)
+            # Ensure all paths are Path objects
+            self.RAW_DOCUMENTS_PATH = Path(self.RAW_DOCUMENTS_PATH)
+            self.RAG_DATA = Path(self.RAG_DATA)
+            self.FAISS_INDEX_PATH = Path(self.FAISS_INDEX_PATH)
+            self.METADATA_PATH = Path(self.METADATA_PATH)
+            self.IMAGE_METADATA_PATH = Path(self.IMAGE_METADATA_PATH)
+            self.STORED_IMAGES_PATH = Path(self.STORED_IMAGES_PATH)
+            self.STORED_TEXT_CHUNKS_PATH = Path(self.STORED_TEXT_CHUNKS_PATH)
+            self.LOG_PATH = Path(self.LOG_PATH)
+
+            # Create necessary directories
+            self.RAG_DATA.mkdir(exist_ok=True)
+            self.STORED_IMAGES_PATH.mkdir(exist_ok=True)
+            self.STORED_TEXT_CHUNKS_PATH.mkdir(exist_ok=True)
 
 
 # Create global config instance

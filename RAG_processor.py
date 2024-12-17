@@ -539,7 +539,8 @@ def main():
                 init_pbar.update(1)
 
                 try:
-                    CONFIG.FAISS_INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
+                    # Ensure RAG_DATA directory exists
+                    CONFIG.RAG_DATA.mkdir(parents=True, exist_ok=True)
 
                     if CONFIG.FAISS_INDEX_PATH.exists():
                         try:

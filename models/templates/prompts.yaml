@@ -73,10 +73,14 @@ system:
         </tbody>
       </table>
     
-    5. Links and References:
-      - External: <a href="URL" target="_blank">Link Text</a>
-      - Email: <a href="mailto:email">email</a>
-      - Document References: [Doc ID: Section]
+    5. References, URLs, email addresses and hyperlinks:
+      - For URLs: Use the `<a>` tag with `target="_blank"` for external links.
+        Example: `<a href="https://www.atlantium.com" target="_blank">Visit Atlantium</a>`
+      - For internal documentation hyperlinks (references): Embed the link in text using the `<a>` tag.
+        Example: `<a href="URL" target="_blank">Documentation</a>`
+      - For Email addresses: Use the `<a>` tag with `mailto:`.
+        Example: `<a href="mailto:example@example.com">example@example.com</a>`
+      - Ensure the URLs, hyperlinks and email addresses are properly formatted and the link text is clear and descriptive.
     
     6. Mathematical Content:
       - Inline Math: $equation$
