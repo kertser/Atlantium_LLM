@@ -17,8 +17,6 @@
 
 # Errors:
 
-- Rescan button (from internal folder) - seems to be a bug. Stuck in loop. Need to check
+- Rescan button - Need to check more
 - Need to remove header and footer of pdf/doc files form chinking/indexing - it is a garbage data
 - top_k * 2? Why??
-- Files with names, containing spaces are problematic. Like "FCO160045-LM-FW_BallastTemp .pdf" - these files shall be renamed before processing
-- Total: 23 (it counts folders) - need to fix

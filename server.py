@@ -66,7 +66,8 @@ from utils.document_utils import (
     delete_folder_from_rag,
     rename_folder_in_rag,
     create_folder,
-    validate_folder_name
+    validate_folder_name,
+    rescan_documents,
 )
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -1237,55 +1238,24 @@ async def rename_folder(
         logging.error(f"Error renaming folder: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/rescan")
-async def rescan_documents():
-    """Rescan for new documents and update RAG."""
+async def rescan_documents_endpoint():
+    """Rescan documents and update RAG system."""
     try:
-        # Run RAG_processor.py in a subprocess
-        process = subprocess.Popen(
-            [sys.executable, 'RAG_processor.py'],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env={**os.environ, "PYTHONIOENCODING": "utf-8"}
-        )
+        success, message = rescan_documents(CONFIG)
 
-        stdout, stderr = process.communicate()
-
-        # Log the output
-        if stdout:
-            for line in stdout.splitlines():
-                if 'ERROR' in line:
-                    logging.error(line)
-                else:
-                    logging.info(line)
-
-        if stderr:
-            for line in stderr.splitlines():
-                if 'ERROR' in line:
-                    logging.error(f"Processing error: {line}")
-                else:
-                    logging.info(line)
-
-        if process.returncode != 0:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Rescan failed with code {process.returncode}"
-            )
-
-        # Wait for files to be written
-        await asyncio.sleep(1)
-
-        # Verify results
-        success, message = check_processing_status()
         if not success:
             raise HTTPException(status_code=500, detail=message)
 
-        return {"status": "success", "message": "Rescan completed successfully"}
+        return {"status": "success", "message": message}
 
     except Exception as e:
         logging.error(f"Error during rescan: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 @app.get("/chat/history")
 async def get_chat_history():

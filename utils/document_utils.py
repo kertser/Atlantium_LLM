@@ -3,7 +3,7 @@ import platform
 import subprocess
 import logging
 from pathlib import Path
-from typing import List, Set, Dict, Any, Optional
+from typing import List, Set, Dict, Any, Optional, Set, Tuple
 import shutil
 import faiss
 import json
@@ -14,6 +14,213 @@ from utils.image_store import ImageStore
 
 logger = logging.getLogger(__name__)
 
+
+def sanitize_filename(filepath: Path) -> Tuple[Path, bool]:
+    """
+    Sanitize filename by removing leading/trailing spaces in filename and before extension.
+
+    Args:
+        filepath: Path object of the file
+
+    Returns:
+        Tuple of (new_path, was_renamed)
+    """
+    original_path = filepath
+    parent = filepath.parent
+    filename = filepath.name
+
+    # Split filename and extension
+    name_parts = filename.rsplit('.', 1)
+    if len(name_parts) == 2:
+        name, ext = name_parts
+        # Remove leading/trailing spaces from name
+        new_name = f"{name.strip()}.{ext.strip()}"
+    else:
+        # No extension
+        new_name = filename.strip()
+
+    new_path = parent / new_name
+
+    if new_path != original_path:
+        try:
+            original_path.rename(new_path)
+            logging.info(f"Renamed file from '{original_path}' to '{new_path}'")
+            return new_path, True
+        except Exception as e:
+            logging.error(f"Error renaming file '{original_path}': {e}")
+            return original_path, False
+
+    return original_path, False
+
+
+def sanitize_uploaded_file(file_path: Path) -> Path:
+    """
+    Sanitize an uploaded file's name before saving.
+
+    Args:
+        file_path: Path object of the uploaded file
+
+    Returns:
+        Path object with sanitized name
+    """
+    parent = file_path.parent
+    filename = file_path.name
+
+    # Split filename and extension
+    name_parts = filename.rsplit('.', 1)
+    if len(name_parts) == 2:
+        name, ext = name_parts
+        sanitized_name = f"{name.strip()}.{ext.strip()}"
+    else:
+        sanitized_name = filename.strip()
+
+    return parent / sanitized_name
+
+
+def compare_and_update_rag(raw_docs_path: Path, processed_files: Set[str], supported_extensions: Set[str]) -> Tuple[
+    List[Path], List[Path]]:
+    """
+    Compare raw documents with processed files and identify new and removed documents.
+
+    Args:
+        raw_docs_path: Path to raw documents directory
+        processed_files: Set of processed file paths
+        supported_extensions: Set of supported file extensions
+
+    Returns:
+        Tuple of (new_files, removed_files)
+    """
+    # Get current documents
+    current_docs = set()
+    for ext in supported_extensions:
+        for doc_path in raw_docs_path.rglob(f"*{ext}"):
+            # Sanitize filename if needed
+            doc_path, was_renamed = sanitize_filename(doc_path)
+            current_docs.add(str(doc_path.absolute()))
+
+    # Find new and removed files
+    new_files = [Path(p) for p in current_docs - processed_files]
+    removed_files = [Path(p) for p in processed_files - current_docs]
+
+    return new_files, removed_files
+
+def get_document_count(base_path: Path, supported_extensions: Set[str]) -> int:
+    """
+    Count only document files (excluding folders) in the given path.
+
+    Args:
+        base_path: Base directory to search
+        supported_extensions: Set of supported file extensions
+
+    Returns:
+        Number of documents found
+    """
+    count = 0
+    for item in base_path.rglob("*"):
+        if item.is_file() and item.suffix.lower() in supported_extensions:
+            count += 1
+    return count
+
+
+def rescan_documents(config: CONFIG) -> tuple[bool, str]:
+    """
+    Rescan documents and update RAG system by comparing raw documents with processed ones.
+
+    Args:
+        config: Application configuration object
+
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    try:
+        logger.info("Starting document rescan process")
+
+        # Load processed files list
+        processed_files_path = Path("processed_files.json")
+        if processed_files_path.exists():
+            with open(processed_files_path, 'r', encoding='utf-8') as f:
+                processed_files = set(json.load(f))
+        else:
+            processed_files = set()
+
+        # Convert supported extensions to set of lowercase extensions with dots
+        supported_extensions = {f".{ext.lower().lstrip('.')}" for ext in config.SUPPORTED_EXTENSIONS}
+
+        # Compare current files with processed files
+        new_files, removed_files = compare_and_update_rag(
+            raw_docs_path=config.RAW_DOCUMENTS_PATH,
+            processed_files=processed_files,
+            supported_extensions=supported_extensions
+        )
+
+        if not new_files and not removed_files:
+            logger.info("No changes detected in document collection")
+            return True, "No changes detected"
+
+        # Process new files if any
+        if new_files:
+            logger.info(f"Found {len(new_files)} new documents to process")
+            try:
+                # Initialize required components
+                from utils.LLM_utils import CLIP_init
+                from utils.FAISS_utils import initialize_faiss_index, load_faiss_index, load_metadata
+                from utils.image_store import ImageStore
+                from RAG_processor import process_documents
+
+                # Load or initialize CLIP model
+                model, processor, device = CLIP_init(config.CLIP_MODEL_NAME)
+
+                # Load or initialize FAISS index and metadata
+                try:
+                    index = load_faiss_index(config.FAISS_INDEX_PATH)
+                    metadata = load_metadata(config.METADATA_PATH)
+                except:
+                    index = initialize_faiss_index(config.EMBEDDING_DIMENSION, config.USE_GPU)
+                    metadata = []
+
+                # Initialize image store
+                image_store = ImageStore(config.STORED_IMAGES_PATH)
+
+                # Process documents with all required arguments
+                success = process_documents(
+                    model=model,
+                    processor=processor,
+                    device=device,
+                    index=index,
+                    metadata=metadata,
+                    image_store=image_store,
+                    doc_paths=[str(p) for p in new_files]
+                )
+
+                if not success:
+                    raise Exception("Failed to process new documents")
+
+            except Exception as e:
+                logger.error(f"Error processing new documents: {e}")
+                return False, f"Failed to process new documents: {str(e)}"
+
+        # Remove documents that no longer exist
+        if removed_files:
+            logger.info(f"Found {len(removed_files)} documents to remove from RAG")
+            failed_removals = []
+            for file_path in removed_files:
+                success, msg = remove_document_from_rag(file_path)
+                if not success:
+                    failed_removals.append(f"{file_path}: {msg}")
+                    logger.error(f"Failed to remove document {file_path}: {msg}")
+
+            if failed_removals:
+                return False, f"Failed to remove some documents: {'; '.join(failed_removals)}"
+
+        total_changes = len(new_files) + len(removed_files)
+        success_msg = f"Rescan completed: {len(new_files)} new documents processed, {len(removed_files)} documents removed"
+        logger.info(success_msg)
+        return True, success_msg
+
+    except Exception as e:
+        error_msg = f"Error during rescan: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return False, error_msg
 
 def open_file_with_default_program(file_path: str) -> tuple[bool, str]:
     """
