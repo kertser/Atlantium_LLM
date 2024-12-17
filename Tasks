@@ -1,7 +1,5 @@
 # General Tasks:
-* Test and fix docker-compose with volumes (not working properly - seems like no metadata is initialized)
-* Test Webhooks
-* Make Documentation
+* Test docker-compose with volumes and git webhooks
 * Add prompt template for Interactive troubleshooting mode (analyze step by step)
 * Add option for "chat with live operator" (A button with contacts)
 * Calculator API - connect as agent

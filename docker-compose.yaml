@@ -34,6 +34,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        - BUILD_TYPE=${BUILD_TYPE:-cpu}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+              count: all
+              driver: nvidia
     ports:
       - "9000:9000"
     volumes:
