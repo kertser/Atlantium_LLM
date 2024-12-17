@@ -20,3 +20,4 @@
 - Rescan button - Need to check more
 - Need to remove header and footer of pdf/doc files form chinking/indexing - it is a garbage data
 - top_k * 2? Why??
+- Empty folders - RAG_Data folder logs - are created inside the utils. Why?

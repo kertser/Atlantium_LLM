@@ -74,12 +74,5 @@ class Config:
             self.STORED_TEXT_CHUNKS_PATH = Path(self.STORED_TEXT_CHUNKS_PATH)
             self.LOG_PATH = Path(self.LOG_PATH)
 
-            # Create necessary directories
-            self.RAG_DATA.mkdir(exist_ok=True)
-            self.STORED_IMAGES_PATH.mkdir(exist_ok=True)
-            self.STORED_TEXT_CHUNKS_PATH.mkdir(exist_ok=True)
-            self.LOG_PATH.mkdir(exist_ok=True)
-
-
 # Create global config instance
 CONFIG = Config()
