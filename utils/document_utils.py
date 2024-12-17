@@ -3,11 +3,10 @@ import platform
 import subprocess
 import logging
 from pathlib import Path
-from typing import List, Set, Dict, Any, Optional, Set, Tuple
+from typing import List, Any, Set, Tuple
 import shutil
 import faiss
 import json
-import numpy as np
 from config import CONFIG
 from utils.FAISS_utils import load_faiss_index, load_metadata, save_faiss_index, save_metadata
 from utils.image_store import ImageStore

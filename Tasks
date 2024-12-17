@@ -12,6 +12,7 @@
 * Offline and fine-tuned LLMs (TBD)
 * Multimodal Input - Connect audio model (TBD)
 * Think of other Agents (Video Agent) (TBD)
+* Ensure encoding: setx PYTHONIOENCODING utf-8
 
 # Errors / Things to check:
 - Play with similarity scores to have more precise answers. Pictures similarity needs to be better. Or choose the best percentile score

@@ -1,38 +1,36 @@
-# For first deployment:  INITIALIZE_RAG=true docker-compose up -d
-# For regular start: docker-compose up -d # to start the services
-# docker-compose run rag-system # to process the documents
-# The web app will be available at http://localhost:9000
+# For first manual deployment:  INITIALIZE_RAG=true docker-compose up -d
 
 # To upload the docs with CLI:
-# curl -X POST "http://server_ip:9000/upload/document" -H "accept: application/json" -H "Content-Type: multipart/form-data" -F "file=@/path/to/your/document.pdf"
+# curl -X POST "http://server_ip:9000/upload/document" \
+#     -H "accept: application/json" \
+#     -H "Content-Type: multipart/form-data" \
+#     -F "file=@/path/to/your/document.pdf" \
+#     -F "folder=your/folder/path"
+# And then trigger the processing:
+# curl -X POST "http://server_ip:9000/process/documents"
 
+## General commands:
 # Remove all containers
 # docker rm -f $(docker ps -a -q)
-
 # Remove all:
 # docker system prune --all --volumes --force
+# Get the  last 100 lines of logs:
+# docker logs atlantium_llm-web-app-1 -f --tail=100
 
-# Get the logs:
-# docker logs atlantium_llm-web-app-1 --tail 100
+### Normal Operation Sequence:
+# git clone https://github.com/kertser/Atlantium_LLM.git
+# cd Atlantium_LLM
+# cp .env.example .env
+# docker-compose up -d
+# The web app will be available at http://server_ip:9000
 
 version: '3.8'
 
 services:
-  rag-system:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      - raw_docs:/app/Raw Documents
-      - rag_data:/app/RAG_Data
-      - index_data:/app/indices
-    env_file:
-      - .env
-    command: python RAG_processor.py
-    networks:
-      - rag_network
-
   web-app:
+    container_name: ${CONTAINER_NAME:-atlantium_llm-web-app-1}
+    environment:
+      - PYTHONIOENCODING=utf-8
     build:
       context: .
       dockerfile: Dockerfile
@@ -41,19 +39,20 @@ services:
     volumes:
       - raw_docs:/app/Raw Documents
       - rag_data:/app/RAG_Data
-      - index_data:/app/indices
+      - logs:/app/logs
     env_file:
       - .env
-    command: python run.py
-    depends_on:
-      - rag-system
-    networks:
-      - rag_network
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   raw_docs:
+    driver: local
   rag_data:
-  index_data:
-
-networks:
-  rag_network:
+    driver: local
+  logs:
+    driver: local
