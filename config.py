@@ -20,7 +20,7 @@ class Config:
     STORED_TEXT_CHUNKS_PATH: Path = Path("RAG_Data/stored_text_chunks")
 
     # Logging
-    LOG_PATH: Path = Path("system.log")
+    LOG_PATH: Path = Path("logs")
 
     # CLIP Configuration
     CLIP_MODEL_NAME: str = "openai/clip-vit-base-patch32"
@@ -78,6 +78,7 @@ class Config:
             self.RAG_DATA.mkdir(exist_ok=True)
             self.STORED_IMAGES_PATH.mkdir(exist_ok=True)
             self.STORED_TEXT_CHUNKS_PATH.mkdir(exist_ok=True)
+            self.LOG_PATH.mkdir(exist_ok=True)
 
 
 # Create global config instance

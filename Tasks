@@ -22,4 +22,3 @@
 - top_k * 2? Why??
 - Files with names, containing spaces are problematic. Like "FCO160045-LM-FW_BallastTemp .pdf" - these files shall be renamed before processing
 - Total: 23 (it counts folders) - need to fix
-- Logs shall be stored in \logs folder

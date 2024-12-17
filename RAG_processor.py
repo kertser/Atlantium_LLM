@@ -53,7 +53,7 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s: %(message)s',
     handlers=[
         # logging.StreamHandler(), # into CLI
-        logging.FileHandler(CONFIG.LOG_PATH)
+        logging.FileHandler(CONFIG.LOG_PATH/"system.log")
     ]
 )
 

@@ -79,7 +79,7 @@ logging.basicConfig(
     handlers=[
         logging.StreamHandler(sys.stdout),
         RotatingFileHandler(
-            CONFIG.LOG_PATH,
+            CONFIG.LOG_PATH/"system.log",
             maxBytes=2 * 1024 * 1024,  # 2 MB
             backupCount=3,  # Keep up to 3 old log files
             encoding='utf-8'

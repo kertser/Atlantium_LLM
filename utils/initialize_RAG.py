@@ -39,14 +39,14 @@ def initialize_rag_database(
             CONFIG.METADATA_PATH,
             CONFIG.IMAGE_METADATA_PATH,
             Path("processed_files.json"),
-            Path("system.log")
         ]
 
     if directories_to_clean is None:
         directories_to_clean = [
             CONFIG.RAG_DATA,
             CONFIG.STORED_TEXT_CHUNKS_PATH,
-            CONFIG.STORED_IMAGES_PATH
+            CONFIG.STORED_IMAGES_PATH,
+            CONFIG.LOG_PATH
         ]
 
     logging.basicConfig(level=logging.INFO)
