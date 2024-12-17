@@ -32,7 +32,7 @@ class Config:
     CHUNK_SIZE: int = 1000  # Optimal for larger content. Smaller chunks are more selective, but harder to compare
     SIMILARITY_THRESHOLD: float = 0.75  # Text similarity
     IMAGE_SIMILARITY_THRESHOLD: float = 0.25  # Image similarity
-    TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.8  # Technical confidence
+    TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.6  # Technical confidence
     MAX_METADATA_SIZE: int = 10000000  # We have to keep it large, since 100-200 docs can take 15Gb space
     SUPPORTED_EXTENSIONS: List[str] = None
 

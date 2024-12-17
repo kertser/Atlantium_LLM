@@ -22,4 +22,5 @@
 - Need to remove header and footer of pdf/doc files form chinking/indexing - it is a garbage data
 - Convert in config INDICES and RAG_DATA to Path
 - top_k * 2? Why??
-- move stored images to stored_images and image_metadata to inices
+- move stored images to stored_images and image_metadata to indices
+- Files with names, containing spaces are problematic. Like "FCO160045-LM-FW_BallastTemp .pdf" - these files shall be renamed before processing

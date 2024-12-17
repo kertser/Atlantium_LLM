@@ -89,7 +89,7 @@ def CLIP_init(model_name="openai/clip-vit-base-patch32"):
 
         # Set model to evaluation mode
         clip_model.eval()
-        logging.info("CLIP model {model_name} initialized successfully on {device}")
+        logging.info(f"CLIP model {model_name} initialized successfully on {device}")
 
         return clip_model, clip_processor, device
 

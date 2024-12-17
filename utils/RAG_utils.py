@@ -178,6 +178,8 @@ def extract_text_and_images_from_word(doc_path):
             - page_num: Page number (always 1 for Word docs)
             - caption: Image caption
     """
+    min_size = 50
+
     try:
         doc = Document(doc_path)
         doc_name = Path(doc_path).name
@@ -207,8 +209,8 @@ def extract_text_and_images_from_word(doc_path):
                         image = image.convert('RGB')
 
                     # Verify image dimensions and quality
-                    if image.width < 50 or image.height < 50:
-                        logger.warning(f"Skipping small image ({image.width}x{image.height}) in {doc_name}")
+                    if image.width < min_size or image.height < min_size:
+                        logger.info(f"Skipping small image ({image.width}x{image.height}) in {doc_name}")
                         continue
 
                     # Try to find text near the image (could be enhanced based on document structure)

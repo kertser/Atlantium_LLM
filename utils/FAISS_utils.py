@@ -53,12 +53,17 @@ def clean_duplicate_entries(metadata: List[Dict]) -> List[Dict]:
 
     for entry in metadata:
         if entry['type'] == 'image':
-            image_id = entry.get('content', {}).get('image_id', '')
+            image_id = entry.get('image', {}).get('id', '')  # Changed from content to image
             if image_id and image_id not in seen_image_ids:
                 seen_image_ids.add(image_id)
                 cleaned_metadata.append(entry)
+            else:
+                logging.info(f"Removing duplicate or invalid image entry: {entry}")
         else:
             cleaned_metadata.append(entry)
+
+    if len(cleaned_metadata) < len(metadata):
+        logging.info(f"Removed {len(metadata) - len(cleaned_metadata)} duplicate/invalid entries")
 
     return cleaned_metadata
 
@@ -80,7 +85,21 @@ def get_chunk_text(chunk_path: str) -> str:
 
 
 def add_to_faiss(embedding, source_file_name, content_type, content, index, metadata, processed_ids: Set[str] = None):
-    """Add embedding to FAISS with optimized metadata storage."""
+    """
+    Add embedding to FAISS with optimized metadata storage and improved error handling.
+
+    Args:
+        embedding: NumPy array of the embedding
+        source_file_name: Path to the source file
+        content_type: Type of content ('text-chunk' or 'image')
+        content: Dictionary containing content details
+        index: FAISS index instance
+        metadata: List of metadata entries
+        processed_ids: Set of already processed image IDs (for deduplication)
+
+    Returns:
+        None
+    """
     try:
         # Validate embedding
         if embedding is None or not isinstance(embedding, np.ndarray):
@@ -94,6 +113,14 @@ def add_to_faiss(embedding, source_file_name, content_type, content, index, meta
 
         if embedding.ndim != 2 or embedding.shape[1] != index.d:
             raise ValueError(f"Embedding shape mismatch. Expected shape: [1, {index.d}]")
+
+        # Add embedding to index first to ensure it's valid
+        initial_total = index.ntotal
+        index.add(embedding)
+
+        # Verify addition
+        if index.ntotal != initial_total + 1:
+            raise ValueError(f"Failed to add {content_type} to FAISS index")
 
         # Process paths
         source_path = Path(source_file_name)
@@ -111,63 +138,68 @@ def add_to_faiss(embedding, source_file_name, content_type, content, index, meta
             raise
 
         # Handle images
-        if content_type == "image" and processed_ids is not None:
-            image_id = content.get("image_id", "")
-            if image_id in processed_ids:
-                logging.info(f"Skipping duplicate image {image_id}")
+        if content_type == "image":
+            image_id = content.get("image_id")
+            if not image_id:
+                logging.error("Missing image_id in content")
                 return
-            processed_ids.add(image_id)
 
-        # Add embedding to index
-        index.add(embedding)
+            if processed_ids is not None:
+                if image_id in processed_ids:
+                    logging.info(f"Skipping duplicate image {image_id}")
+                    return
+                processed_ids.add(image_id)
 
-        # Process content based on type
-        if content_type == "text-chunk":
-            if isinstance(content, dict):
-                # Create directory for document chunks
-                doc_chunks_dir = CONFIG.STORED_TEXT_CHUNKS_PATH / relative_path.stem
-                doc_chunks_dir.mkdir(parents=True, exist_ok=True)
+            # Store complete image metadata
+            meta_entry["image"] = {
+                "id": image_id,
+                "page": content.get("page", 1),
+                "context": content.get("context", ""),
+                "caption": content.get("caption", ""),
+                "source_doc": str(source_path)
+            }
 
-                # Generate unique chunk filename
-                chunk_number = len(list(doc_chunks_dir.glob('chunk_*.txt')))
-                chunk_filename = f"chunk_{chunk_number:03d}.txt"
-                chunk_path = doc_chunks_dir / chunk_filename
+            # Log the complete metadata entry for verification
+            logging.info(f"Adding image metadata: {meta_entry}")
 
-                # Write chunk to file
-                with open(chunk_path, 'w', encoding='utf-8') as f:
-                    f.write(content['text'])
+        # Handle text chunks
+        elif content_type == "text-chunk":
+            if not isinstance(content, dict) or 'text' not in content:
+                raise ValueError("Text chunk content must be a dictionary with 'text' field")
 
-                # Store path relative to STORED_TEXT_CHUNKS_PATH
-                meta_entry["chunk"] = str(Path(relative_path.stem) / chunk_filename)
+            # Create directory for document chunks
+            doc_chunks_dir = CONFIG.STORED_TEXT_CHUNKS_PATH / relative_path.stem
+            doc_chunks_dir.mkdir(parents=True, exist_ok=True)
 
-                # Store only non-empty additional metadata
-                extra_meta = content.get('metadata', {})
-                if extra_meta:
-                    meta_entry["meta"] = {k: v for k, v in extra_meta.items() if v}
-            else:
-                raise ValueError("Text chunk content must be a dictionary")
+            # Generate unique chunk filename
+            chunk_number = len(list(doc_chunks_dir.glob('chunk_*.txt')))
+            chunk_filename = f"chunk_{chunk_number:03d}.txt"
+            chunk_path = doc_chunks_dir / chunk_filename
 
-        elif content_type == "image":
-            if isinstance(content, dict):
-                # Store only essential image information
-                image_data = {
-                    "id": content.get("image_id", ""),
-                    "page": content.get("page", 1)
-                }
+            # Write chunk to file
+            with open(chunk_path, 'w', encoding='utf-8') as f:
+                f.write(content['text'])
 
-                # Only store non-empty fields
-                if content.get("context"):
-                    image_data["context"] = content["context"]
-                if content.get("caption"):
-                    image_data["caption"] = content["caption"]
+            # Store path relative to STORED_TEXT_CHUNKS_PATH
+            meta_entry["chunk"] = str(Path(relative_path.stem) / chunk_filename)
 
-                meta_entry["image"] = image_data
+            # Store additional metadata if present
+            if content.get('metadata'):
+                meta_entry["meta"] = content['metadata']
 
+        # Add metadata entry
         metadata.append(meta_entry)
-        logging.info(f"Added {content_type} embedding from {relative_path}")
+
+        # Log successful addition with type-specific details
+        if content_type == "image":
+            logging.info(f"Successfully added image {image_id} to FAISS index (metadata entry {len(metadata) - 1})")
+        else:
+            logging.info(f"Successfully added {content_type} from {relative_path} to FAISS index")
+
+        return True
 
     except Exception as e:
-        logging.error(f"Error adding embedding to FAISS: {e}")
+        logging.error(f"Error adding {content_type} to FAISS: {e}")
         raise
 
 def query_faiss(index, metadata, query_embeddings, top_k):
