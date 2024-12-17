@@ -1,18 +1,18 @@
 # General Tasks:
 * Test docker-compose with volumes and git webhooks
 * Add prompt template for Interactive troubleshooting mode (analyze step by step)
-* Add option for "chat with live operator" (A button with contacts)
+* Add option for "chat with live operator" (A button with contacts or whatsapp)
 * Calculator API - connect as agent
 
+# Urgent Tasks / Errors:
+* Play with similarity scores to have more precise answers. Pictures similarity needs to be better. Or choose the best percentile score
+* Continue playing with prompts, top_K and chunking to reduce hallucinations. (May be achieved with more data)
+* Need to remove header and footer of pdf/doc files form chinking/indexing - it is a garbage data
 
-# TBDs:
+# TBDs for development:
 * Android mobile app development (TBD)
 * Offline and fine-tuned LLMs (TBD)
 * Multimodal Input - Connect audio model (TBD)
 * Think of other Agents (Video Agent) (TBD)
-* Ensure encoding: setx PYTHONIOENCODING utf-8
 
-# Errors / Things to check:
-- Play with similarity scores to have more precise answers. Pictures similarity needs to be better. Or choose the best percentile score
-- Continue playing with prompts, top_K and chunking to reduce hallucinations. (May be achieved with more data)
-- Need to remove header and footer of pdf/doc files form chinking/indexing - it is a garbage data
+
