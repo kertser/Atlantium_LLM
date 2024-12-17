@@ -417,10 +417,12 @@ async function loadDocuments(currentPath = '') {
         const tableWrapper = document.querySelector('.documents-table-wrapper');
         if (!tableWrapper) return;
 
-        // Update document count
+        // Update document count - only count files
         const docCount = document.getElementById('doc-count');
         if (docCount) {
-            docCount.textContent = data.files.length + data.folders.length;
+            // Count only documents, not folders
+            const numDocuments = data.files.length;
+            docCount.textContent = `${numDocuments} document${numDocuments !== 1 ? 's' : ''}`;
         }
 
         // Create table structure
@@ -480,12 +482,24 @@ async function loadDocuments(currentPath = '') {
             `;
         });
 
-        // Add files
+        // Add files after sanitizing names
         data.files.forEach(file => {
+            // Create sanitized file name (remove spaces before extension)
+            const fileName = file.name;
+            const lastDotIndex = fileName.lastIndexOf('.');
+            let sanitizedName;
+            if (lastDotIndex !== -1) {
+                const name = fileName.slice(0, lastDotIndex).trim();
+                const ext = fileName.slice(lastDotIndex + 1).trim();
+                sanitizedName = `${name}.${ext}`;
+            } else {
+                sanitizedName = fileName.trim();
+            }
+
             tbody.innerHTML += `
                 <tr>
                     <td>
-                        <span class="document-name" data-path="${encodeURIComponent(file.path)}">${escapeHtml(file.name)}</span>
+                        <span class="document-name" data-path="${encodeURIComponent(file.path)}">${escapeHtml(sanitizedName)}</span>
                     </td>
                     <td>${escapeHtml(file.type)}</td>
                     <td>${formatFileSize(file.size)}</td>
@@ -516,6 +530,7 @@ async function loadDocuments(currentPath = '') {
             });
         });
 
+        // Add context menu handlers for documents
         const documentNames = tableWrapper.querySelectorAll('.document-name');
         documentNames.forEach(docName => {
             docName.addEventListener('contextmenu', (e) => {
@@ -589,15 +604,30 @@ document.addEventListener('DOMContentLoaded', () => {
         handleFiles(files);
     }
 
+    function sanitizeFileName(filename) {
+        const [name, ext] = filename.split(/\.(?=[^.]+$)/);
+        return `${name.trim()}.${ext.trim()}`;
+    }
+
     function handleFiles(files) {
         files.forEach(file => {
             if (isValidFile(file)) {
-                if (fileMap.has(file.name)) {
-                    alert(`File "${file.name}" has already been added`);
+                // Sanitize filename
+                const sanitizedName = sanitizeFileName(file.name);
+
+                if (fileMap.has(sanitizedName)) {
+                    alert(`File "${sanitizedName}" has already been added`);
                     return;
                 }
-                fileMap.set(file.name, file);
-                uploadList.appendChild(createFileItem(file));
+
+                // Create new file object with sanitized name
+                const sanitizedFile = new File([file], sanitizedName, {
+                    type: file.type,
+                    lastModified: file.lastModified
+                });
+
+                fileMap.set(sanitizedName, sanitizedFile);
+                uploadList.appendChild(createFileItem(sanitizedFile));
                 processBtn.style.display = 'block';
             }
         });
