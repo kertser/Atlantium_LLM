@@ -7,6 +7,7 @@ from typing import List, Set, Dict, Any, Optional
 import shutil
 import faiss
 import json
+import numpy as np
 from config import CONFIG
 from utils.FAISS_utils import load_faiss_index, load_metadata, save_faiss_index, save_metadata
 from utils.image_store import ImageStore
@@ -50,145 +51,101 @@ def open_file_with_default_program(file_path: str) -> tuple[bool, str]:
 
 def remove_document_from_rag(doc_path: Path) -> tuple[bool, str]:
     """
-    Removes a document and all its associated data from the RAG system.
-    Args:
-        doc_path: Path to the document to remove
-    Returns:
-        Tuple of (success: bool, message: str)
+    Removes a document and its associated data from the RAG system.
+    Uses direct vector copying instead of reconstruction.
     """
     try:
         logger.info(f"Starting removal of document: {doc_path}")
 
-        # Load current index and metadata
-        index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
+        # Load current data
+        original_index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
         metadata = load_metadata(CONFIG.METADATA_PATH)
         image_store = ImageStore(CONFIG.STORED_IMAGES_PATH)
-
-        logger.info(f"Loaded FAISS index with {len(metadata)} entries")
-
-        # Track indices to remove, images, and chunks
-        indices_to_remove = []
-        images_to_remove = set()
-        chunks_to_remove = set()
+        logger.info(f"Successfully loaded index with {len(metadata)} entries")
 
         # Get relative path for comparison
         try:
             relative_path = doc_path.relative_to(CONFIG.RAW_DOCUMENTS_PATH)
         except ValueError:
             relative_path = doc_path
+        logger.info(f"Using relative path: {relative_path}")
 
-        logger.info(f"Searching for entries related to {relative_path}")
+        # Identify entries to remove and filter metadata
+        indices_to_remove = set()
+        new_metadata = []
 
-        # Find all entries related to this document
         for idx, entry in enumerate(metadata):
-            # Compare using the new path field
             entry_path = Path(entry.get('path', ''))
+            if entry_path == relative_path or entry_path.name == doc_path.name:
+                indices_to_remove.add(idx)
+                logger.info(f"Found matching entry at index {idx}: {entry_path}")
 
-            # Check if paths match or if filenames match
-            if (entry_path == relative_path or
-                    entry_path.name == doc_path.name):
-                logger.info(f"Found matching entry: {entry_path}")
-
-                if idx not in indices_to_remove:
-                    indices_to_remove.append(idx)
-
-                # Collect image IDs
+                # Handle file removal
                 if entry.get('type') == 'image':
-                    image_data = entry.get('image', {})
-                    if isinstance(image_data, dict):
-                        image_id = image_data.get('id')
-                        if image_id:
-                            images_to_remove.add(image_id)
-
-                # Collect chunk paths
+                    image_id = entry.get('image', {}).get('id')
+                    if image_id:
+                        image_store.delete_image(image_id)
+                        logger.info(f"Deleted image {image_id}")
                 elif entry.get('type') == 'text-chunk':
                     chunk_path = entry.get('chunk')
                     if chunk_path:
-                        chunks_to_remove.add(chunk_path)
+                        try:
+                            chunk_file = CONFIG.STORED_TEXT_CHUNKS_PATH / chunk_path
+                            if chunk_file.exists():
+                                chunk_file.unlink()
+                                logger.info(f"Deleted chunk file: {chunk_path}")
+                        except Exception as e:
+                            logger.error(f"Error deleting chunk file: {str(e)}")
+            else:
+                new_metadata.append(entry)
 
         if not indices_to_remove:
             logger.info(f"Document {doc_path.name} not found in RAG system")
             return True, "Document not found in RAG system"
 
-        logger.info(f"Found {len(indices_to_remove)} entries to remove")
+        # Remove chunk directory
+        chunk_dir = CONFIG.STORED_TEXT_CHUNKS_PATH / Path(relative_path).stem
+        if chunk_dir.exists():
+            shutil.rmtree(chunk_dir)
+            logger.info(f"Removed chunk directory: {chunk_dir}")
 
-        # Remove images
-        if images_to_remove:
-            logger.info(f"Found {len(images_to_remove)} images to remove")
-            for image_id in images_to_remove:
-                try:
-                    if not image_store.delete_image(image_id):
-                        logger.warning(f"Image ID not found or already deleted: {image_id}")
-                    else:
-                        logger.info(f"Deleted image {image_id}")
-                except Exception as e:
-                    logger.error(f"Error deleting image {image_id}: {e}")
+        # Save updated metadata
+        save_metadata(new_metadata, CONFIG.METADATA_PATH)
+        logger.info(f"Saved updated metadata with {len(new_metadata)} entries")
 
-        # Remove text chunks
-        if chunks_to_remove:
-            logger.info(f"Found {len(chunks_to_remove)} text chunks to remove")
-            for chunk_path in chunks_to_remove:
-                try:
-                    full_path = CONFIG.RAG_DATA / chunk_path
-                    if full_path.exists():
-                        full_path.unlink()
-                        logger.info(f"Deleted chunk file: {chunk_path}")
-                except Exception as e:
-                    logger.error(f"Error deleting chunk file {chunk_path}: {e}")
+        # Create new index and copy vectors
+        new_index = faiss.IndexFlatL2(original_index.d)
+        batch_size = 1000  # Process vectors in batches
 
-            # Clean up empty chunk directories
-            chunk_dir = CONFIG.STORED_TEXT_CHUNKS_PATH / relative_path.stem
-            if chunk_dir.exists() and not any(chunk_dir.iterdir()):
-                try:
-                    chunk_dir.rmdir()
-                    logger.info(f"Removed empty chunk directory: {chunk_dir}")
-                except Exception as e:
-                    logger.error(f"Error removing chunk directory: {e}")
+        for start_idx in range(0, original_index.ntotal, batch_size):
+            end_idx = min(start_idx + batch_size, original_index.ntotal)
+            batch_indices = range(start_idx, end_idx)
 
-        try:
-            # Create lists for keeping valid entries and their vectors
-            valid_indices = [i for i in range(len(metadata)) if i not in indices_to_remove]
-            new_metadata = [metadata[i] for i in valid_indices]
+            # Filter out indices to remove from this batch
+            valid_indices = [idx for idx in batch_indices if idx not in indices_to_remove]
 
-            # Create new index and add valid vectors
-            new_index = faiss.IndexFlatL2(index.d)
             if valid_indices:
-                vectors = []
-                for idx in valid_indices:
-                    try:
-                        vector = faiss.vector_float_to_array(index.reconstruct(idx))
-                        vectors.append(vector)
-                    except RuntimeError as e:
-                        logger.error(f"Error reconstructing vector at index {idx}: {e}")
-                        continue
+                try:
+                    # Get vectors directly from the original index
+                    vectors = original_index.reconstruct_batch(valid_indices)
+                    new_index.add(vectors)
+                except Exception as e:
+                    logger.error(f"Error processing batch {start_idx}-{end_idx}: {str(e)}")
 
-                if vectors:
-                    vectors_array = np.vstack(vectors)
-                    new_index.add(vectors_array)
+        # Save updated index
+        save_faiss_index(new_index, CONFIG.FAISS_INDEX_PATH)
+        logger.info(f"Saved updated index with {new_index.ntotal} vectors")
 
-            # Verify index integrity
-            if new_index.ntotal != len(new_metadata):
-                logger.error(f"Index/metadata mismatch after rebuild: {new_index.ntotal} vs {len(new_metadata)}")
-                return False, "Index and metadata are out of sync after removal"
+        # Update processed files list
+        update_processed_files_list(doc_path, remove=True)
+        logger.info("Updated processed files list")
 
-            # Save updated index and metadata
-            save_faiss_index(new_index, CONFIG.FAISS_INDEX_PATH)
-            save_metadata(new_metadata, CONFIG.METADATA_PATH)
-            logger.info(f"Saved updated FAISS index with {len(new_metadata)} entries")
-
-            # Update processed files list
-            update_processed_files_list(doc_path, remove=True)
-            logger.info("Updated processed files list")
-
-            return True, f"Document removal completed: {len(indices_to_remove)} entries, {len(images_to_remove)} images, {len(chunks_to_remove)} chunks"
-
-        except Exception as e:
-            logger.error(f"Error rebuilding FAISS index: {str(e)}")
-            return False, f"Failed to rebuild FAISS index: {str(e)}"
+        return True, f"Successfully removed document with {len(indices_to_remove)} entries"
 
     except Exception as e:
-        logger.error(f"Error removing document from RAG: {str(e)}")
-        return False, f"Failed to remove document from RAG: {str(e)}"
+        error_msg = f"Failed to remove document: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        return False, error_msg
 
 
 def update_processed_files_list(file_path: Path, remove: bool = False) -> None:
