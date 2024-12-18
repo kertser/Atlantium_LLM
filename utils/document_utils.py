@@ -221,49 +221,38 @@ def rescan_documents(config: CONFIG) -> tuple[bool, str]:
         logger.error(error_msg, exc_info=True)
         return False, error_msg
 
-
 def open_file_with_default_program(file_path: str) -> tuple[bool, str]:
-    """Opens a file with the default system program."""
+    """
+    Opens a file with the default system program.
+
+    Args:
+        file_path: Path to the file to open
+
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
     try:
-        file_path = str(Path(file_path).resolve())  # Get absolute path
-        logging.info(f"Attempting to open file: {file_path}")
-
-        if not Path(file_path).exists():
-            logging.error(f"File not found: {file_path}")
-            return False, "File not found"
-
-        # Check if running in Docker first
-        if os.environ.get('DOCKER_CONTAINER'):
-            logging.info(f"File exists in Docker: {file_path}")
-            return True, f"File located at: {file_path}"
-
-        # Only try to open file if not in Docker
+        file_path = str(file_path)  # Ensure string path
         system = platform.system()
+
         if system == "Windows":
             os.startfile(file_path)
         elif system == "Darwin":  # macOS
             subprocess.run(["open", file_path], check=True)
         else:  # Linux/Unix
-            # Only try to use xdg-open if not in Docker and on Linux
-            if shutil.which('xdg-open'):  # Check if xdg-open is available
-                subprocess.run(["xdg-open", file_path], check=True)
-            else:
-                return True, f"File exists at: {file_path}"
+            subprocess.run(["xdg-open", file_path], check=True)
 
         return True, "File opened successfully"
 
     except FileNotFoundError:
-        logging.error(f"File not found: {file_path}")
         return False, "File not found"
     except PermissionError:
-        logging.error(f"Permission denied: {file_path}")
         return False, "Permission denied"
     except subprocess.CalledProcessError as e:
-        logging.error(f"Failed to open file: {str(e)}")
         return False, f"Failed to open file: {str(e)}"
     except Exception as e:
-        logging.error(f"Error opening file {file_path}: {str(e)}")
-        return False, f"Error: {str(e)}"
+        logger.error(f"Error opening file {file_path}: {str(e)}")
+        return False, f"Unexpected error: {str(e)}"
 
 
 def remove_document_from_rag(doc_path: Path) -> tuple[bool, str]:

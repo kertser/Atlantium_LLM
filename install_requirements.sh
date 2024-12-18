@@ -1,9 +1,7 @@
 #!/bin/bash
-
-# Handle both CPU and GPU configurations.
 set -e
 
-# Determine the requirements file based on CPU or GPU usage
+# Check if GPU requirements exist and are valid
 REQ_FILE=""
 if [[ "$USE_CPU" == "1" ]]; then
     echo "CPU mode explicitly set - installing CPU dependencies"
@@ -18,19 +16,10 @@ if [ ! -f "$REQ_FILE" ]; then
     exit 1
 fi
 
-# Install dependencies with the extra index URL and no hash checking
-if [[ "$USE_CPU" == "1" ]]; then
-    echo "Installing CPU dependencies from $REQ_FILE without hash checking"
-    pip install --no-cache-dir --no-deps -r "$REQ_FILE" --extra-index-url https://download.pytorch.org/whl/cpu || {
-        echo "Error installing CPU dependencies. Check for version compatibility issues."
-        exit 1
-    }
-else
-    echo "Installing GPU dependencies from $REQ_FILE without hash checking"
-    pip install --no-cache-dir --no-deps -r "$REQ_FILE" --extra-index-url https://download.pytorch.org/whl/cu121 || {
-        echo "Error installing GPU dependencies. Check for version compatibility issues."
-        exit 1
-    }
-fi
+echo "Installing from: $REQ_FILE"
+pip install -r "$REQ_FILE" || {
+    echo "Error installing dependencies. Check for version compatibility issues."
+    exit 1
+}
 
 echo "Dependencies installed successfully"
