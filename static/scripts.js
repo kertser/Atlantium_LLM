@@ -30,16 +30,17 @@ function createContextMenu(e, fileName, filePath) {
                 try {
                     const response = await fetch('/open/document', {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({ path: filePath })  // Fixed: wrap path in an object
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ path: filePath }),
                     });
 
                     if (!response.ok) {
                         const error = await response.json();
                         throw new Error(error.detail || 'Failed to open file');
                     }
+
+                    const { url } = await response.json();
+                    window.open(url, '_blank'); // Open the file in a new tab
                 } catch (error) {
                     console.error('Open file error:', error);
                     alert(error.message || 'Failed to open file');

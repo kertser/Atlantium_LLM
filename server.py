@@ -61,7 +61,6 @@ from models.prompt_loader import PromptLoader
 from models.prompts import PromptBuilder
 from urllib.parse import unquote, quote
 from utils.document_utils import (
-    open_file_with_default_program,
     remove_document_from_rag,
     delete_folder_from_rag,
     rename_folder_in_rag,
@@ -1048,29 +1047,43 @@ async def list_documents():
         logging.error(f"Error listing documents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/files/{file_path:path}")
+async def serve_file(file_path: str):
+    try:
+        # Sanitize and validate the file path
+        sanitized_path = clean_path(file_path)
+        full_path = CONFIG.RAW_DOCUMENTS_PATH / sanitized_path
+
+        # Ensure the file exists and is accessible
+        if not str(full_path).startswith(str(CONFIG.RAW_DOCUMENTS_PATH)):
+            raise HTTPException(status_code=403, detail="Access denied")
+        if not full_path.exists() or not full_path.is_file():
+            raise HTTPException(status_code=404, detail="File not found")
+
+        return FileResponse(full_path)
+
+    except Exception as e:
+        logging.error(f"Error serving file: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/open/document")
 async def open_document(path: str = Body(..., embed=True)):
-    """Open a document with the default system program."""
     try:
-        clean_file_path = clean_path(unquote(path))
-        full_path = CONFIG.RAW_DOCUMENTS_PATH / clean_file_path
+        sanitized_path = clean_path(unquote(path))
+        full_path = CONFIG.RAW_DOCUMENTS_PATH / sanitized_path
 
-        # Security check
+        # Ensure the file exists and is accessible
         if not str(full_path).startswith(str(CONFIG.RAW_DOCUMENTS_PATH)):
             raise HTTPException(status_code=403, detail="Access denied")
-
-        if not full_path.exists():
+        if not full_path.exists() or not full_path.is_file():
             raise HTTPException(status_code=404, detail="File not found")
 
-        success, message = open_file_with_default_program(str(full_path))
-        if not success:
-            raise HTTPException(status_code=500, detail=message)
-
-        return {"status": "success", "message": message}
+        # Return the URL to access the file via `/files`
+        file_url = f"/files/{sanitized_path}"
+        return {"status": "success", "url": file_url}
 
     except Exception as e:
-        logging.error(f"Error opening document: {e}")
+        logging.error(f"Error generating file URL: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/download/document")
