@@ -50,9 +50,12 @@ COPY --chown=appuser:appuser . .
 
 # Create necessary directories with correct permissions
 RUN mkdir -p "RAG_Data/stored_images" "Raw Documents" logs \
-    && chmod -R 755 "RAG_Data" "Raw Documents" logs
+    && chmod -R 755 "RAG_Data" "Raw Documents" logs \
+    && chmod +x docker-entrypoint.sh
 
 # Expose the port
 EXPOSE 9000
 
+# Set the entrypoint script
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["python", "run.py"]

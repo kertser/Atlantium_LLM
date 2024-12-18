@@ -21,7 +21,8 @@
 # git clone https://github.com/kertser/Atlantium_LLM.git
 # cd Atlantium_LLM
 # cp .env.example .env
-# docker-compose up -d
+# chmod +x deploy.sh install_requirements.sh
+# sudo ./deploy.sh --init
 # The web app will be available at http://server_ip:9000
 
 version: '3.8'
@@ -32,6 +33,7 @@ services:
     environment:
       - PYTHONIOENCODING=utf-8
       - USE_CPU=0
+      - INITIALIZE_RAG=${INITIALIZE_RAG:-false}
     build:
       context: .
       dockerfile: Dockerfile
@@ -53,6 +55,8 @@ services:
     env_file:
       - .env
     restart: unless-stopped
+    entrypoint: ["/app/docker-entrypoint.sh"]
+    command: ["python", "run.py"]
     profiles:
       - gpu
 
@@ -61,6 +65,7 @@ services:
     environment:
       - PYTHONIOENCODING=utf-8
       - USE_CPU=1
+      - INITIALIZE_RAG=${INITIALIZE_RAG:-false}
     build:
       context: .
       dockerfile: Dockerfile
@@ -75,6 +80,8 @@ services:
     env_file:
       - .env
     restart: unless-stopped
+    entrypoint: ["/app/docker-entrypoint.sh"]
+    command: ["python", "run.py"]
     profiles:
       - cpu
 
