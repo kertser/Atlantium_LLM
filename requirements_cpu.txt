@@ -1,4 +1,3 @@
-# Core dependencies
 numpy==2.2.0
 pillow==11.0.0
 openai==1.57.1
@@ -16,9 +15,9 @@ tqdm==4.67.1
 python-dotenv==1.0.1
 requests==2.32.3
 
-faiss-cpu==1.9.0.post1  # CPU FAISS for all platforms
+faiss-cpu==1.9.0.post1
 
-# CPU-only PyTorch (works on Windows or Linux if you prefer CPU-only)
-torch==2.5.1
-torchvision==0.20.1
-torchaudio==2.5.1
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.1.0+cpu
+torchvision==0.16.0+cpu
+torchaudio==2.1.0+cpu
