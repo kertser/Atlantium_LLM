@@ -27,25 +27,23 @@
 version: '3.8'
 
 services:
-  web-app:
+  web-app-gpu:
     container_name: ${CONTAINER_NAME:-atlantium_llm-web-app-1}
     environment:
       - PYTHONIOENCODING=utf-8
-      - USE_CPU=${USE_CPU:-1}
+      - USE_CPU=0
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        - BUILD_TYPE=${BUILD_TYPE:-cpu}
+        - BUILD_TYPE=gpu
     deploy:
       resources:
         reservations:
           devices:
-            - capabilities: ["gpu"]
+            - driver: nvidia
               count: all
-              driver: nvidia
-      restart_policy:
-        condition: on-failure
+              capabilities: [gpu]
     ports:
       - "9000:9000"
     volumes:
@@ -59,9 +57,24 @@ services:
       - gpu
 
   web-app-cpu:
-    extends:
-      service: web-app
-    deploy: {}
+    container_name: ${CONTAINER_NAME:-atlantium_llm-web-app-1}
+    environment:
+      - PYTHONIOENCODING=utf-8
+      - USE_CPU=1
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - BUILD_TYPE=cpu
+    ports:
+      - "9000:9000"
+    volumes:
+      - raw_docs:/app/Raw Documents
+      - rag_data:/app/RAG_Data
+      - logs:/app/logs
+    env_file:
+      - .env
+    restart: unless-stopped
     profiles:
       - cpu
 
