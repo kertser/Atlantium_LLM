@@ -5,13 +5,13 @@ FROM python:3.12-slim as base
 WORKDIR /app
 
 # Install system dependencies including lspci for GPU detection
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    build-essential \
-    python3-dev \
-    git \
-    netcat-traditional \
-    pciutils \  # Added for lspci
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        python3-dev \
+        git \
+        netcat-traditional \
+        pciutils \
     && rm -rf /var/lib/apt/lists/*
 
 # Set environment variables
@@ -21,8 +21,8 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONIOENCODING=utf-8
 
 # Create and switch to non-root user
-RUN useradd -m -u 1000 appuser && \
-    chown -R appuser:appuser /app
+RUN useradd -m -u 1000 appuser \
+    && chown -R appuser:appuser /app
 
 # Copy requirements files and installation script
 COPY requirements_cpu.txt requirements_gpu.txt install_requirements.sh ./
@@ -49,8 +49,8 @@ USER appuser
 COPY --chown=appuser:appuser . .
 
 # Create necessary directories with correct permissions
-RUN mkdir -p "RAG_Data/stored_images" "Raw Documents" logs && \
-    chmod -R 755 "RAG_Data" "Raw Documents" logs
+RUN mkdir -p "RAG_Data/stored_images" "Raw Documents" logs \
+    && chmod -R 755 "RAG_Data" "Raw Documents" logs
 
 # Expose the port
 EXPOSE 9000
