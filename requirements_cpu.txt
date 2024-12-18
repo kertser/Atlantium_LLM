@@ -14,10 +14,7 @@ pyyaml==6.0.2
 tqdm==4.67.1
 python-dotenv==1.0.1
 requests==2.32.3
-
 faiss-cpu==1.9.0.post1
-
---extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.5.1+cpu
 torchvision==0.20.1+cpu
 torchaudio==2.5.1+cpu

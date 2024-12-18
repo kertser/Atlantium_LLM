@@ -34,11 +34,13 @@ RUN chmod +x install_requirements.sh
 # GPU stage
 FROM base as gpu
 ENV USE_CPU=0
+RUN pip install --upgrade pip
 RUN ./install_requirements.sh
 
 # CPU stage
 FROM base as cpu
 ENV USE_CPU=1
+RUN pip install --upgrade pip
 RUN ./install_requirements.sh
 
 # Final stage - will be selected during build
