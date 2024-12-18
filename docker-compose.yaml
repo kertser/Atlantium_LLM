@@ -55,8 +55,6 @@ services:
     env_file:
       - .env
     restart: unless-stopped
-    entrypoint: ["/app/docker-entrypoint.sh"]
-    command: ["python", "run.py"]
     profiles:
       - gpu
 
@@ -80,8 +78,6 @@ services:
     env_file:
       - .env
     restart: unless-stopped
-    entrypoint: ["/app/docker-entrypoint.sh"]
-    command: ["python", "run.py"]
     profiles:
       - cpu
 
