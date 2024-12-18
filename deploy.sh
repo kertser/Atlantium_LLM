@@ -28,14 +28,25 @@ else
     export USE_CPU=1
 fi
 
-# First time setup check
-if [ "$1" == "--init" ]; then
-    echo "Performing first-time initialization..."
-    export INITIALIZE_RAG=true
+# Ensure compatibility with Python versions
+if [[ "$USE_CPU" == "0" && "$(python3 --version | grep -Eo '[0-9]+\.[0-9]+')" == "3.12" ]]; then
+    echo "Warning: faiss-gpu is not available for Python 3.12. Skipping faiss-gpu installation."
+    sed -i '/faiss-gpu/d' requirements_gpu.txt
 fi
 
-# Build and start containers
-docker-compose build --no-cache
-docker-compose up -d
+# Enable BuildKit for Docker builds
+export DOCKER_BUILDKIT=1
 
-echo "Deployment complete. Service available at http://localhost:9000"
+# Build and start containers
+if ! docker-compose build --no-cache; then
+    echo "Build failed. Retrying with CPU configuration."
+    export BUILD_TYPE=cpu
+    docker-compose build --no-cache
+fi
+
+if docker-compose up -d; then
+    echo "Deployment complete. Service available at http://localhost:9000"
+else
+    echo "Error: Deployment failed."
+    exit 1
+fi
