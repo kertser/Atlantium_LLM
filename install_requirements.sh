@@ -17,7 +17,7 @@ if [ ! -f "$REQ_FILE" ]; then
 fi
 
 echo "Installing from: $REQ_FILE"
-pip install -r "$REQ_FILE" || {
+pip install --no-cache-dir --no-deps --ignore-installed --no-hash -r "$REQ_FILE" || {
     echo "Error installing dependencies. Check for version compatibility issues."
     exit 1
 }
