@@ -17,21 +17,10 @@ check_nvidia_drivers() {
     return 1  # Drivers are not installed
 }
 
-# Function to check CUDA availability
-check_cuda() {
-    if command -v nvcc &> /dev/null; then
-        return 0  # CUDA is available
-    fi
-    return 1  # CUDA is not available
-}
-
 # Function to check container toolkit
 check_container_toolkit() {
     if command -v nvidia-container-cli &> /dev/null; then
-        # Test with a basic CUDA container
-        if docker run --rm --gpus all nvidia/cuda:11.0.3-base-ubuntu20.04 nvidia-smi &> /dev/null; then
-            return 0  # Container toolkit is working
-        fi
+        return 0  # Container toolkit is available
     fi
     return 1  # Container toolkit is not working
 }
@@ -54,7 +43,6 @@ detect_gpu_configuration() {
         return 1
     fi
 
-    # If we get here, GPU configuration is valid
     echo "GPU configuration verified successfully."
     return 0
 }
@@ -68,32 +56,25 @@ main() {
         echo "Initialization requested"
     fi
 
+    # Clean up any existing containers and volumes
+    echo "Cleaning up existing deployment..."
+    docker-compose down -v
+
     # Detect GPU and set configuration
     if detect_gpu_configuration; then
         echo "GPU detected - using GPU configuration"
         export BUILD_TYPE=gpu
         export USE_CPU=0
-        export COMPOSE_PROFILES=gpu
+        PROFILE="gpu"
     else
         echo "Using CPU configuration"
         export BUILD_TYPE=cpu
         export USE_CPU=1
-        export COMPOSE_PROFILES=cpu
+        PROFILE="cpu"
     fi
 
-    # Ensure compatibility with Python versions
-    if [[ "$USE_CPU" == "0" && "$(python3 --version | grep -Eo '[0-9]+\.[0-9]+')" == "3.12" ]]; then
-        echo "Warning: faiss-gpu is not available for Python 3.12. Skipping faiss-gpu installation."
-        sed -i '/faiss-gpu/d' requirements_gpu.txt
-    fi
-
-    # Enable BuildKit, fallback if Buildx is missing
-    if ! docker buildx version > /dev/null 2>&1; then
-        echo "Buildx not found or broken. Disabling BuildKit."
-        export DOCKER_BUILDKIT=0
-    else
-        export DOCKER_BUILDKIT=1
-    fi
+    # Enable BuildKit
+    export DOCKER_BUILDKIT=1
 
     # Build containers
     echo "Building containers..."
@@ -101,7 +82,7 @@ main() {
         echo "Build failed. Retrying with CPU configuration."
         export BUILD_TYPE=cpu
         export USE_CPU=1
-        export COMPOSE_PROFILES=cpu
+        PROFILE="cpu"
         if ! docker-compose build --no-cache; then
             echo "Error: Build failed even with CPU configuration."
             exit 1
@@ -113,12 +94,9 @@ main() {
         export INITIALIZE_RAG=true
     fi
 
-    # Clean up any existing containers
-    docker-compose down -v
-
-    # Start containers
-    echo "Starting containers..."
-    if docker-compose --profile $COMPOSE_PROFILES up -d; then
+    # Start containers with appropriate profile
+    echo "Starting containers with ${PROFILE} profile..."
+    if docker-compose --profile ${PROFILE} up -d; then
         echo "Deployment complete. Service available at http://localhost:9000"
 
         # Wait for service to be ready

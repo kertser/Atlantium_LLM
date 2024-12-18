@@ -26,15 +26,6 @@
 
 version: '3.8'
 
-x-gpu-deploy: &gpu-deploy
-  deploy:
-    resources:
-      reservations:
-        devices:
-          - capabilities: [gpu]
-            count: all
-            driver: nvidia
-
 services:
   web-app:
     container_name: ${CONTAINER_NAME:-atlantium_llm-web-app-1}
@@ -46,9 +37,15 @@ services:
       dockerfile: Dockerfile
       args:
         - BUILD_TYPE=${BUILD_TYPE:-cpu}
-    <<: *gpu-deploy
-    profiles:
-      - gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: ["gpu"]
+              count: all
+              driver: nvidia
+      restart_policy:
+        condition: on-failure
     ports:
       - "9000:9000"
     volumes:
@@ -58,17 +55,15 @@ services:
     env_file:
       - .env
     restart: unless-stopped
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+    profiles:
+      - gpu
 
   web-app-cpu:
-    extends: web-app
+    extends:
+      service: web-app
+    deploy: {}
     profiles:
       - cpu
-    deploy: {}  # Override GPU deployment settings
 
 volumes:
   raw_docs:
