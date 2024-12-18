@@ -31,6 +31,7 @@ services:
     container_name: ${CONTAINER_NAME:-atlantium_llm-web-app-1}
     environment:
       - PYTHONIOENCODING=utf-8
+      - USE_CPU=${USE_CPU:-1}
     build:
       context: .
       dockerfile: Dockerfile

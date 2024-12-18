@@ -1,0 +1,24 @@
+# Core dependencies
+numpy==2.2.0
+pillow==11.0.0
+openai==1.57.1
+transformers==4.47.0
+PyMuPDF==1.25.0
+python-docx==1.1.2
+openpyxl==3.1.5
+fastapi==0.115.6
+python-multipart==0.0.19
+uvicorn==0.32.1
+imagehash==4.3.1
+pydantic==2.10.3
+pyyaml==6.0.2
+tqdm==4.67.1
+python-dotenv==1.0.1
+requests==2.32.3
+
+faiss-cpu==1.9.0.post1  # CPU FAISS for all platforms
+
+# CPU-only PyTorch (works on Windows or Linux if you prefer CPU-only)
+torch==2.5.1
+torchvision==0.20.1
+torchaudio==2.5.1

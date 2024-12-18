@@ -1,0 +1,24 @@
+numpy==2.2.0
+pillow==11.0.0
+openai==1.57.1
+transformers==4.47.0
+PyMuPDF==1.25.0
+python-docx==1.1.2
+openpyxl==3.1.5
+fastapi==0.115.6
+python-multipart==0.0.19
+uvicorn==0.32.1
+imagehash==4.3.1
+pydantic==2.10.3
+pyyaml==6.0.2
+tqdm==4.67.1
+python-dotenv==1.0.1
+requests==2.32.3
+
+faiss-cpu==1.9.0.post1; platform_system == "Windows"
+faiss-gpu==1.9.0; platform_system == "Linux"
+
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.5.1+cu121; platform_system == "Linux"
+torchvision==0.20.1+cu121; platform_system == "Linux"
+torchaudio==2.5.1+cu121; platform_system == "Linux"

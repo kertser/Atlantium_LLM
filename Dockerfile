@@ -4,13 +4,14 @@ FROM python:3.12-slim as base
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies including lspci for GPU detection
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     build-essential \
     python3-dev \
     git \
     netcat-traditional \
+    pciutils \  # Added for lspci
     && rm -rf /var/lib/apt/lists/*
 
 # Set environment variables
@@ -23,18 +24,21 @@ ENV PYTHONUNBUFFERED=1 \
 RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app
 
-# Copy requirements first for better caching
-COPY requirements.txt .
+# Copy requirements files and installation script
+COPY requirements_cpu.txt requirements_gpu.txt install_requirements.sh ./
+
+# Set execute permissions on the script
+RUN chmod +x install_requirements.sh
 
 # GPU stage
 FROM base as gpu
 ENV USE_CPU=0
-RUN pip install --no-cache-dir -r requirements.txt
+RUN ./install_requirements.sh
 
 # CPU stage
 FROM base as cpu
 ENV USE_CPU=1
-RUN pip install --no-cache-dir -r requirements.txt
+RUN ./install_requirements.sh
 
 # Final stage - will be selected during build
 FROM ${BUILD_TYPE:-cpu}

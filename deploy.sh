@@ -9,8 +9,8 @@
 
 # Check for GPU availability
 check_gpu() {
-    if command -v nvidia-smi &> /dev/null; then
-        if nvidia-smi --query-gpu=gpu_name --format=csv,noheader | grep -q .; then
+    if [ "$(uname)" = "Linux" ]; then
+        if lspci | grep -E "VGA|3D|Display" > /dev/null; then
             return 0  # GPU available
         fi
     fi
@@ -21,16 +21,11 @@ check_gpu() {
 if check_gpu; then
     echo "GPU detected - using GPU configuration"
     export BUILD_TYPE=gpu
-    
-    # Check for nvidia-docker
-    if ! command -v nvidia-docker &> /dev/null && ! docker info | grep -q "Runtimes:.*nvidia"; then
-        echo "Warning: NVIDIA Docker runtime not found. Please install nvidia-docker2"
-        echo "See: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html"
-        exit 1
-    fi
+    export USE_CPU=0
 else
     echo "No GPU detected - using CPU configuration"
     export BUILD_TYPE=cpu
+    export USE_CPU=1
 fi
 
 # First time setup check
