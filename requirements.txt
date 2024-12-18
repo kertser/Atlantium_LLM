@@ -28,18 +28,16 @@ python-dotenv==1.0.1
 requests==2.32.3
 
 # FAISS - CPU/GPU variants
-# For Windows or when no GPU is available
-faiss-cpu==1.9.0.post1; platform_system == "Windows" or environ.get("USE_CPU") == "1"
-# For Linux with GPU
-faiss-gpu==1.9.0; platform_system == "Linux" and environ.get("USE_CPU") != "1"
+faiss-cpu; platform_system == 'Windows' or environment_markers.get('USE_CPU') == '1'
+faiss-gpu; platform_system != 'Windows' and environment_markers.get('USE_CPU') != '1'
 
 # PyTorch - CPU/GPU variants
---extra-index-url https://download.pytorch.org/whl/cu121; environ.get("USE_CPU") != "1"
-torch==2.5.1+cu121; environ.get("USE_CPU") != "1"
-torchvision==0.20.1+cu121; environ.get("USE_CPU") != "1"
-torchaudio==2.5.1+cu121; environ.get("USE_CPU") != "1"
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.5.1+cu121; platform_system != 'Windows' and environment_markers.get('USE_CPU') != '1'
+torchvision==0.20.1+cu121; platform_system != 'Windows' and environment_markers.get('USE_CPU') != '1'
+torchaudio==2.5.1+cu121; platform_system != 'Windows' and environment_markers.get('USE_CPU') != '1'
 
-# CPU-only PyTorch (installed when USE_CPU=1)
-torch==2.5.1; environ.get("USE_CPU") == "1"
-torchvision==0.20.1; environ.get("USE_CPU") == "1"
-torchaudio==2.5.1; environ.get("USE_CPU") == "1"
+# CPU-only PyTorch
+torch==2.5.1; platform_system == 'Windows' or environment_markers.get('USE_CPU') == '1'
+torchvision==0.20.1; platform_system == 'Windows' or environment_markers.get('USE_CPU') == '1'
+torchaudio==2.5.1; platform_system == 'Windows' or environment_markers.get('USE_CPU') == '1'
