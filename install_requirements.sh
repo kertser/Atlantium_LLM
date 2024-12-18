@@ -18,16 +18,16 @@ if [ ! -f "$REQ_FILE" ]; then
     exit 1
 fi
 
-# Install dependencies with the extra index URL as appropriate
+# Install dependencies with the extra index URL and no hash checking
 if [[ "$USE_CPU" == "1" ]]; then
-    echo "Installing CPU dependencies from $REQ_FILE"
-    pip install --no-cache-dir -r "$REQ_FILE" --extra-index-url https://download.pytorch.org/whl/cpu || {
+    echo "Installing CPU dependencies from $REQ_FILE without hash checking"
+    pip install --no-cache-dir --no-deps -r "$REQ_FILE" --extra-index-url https://download.pytorch.org/whl/cpu || {
         echo "Error installing CPU dependencies. Check for version compatibility issues."
         exit 1
     }
 else
-    echo "Installing GPU dependencies from $REQ_FILE"
-    pip install --no-cache-dir -r "$REQ_FILE" --extra-index-url https://download.pytorch.org/whl/cu121 || {
+    echo "Installing GPU dependencies from $REQ_FILE without hash checking"
+    pip install --no-cache-dir --no-deps -r "$REQ_FILE" --extra-index-url https://download.pytorch.org/whl/cu121 || {
         echo "Error installing GPU dependencies. Check for version compatibility issues."
         exit 1
     }
