@@ -22,76 +22,62 @@ Atlantium's Retrieval-Augmented Generation (RAG) system is an advanced AI-driven
   - Image deduplication using perceptual hashing
   - Context-aware image retrieval
 
+## Quick Start
+
+### CPU-Only Installation
+```bash
+# Clone repository
+git clone https://github.com/kertser/Atlantium_LLM.git
+cd Atlantium_LLM
+
+# Configure for CPU usage
+cp .env.example .env
+echo "USE_CPU=1" >> .env
+
+# Deploy
+chmod +x deploy.sh
+./deploy.sh --init
+```
+
+### GPU-Enabled Installation
+```bash
+# Clone repository
+git clone https://github.com/kertser/Atlantium_LLM.git
+cd Atlantium_LLM
+
+# Configure
+cp .env.example .env
+
+# Deploy
+chmod +x deploy.sh
+./deploy.sh --init
+```
+
+For detailed installation instructions, requirements, and troubleshooting, see [INSTALL.md](INSTALL.md).
+
 ## System Requirements
 
 ### Minimum Requirements
-- Docker and Docker Compose
-- 8GB RAM (16GB recommended)
-- Ubuntu Linux server
-- API keys for OpenAI/Anthropic
+- Docker 24.0+ and Docker Compose V2
+- 16GB RAM recommended (8GB minimum)
+- Ubuntu 22.04+ or compatible Linux distribution
+- OpenAI API key
+- 20GB available disk space
 
-### GPU Support (Optional)
-- NVIDIA GPU with CUDA support
-- NVIDIA Container Toolkit (for GPU deployment)
-- 8GB+ GPU memory recommended
+### GPU Support (Optional but Recommended)
+- NVIDIA GPU with CUDA 12.1+ support
+- 8GB+ GPU memory
+- NVIDIA Container Toolkit
+- NVIDIA drivers installed and configured
 
-## Installation
-
-### Prerequisites
-1. Install Docker and Docker Compose
-2. For GPU support, install NVIDIA Container Toolkit:
-```bash
-# Install NVIDIA Container Toolkit
-curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-  sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-  sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-sudo apt-get update
-sudo apt-get install -y nvidia-container-toolkit
-sudo nvidia-ctk runtime configure --runtime=docker
-sudo systemctl restart docker
-```
-
-### Quick Start
-
-1. Clone the repository:
-```bash
-git clone https://github.com/kertser/Atlantium_LLM.git
-cd Atlantium_LLM
-```
-
-2. Configure environment:
-```bash
-cp .env.example .env
-# Edit .env with your API keys and settings
-```
-
-3. Deploy the application:
-```bash
-# First-time deployment with initialization
-chmod +x deploy.sh
-./deploy.sh --init
-
-# Regular deployment
-./deploy.sh
-```
-
-The script will automatically:
-- Detect GPU availability
-- Choose appropriate configuration (CPU/GPU)
-- Build and start the containers
-- Initialize the system (if --init flag is used)
-
-The web interface will be available at `http://server_ip:9000`
-
-## Document Management
+## Basic Usage
 
 ### Web Interface
-Upload and manage documents through the web interface at `http://server_ip:9000`
+Access the web interface at `http://server_ip:9000`
 
-### CLI Upload
+### Document Management
 ```bash
-# Upload document
+# Upload document via CLI
 curl -X POST "http://server_ip:9000/upload/document" \
     -H "accept: application/json" \
     -H "Content-Type: multipart/form-data" \
@@ -102,73 +88,42 @@ curl -X POST "http://server_ip:9000/upload/document" \
 curl -X POST "http://server_ip:9000/process/documents"
 ```
 
-## Project Structure
+## Basic Maintenance
 
-```
-Atlantium_LLM/
-├── models/          # AI model implementations
-├── utils/           # Utility functions and helpers
-├── static/          # Web interface assets
-├── RAG_Data/        # Generated indices and metadata
-├── Raw Documents/   # Source documents for processing
-└── logs/            # Application logs
-```
-
-See detailed documentation in the [docs](docs) directory.
-
-## Configuration
-
-### Environment Variables
-- `BUILD_TYPE`: Set to 'gpu' or 'cpu' (auto-detected by deploy.sh)
-- `INITIALIZE_RAG`: Set to 'true' for first-time setup
-- `CONTAINER_NAME`: Override default container name
-
-### Core Settings
-Key settings in `config.py`:
-```python
-SERVER_PORT: int = 9000
-RAW_DOCUMENTS_PATH: Path = Path("Raw Documents")
-CLIP_MODEL_NAME: str = "openai/clip-vit-base-patch32"
-USE_GPU: bool = True  # Automatically managed by deployment
-```
-
-## Deployment
-
-### GitHub Webhook Setup
-
-1. Add webhook in GitHub repository settings:
-   - URL: `http://server_ip:9000/webhook`
-   - Content type: `application/json`
-   - Secret: Create a secure webhook secret
-
-2. Add secret to `.env`:
-```
-GITHUB_WEBHOOK_SECRET=your_webhook_secret
-```
-
-### Server Management
-
+### Service Commands
 ```bash
 # View logs
 docker logs atlantium_llm-web-app-1 -f --tail=100
 
 # Restart service
-docker-compose restart
+docker compose restart
+
+# Update deployment
+git pull
+./deploy.sh
 
 # Full cleanup
 docker system prune --all --volumes --force
-
-# Update deployment
-./deploy.sh
 ```
 
-## Development
+### Quick Troubleshooting
 
-See detailed documentation:
-- [Technical Reference](docs/technical-reference.md)
-- [Models Documentation](docs/models.md)
-- [Utils Documentation](docs/utils.md)
-- [Frontend Documentation](docs/frontend.md)
+1. **GPU Issues**: Verify with `nvidia-smi`
+2. **Memory Issues**: Check with `free -h`
+3. **Permission Issues**: Run `sudo chown -R $USER:$USER .`
+
+See [INSTALL.md](INSTALL.md) for comprehensive troubleshooting.
+
+## Automated Updates
+
+1. Configure GitHub webhook:
+   - URL: `http://server_ip:9000/webhook`
+   - Content type: `application/json`
+
+2. Add to `.env`:
+```plaintext
+GITHUB_WEBHOOK_SECRET=your_webhook_secret
+```
 
 ## Support
 
