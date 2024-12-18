@@ -51,8 +51,11 @@ RUN chmod +x docker-entrypoint.sh
 
 # Create necessary directories with correct permissions
 RUN mkdir -p "RAG_Data/stored_images" "Raw Documents" logs \
+    && mkdir -p "logs/updates" \  # Change: Use logs directory instead of /var/log
+    && touch "logs/updates/rag_update.log" \  # Change: Put log file in logs directory
     && chown -R appuser:appuser "RAG_Data" "Raw Documents" logs \
-    && chmod -R 755 "RAG_Data" "Raw Documents" logs
+    && chmod -R 755 "RAG_Data" "Raw Documents" logs \
+    && chmod 644 "logs/updates/rag_update.log"  # Change: Updated path
 
 USER appuser
 
