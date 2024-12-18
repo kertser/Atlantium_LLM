@@ -1056,19 +1056,30 @@ async def open_document(path: str = Body(..., embed=True)):
         clean_file_path = clean_path(unquote(path))
         full_path = CONFIG.RAW_DOCUMENTS_PATH / clean_file_path
 
+        logging.info(f"Opening document: {full_path}")
+
         # Security check
         if not str(full_path).startswith(str(CONFIG.RAW_DOCUMENTS_PATH)):
             raise HTTPException(status_code=403, detail="Access denied")
 
         if not full_path.exists():
+            logging.error(f"File not found: {full_path}")
             raise HTTPException(status_code=404, detail="File not found")
 
         success, message = open_file_with_default_program(str(full_path))
         if not success:
             raise HTTPException(status_code=500, detail=message)
 
-        return {"status": "success", "message": message}
+        return {
+            "status": "success",
+            "message": message,
+            "path": str(full_path),
+            "exists": True,
+            "is_docker": bool(os.environ.get('DOCKER_CONTAINER'))
+        }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logging.error(f"Error opening document: {e}")
         raise HTTPException(status_code=500, detail=str(e))

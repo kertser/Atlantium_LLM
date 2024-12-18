@@ -751,7 +751,7 @@ table tr:hover {
     content: "";
     position: absolute;
     right: 1rem;
-    top: 50%;
+    top: 30%;
     width: 1rem;
     height: 1rem;
     border: 2px solid #fff;

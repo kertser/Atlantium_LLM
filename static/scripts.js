@@ -33,12 +33,21 @@ function createContextMenu(e, fileName, filePath) {
                         headers: {
                             'Content-Type': 'application/json',
                         },
-                        body: JSON.stringify({ path: filePath })  // Fixed: wrap path in an object
+                        body: JSON.stringify({ path: filePath })
                     });
 
                     if (!response.ok) {
                         const error = await response.json();
                         throw new Error(error.detail || 'Failed to open file');
+                    }
+
+                    const result = await response.json();
+
+                    // If in Docker, show file path instead of trying to open
+                    if (result.is_docker) {
+                        alert(`File is located in Docker container at: ${result.path}\nUse the Download option to access the file.`);
+                    } else if (!result.exists) {
+                        throw new Error('File not found');
                     }
                 } catch (error) {
                     console.error('Open file error:', error);

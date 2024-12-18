@@ -18,7 +18,8 @@ RUN apt-get update \
 ENV PYTHONUNBUFFERED=1 \
     KMP_DUPLICATE_LIB_OK=TRUE \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONIOENCODING=utf-8
+    PYTHONIOENCODING=utf-8 \
+    DOCKER_CONTAINER=1
 
 # Create and switch to non-root user
 RUN useradd -m -u 1000 appuser \
