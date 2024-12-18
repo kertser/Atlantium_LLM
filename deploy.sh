@@ -34,8 +34,13 @@ if [[ "$USE_CPU" == "0" && "$(python3 --version | grep -Eo '[0-9]+\.[0-9]+')" ==
     sed -i '/faiss-gpu/d' requirements_gpu.txt
 fi
 
-# Enable BuildKit for Docker builds
-export DOCKER_BUILDKIT=1
+# Enable BuildKit, fallback if Buildx is missing
+if ! docker buildx version > /dev/null 2>&1; then
+    echo "Buildx not found or broken. Disabling BuildKit."
+    export DOCKER_BUILDKIT=0
+else
+    export DOCKER_BUILDKIT=1
+fi
 
 # Build and start containers
 if ! docker-compose build --no-cache; then
