@@ -73,10 +73,12 @@ main() {
         echo "GPU detected - using GPU configuration"
         export BUILD_TYPE=gpu
         export USE_CPU=0
+        export COMPOSE_PROFILES=gpu
     else
         echo "Using CPU configuration"
         export BUILD_TYPE=cpu
         export USE_CPU=1
+        export COMPOSE_PROFILES=cpu
     fi
 
     # Ensure compatibility with Python versions
@@ -99,6 +101,7 @@ main() {
         echo "Build failed. Retrying with CPU configuration."
         export BUILD_TYPE=cpu
         export USE_CPU=1
+        export COMPOSE_PROFILES=cpu
         if ! docker-compose build --no-cache; then
             echo "Error: Build failed even with CPU configuration."
             exit 1
@@ -110,9 +113,12 @@ main() {
         export INITIALIZE_RAG=true
     fi
 
+    # Clean up any existing containers
+    docker-compose down -v
+
     # Start containers
     echo "Starting containers..."
-    if docker-compose up -d; then
+    if docker-compose --profile $COMPOSE_PROFILES up -d; then
         echo "Deployment complete. Service available at http://localhost:9000"
 
         # Wait for service to be ready
