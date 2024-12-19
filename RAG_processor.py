@@ -360,6 +360,7 @@ def process_documents(model, processor, device, index, metadata, image_store, do
             except Exception as e:
                 logging.error(f"Warning: Cleanup error (processing will continue): {str(e)}")
 
+        update_processed_files(doc_paths)
         return index, metadata
 
     except Exception as e:
@@ -433,9 +434,6 @@ def check_stored_images():
 def update_processed_files(doc_paths):
     """
     Update the local record of successfully processed files.
-
-    Args:
-        doc_paths: List of paths to documents that were successfully processed.
     """
     processed_files_path = Path("processed_files.json")
     try:

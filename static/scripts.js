@@ -521,6 +521,12 @@ async function loadDocuments(currentPath = '') {
         const tableWrapper = document.querySelector('.documents-table-wrapper');
         if (!tableWrapper) return;
 
+        // Update document count - using total processed documents
+        const docCount = document.getElementById('doc-count');
+        if (docCount) {
+            docCount.textContent = `Total: ${data.total_processed || 0} documents`;
+        }
+
         // Clear the wrapper completely
         tableWrapper.innerHTML = '';
 
@@ -545,13 +551,6 @@ async function loadDocuments(currentPath = '') {
 
         // Create tbody
         const tbody = document.createElement('tbody');
-
-        // Update document count
-        const docCount = document.getElementById('doc-count');
-        if (docCount) {
-            const numDocuments = data.files.length;
-            docCount.textContent = `${numDocuments} document${numDocuments !== 1 ? 's' : ''}`;
-        }
 
         // Add "up" navigation if not in root
         if (currentPath) {

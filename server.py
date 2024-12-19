@@ -959,12 +959,18 @@ async def process_documents():
         logger.error(f"Error in process_documents: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.get("/get/documents")
 async def get_documents(path: str = ""):
     """Get list of documents and folders with metadata recursively"""
     logger = logging.getLogger(__name__)
     try:
+        # Get total count from processed_files.json
+        processed_files_path = Path("processed_files.json")
+        total_documents = 0
+        if processed_files_path.exists():
+            with open(processed_files_path, 'r', encoding='utf-8') as f:
+                total_documents = len(json.load(f))
+
         # Decode URL-encoded path and clean it
         decoded_path = unquote(path)
         clean_folder = clean_path(decoded_path)
@@ -1012,7 +1018,8 @@ async def get_documents(path: str = ""):
             return {
                 "current_path": str(clean_folder),  # Use unencoded path for display
                 "folders": folders,
-                "files": files
+                "files": files,
+                "total_processed": total_documents  # Added total processed documents count
             }
 
         except Exception as e:
