@@ -363,46 +363,97 @@ def clean_orphaned_chunks():
     """Clean up orphaned text chunk files not referenced in metadata."""
     try:
         # Load metadata to get referenced chunk paths
-        metadata = load_metadata(CONFIG.METADATA_PATH)
-        referenced_chunks = {
-            Path(meta['chunk'])  # Paths are now relative to STORED_TEXT_CHUNKS_PATH
-            for meta in metadata
-            if meta['type'] == 'text-chunk' and 'chunk' in meta
-        }
+        try:
+            metadata = load_metadata(CONFIG.METADATA_PATH)
+            if not isinstance(metadata, list):
+                raise ValueError("Metadata must be a list")
+        except json.JSONDecodeError as e:
+            logging.error(f"JSON parsing error in metadata file: {e}")
+            # Try to repair the metadata file
+            try:
+                with open(CONFIG.METADATA_PATH, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                # Attempt to fix common JSON issues
+                content = content.strip()
+                if not content.endswith(']'):
+                    content += ']'
+                metadata = json.loads(content)
+            except Exception as repair_error:
+                logging.error(f"Could not repair metadata file: {repair_error}")
+                return
+        except Exception as e:
+            logging.error(f"Error loading metadata: {e}")
+            return
+
+        # Validate and extract chunk paths
+        referenced_chunks = set()
+        for meta in metadata:
+            try:
+                if (isinstance(meta, dict) and
+                    meta.get('type') == 'text-chunk' and
+                    isinstance(meta.get('chunk'), str)):
+                    referenced_chunks.add(Path(meta['chunk']))
+            except Exception as e:
+                logging.warning(f"Skipping invalid metadata entry: {e}")
+                continue
 
         # Get all existing chunk files
         all_chunks = set()
-        for doc_dir in CONFIG.STORED_TEXT_CHUNKS_PATH.iterdir():
-            if doc_dir.is_dir():
-                for chunk_file in doc_dir.glob('chunk_*.txt'):
-                    # Get path relative to STORED_TEXT_CHUNKS_PATH
-                    rel_path = chunk_file.relative_to(CONFIG.STORED_TEXT_CHUNKS_PATH)
-                    all_chunks.add(rel_path)
+        try:
+            if CONFIG.STORED_TEXT_CHUNKS_PATH.exists():
+                for doc_dir in CONFIG.STORED_TEXT_CHUNKS_PATH.iterdir():
+                    if doc_dir.is_dir():
+                        for chunk_file in doc_dir.glob('chunk_*.txt'):
+                            try:
+                                # Get path relative to STORED_TEXT_CHUNKS_PATH
+                                rel_path = chunk_file.relative_to(CONFIG.STORED_TEXT_CHUNKS_PATH)
+                                all_chunks.add(rel_path)
+                            except Exception as e:
+                                logging.warning(f"Error processing chunk file {chunk_file}: {e}")
+                                continue
+        except Exception as e:
+            logging.error(f"Error scanning chunk directory: {e}")
+            return
 
         # Find and remove orphaned chunks
         orphaned_chunks = all_chunks - referenced_chunks
+        removed_count = 0
+        error_count = 0
+
         for chunk_path in orphaned_chunks:
             # Construct full path using STORED_TEXT_CHUNKS_PATH
             full_path = CONFIG.STORED_TEXT_CHUNKS_PATH / chunk_path
             try:
                 if full_path.exists():
                     full_path.unlink()
+                    removed_count += 1
                     logging.info(f"Removed orphaned chunk: {chunk_path}")
             except Exception as e:
+                error_count += 1
                 logging.error(f"Error removing orphaned chunk {chunk_path}: {e}")
 
         # Remove empty directories
-        for doc_dir in CONFIG.STORED_TEXT_CHUNKS_PATH.iterdir():
-            if doc_dir.is_dir() and not any(doc_dir.iterdir()):
-                try:
-                    doc_dir.rmdir()
-                    logging.info(f"Removed empty directory: {doc_dir}")
-                except Exception as e:
-                    logging.error(f"Error removing empty directory {doc_dir}: {e}")
+        empty_dirs_removed = 0
+        if CONFIG.STORED_TEXT_CHUNKS_PATH.exists():
+            for doc_dir in CONFIG.STORED_TEXT_CHUNKS_PATH.iterdir():
+                if doc_dir.is_dir():
+                    try:
+                        # Check if directory is empty
+                        if not any(doc_dir.iterdir()):
+                            doc_dir.rmdir()
+                            empty_dirs_removed += 1
+                            logging.info(f"Removed empty directory: {doc_dir}")
+                    except Exception as e:
+                        logging.error(f"Error removing empty directory {doc_dir}: {e}")
+
+        # Log summary
+        logging.info(f"Cleanup complete: Removed {removed_count} orphaned chunks "
+                    f"({error_count} errors) and {empty_dirs_removed} empty directories")
 
     except Exception as e:
-        logging.error(f"Error cleaning orphaned chunks: {e}")
-        raise
+        logging.error(f"Error during cleanup process: {e}")
+        # Don't raise the exception, just log it
+        return
 
 def get_unprocessed_documents():
     """

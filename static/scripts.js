@@ -610,10 +610,25 @@ document.addEventListener('DOMContentLoaded', () => {
         return `${name.trim()}.${ext.trim()}`;
     }
 
+    function updateFileCount() {
+        const fileCount = fileMap.size;
+        const remainingSlots = 10 - fileCount;
+
+        // Update the upload box text to show remaining slots
+        const uploadContent = document.querySelector('.upload-content p:first-child');
+        if (uploadContent) {
+            uploadContent.textContent = `Drag and drop files or click to upload (${fileCount}/10 files)`;
+        }
+    }
+
     function handleFiles(files) {
+        if (fileMap.size + files.length > 10) {
+            alert('You can select no more than 10 files at a time');
+            return;
+        }
+
         files.forEach(file => {
             if (isValidFile(file)) {
-                // Sanitize filename
                 const sanitizedName = sanitizeFileName(file.name);
 
                 if (fileMap.has(sanitizedName)) {
@@ -621,7 +636,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
 
-                // Create new file object with sanitized name
                 const sanitizedFile = new File([file], sanitizedName, {
                     type: file.type,
                     lastModified: file.lastModified
@@ -632,6 +646,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 processBtn.style.display = 'block';
             }
         });
+
+        updateFileCount(); // Update the count after adding files
     }
 
     function createFileItem(file) {
@@ -649,6 +665,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (fileMap.size === 0) {
                 processBtn.style.display = 'none';
             }
+            updateFileCount(); // Update the count after removing a file
         });
 
         return div;
@@ -689,8 +706,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         return text;
     }
-
-
 
     function createImageElement(imageData) {
         const container = document.createElement('div');
@@ -835,6 +850,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
+        updateFileCount();
         MathJax.typesetPromise()
         // Always scroll immediately after adding the message
         scrollChatToBottom();

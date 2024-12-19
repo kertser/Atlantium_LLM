@@ -21,6 +21,8 @@ class Config:
 
     # Logging
     LOG_PATH: Path = Path("logs")
+    LOG_BACKUP_COUNT:  int = 5  # Maximum log backups
+    MAX_LOG_SIZE: int = 10000
 
     # CLIP Configuration
     CLIP_MODEL_NAME: str = "openai/clip-vit-base-patch32"

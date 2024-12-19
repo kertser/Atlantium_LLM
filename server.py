@@ -80,8 +80,8 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout),
         RotatingFileHandler(
             CONFIG.LOG_PATH/"system.log",
-            maxBytes=2 * 1024 * 1024,  # 2 MB
-            backupCount=3,  # Keep up to 3 old log files
+            maxBytes=CONFIG.MAX_LOG_SIZE,
+            backupCount=CONFIG.LOG_BACKUP_COUNT,
             encoding='utf-8'
         )
     ]
