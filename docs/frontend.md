@@ -31,7 +31,7 @@ static/
 3. **System Controls**
    - Document processing
    - System reset
-   - Folder management
+   - File and Folder management
 
 ## Implementation Details
 

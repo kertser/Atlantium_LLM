@@ -1,188 +1,333 @@
 # Technical Reference Documentation
 
-## System Architecture
+## System Overview
+
+The Atlantium LLM system is a Retrieval-Augmented Generation (RAG) platform that combines document processing, vector embeddings, and language models to provide technical assistance for UV systems.
+
+### Architecture Overview
+
+```mermaid
+graph TD
+    A[Web Interface] --> B[FastAPI Server]
+    B --> C[RAG System]
+    C --> D[Document Processor]
+    C --> E[FAISS Index]
+    C --> F[Image Store]
+    B --> G[LLM Interface]
+    D --> H[Text Extractor]
+    D --> I[Image Extractor]
+```
+
+## Directory Structure
 
 ```
 Atlantium_LLM/
-├── server.py                 # Main FastAPI server
-├── run.py                   # Server runner
-├── RAG_processor.py         # Document processor
-├── config.py               # System configuration
-├── models/                 # Model implementations
-│   ├── __init__.py
-│   ├── prompt_loader.py    # Prompt management
-│   ├── prompts.py         # Prompt building
+├── config.py                   # System configuration
+├── server.py                   # FastAPI server implementation
+├── RAG_processor.py            # Document processing engine
+├── run.py                      # Server runner
+├── docker/                     # Container configuration
+│   ├── Dockerfile              # Container build instructions
+│   └── docker-compose.yaml     # Service orchestration
+├── scripts/
+│   ├── docker-entrypoint.sh    # Container entry point
+│   ├── install_requirements.sh # Dependency installation
+│   └── update_rag.sh           # RAG system updater
+├── models/                     # AI model components
+│   ├── prompt_loader.py        # Template management
+│   ├── prompts.py              # Prompt construction
 │   └── templates/
-│       └── prompts.yaml   # Prompt templates
-├── utils/                  # Utility modules
-│   ├── __init__.py
-│   ├── FAISS_utils.py     # Vector operations
-│   ├── image_utils.py     # Image processing
-│   ├── LLM_utils.py       # LLM integration
-│   ├── RAG_utils.py       # Document processing
-│   ├── document_utils.py  # File management
-│   └── image_store.py     # Image storage
-└── static/                # Frontend assets
-    ├── index.html
-    ├── styles.css
-    ├── scripts.js
-    └── favicon.png
+│       └── prompts.yaml        # System prompts
+├── utils/                      # Utility modules
+│   ├── FAISS_utils.py          # Vector operations
+│   ├── image_utils.py          # Image processing
+│   ├── LLM_utils.py            # LLM integration
+│   ├── RAG_utils.py            # Document processing
+│   ├── document_utils.py       # File operations
+│   └── image_store.py          # Image management
+├── static/                     # Frontend assets
+│   ├── index.html              # Web interface
+│   ├── styles.css              # UI styling
+│   ├── scripts.js              # Client-side logic
+│   └── favicon.png             # Site icon
+├── RAG_Data/                   # Generated data
+│   ├── stored_images/          # Processed images
+│   ├── stored_text_chunks/     # Text segments
+│   ├── faiss_index.bin         # Vector index
+│   └── metadata.json           # Index metadata
+├── Raw Documents/              # Source documents
+└── logs/                       # System logs
+    └── system.log              # Main log file
 ```
 
-## Core Classes and Methods
+## Core Components
 
-### Server Components
+### 1. Server Implementation (server.py)
 
-#### RAGQueryServer (server.py)
+#### RAGQueryServer
+Primary server class managing query processing and response generation.
+
 ```python
 class RAGQueryServer:
-    def __init__(self)
-    def determine_query_type(query_text: str) -> QueryType
-    def get_relevant_contexts(results: List[Dict], query_text: str) -> Tuple[List[str], List[Dict]]
-    def prepare_prompt(query_text: str, contexts: List[str], query_type: QueryType, images: List[Dict]) -> str
-    def process_text_query(query_text: str, top_k: int = CONFIG.DEFAULT_TOP_K) -> QueryResponse
-    async def process_image_query(image_data: bytes, query_text: Optional[str] = None) -> str
+    def __init__(self):
+        """Initialize server with CLIP model, FAISS index, and image store."""
+        self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        self.model, self.processor, self.device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
+        self.index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
+        self.image_store = ImageStore(CONFIG.STORED_IMAGES_PATH)
+
+    async def process_text_query(
+        self, 
+        query_text: str, 
+        top_k: int = CONFIG.DEFAULT_TOP_K
+    ) -> QueryResponse:
+        """Process text queries with context retrieval."""
+
+    async def process_image_query(
+        self, 
+        image_data: bytes, 
+        query_text: Optional[str] = None
+    ) -> str:
+        """Process image-based queries."""
 ```
 
-### Model Components
+### 2. Document Processing (RAG_processor.py)
 
-#### PromptLoader (models/prompt_loader.py)
+Handles document ingestion and processing:
+
 ```python
-class PromptLoader:
-    def __init__(self)
-    def get_system_prompt(key: str) -> str
-    def get_instructions(instruction_type: str) -> List[str]
-    def get_template(key: str) -> str
-    def format_template(template_key: str, **kwargs) -> str
+def process_documents(
+    model, 
+    processor, 
+    device, 
+    index, 
+    metadata, 
+    image_store, 
+    doc_paths=None
+) -> Tuple[faiss.Index, List[Dict]]:
+    """
+    Process documents to extract text and images, generate embeddings,
+    and update FAISS index.
+    
+    Args:
+        model: CLIP model instance
+        processor: CLIP processor
+        device: Computing device (CPU/GPU)
+        index: FAISS index
+        metadata: Index metadata
+        image_store: ImageStore instance
+        doc_paths: Optional list of document paths
+        
+    Returns:
+        Updated index and metadata
+    """
 ```
 
-#### PromptBuilder (models/prompts.py)
+### 3. Vector Operations (FAISS_utils.py)
+
+FAISS index management and vector operations:
+
 ```python
-class PromptBuilder:
-    def __init__(self)
-    def build_chat_prompt(self, query_text: str, contexts: List[str], images: List[Dict], chat_history: List[Dict], is_technical: bool = False) -> str
-    def build_messages(self, prompt: str) -> List[Dict[str, str]]
-    def build_no_answer_message(self, query_text: str) -> List[Dict[str, str]]
+def initialize_faiss_index(
+    dimension: int = CONFIG.EMBEDDING_DIMENSION,
+    use_gpu: bool = CONFIG.USE_GPU
+) -> faiss.Index:
+    """Initialize FAISS index with optional GPU support."""
+    
+def add_to_faiss(
+    embedding: np.ndarray,
+    source_file_name: str,
+    content_type: str,
+    content: Dict,
+    index: faiss.Index,
+    metadata: List[Dict],
+    processed_ids: Set[str] = None
+) -> bool:
+    """Add embedding to FAISS index with metadata."""
 ```
 
-### Utility Components
+### 4. Image Processing (image_utils.py)
 
-#### ImageStore (utils/image_store.py)
+Image analysis and processing utilities:
+
 ```python
-class ImageStore:
-    def __init__(self, base_path: Path)
-    def store_image(self, image: Image.Image, source_doc: str, page_num: int, caption: Optional[str] = None, context: Optional[str] = None) -> str
-    def get_image(self, image_id: str) -> Tuple[Optional[Image.Image], Optional[Dict]]
-    def get_base64_image(self, image_id: str) -> Optional[str]
-    def delete_image(self, image_id: str) -> bool
-```
+def zero_shot_classification(
+    image: Union[Image.Image, str],
+    labels: List[str],
+    model: Any,
+    processor: Any,
+    device: str
+) -> Tuple[str, float]:
+    """Classify images using CLIP zero-shot classification."""
 
-#### FAISS Utils (utils/FAISS_utils.py)
-```python
-def initialize_faiss_index(dimension: int, use_gpu: bool = False) -> faiss.Index
-def add_to_faiss(embedding, source_file_name, content_type, content, index, metadata)
-def query_faiss(index, metadata, query_embeddings, top_k)
-def query_with_context(index, metadata, model, processor, device, text_query=None, image_query=None, top_k=5)
-```
-
-#### Document Utils (utils/document_utils.py)
-```python
-def rescan_documents(config: CONFIG) -> tuple[bool, str]
-def remove_document_from_rag(doc_path: Path) -> tuple[bool, str]
-def update_processed_files_list(file_path: Path, remove: bool = False)
-def validate_folder_name(name: str) -> tuple[bool, str]
-def create_folder(parent_path: Path, folder_name: str) -> tuple[bool, str]
-```
-
-#### RAG Utils (utils/RAG_utils.py)
-```python
-def extract_text_and_images_from_pdf(pdf_path) -> Tuple[str, List[Dict]]
-def extract_text_and_images_from_word(doc_path) -> Tuple[str, List[Dict]]
-def extract_text_and_images_from_excel(excel_path) -> Tuple[str, List[Dict]]
-def chunk_text(text: str, source_path: str, chunk_size=CONFIG.CHUNK_SIZE) -> List[Dict]
-```
-
-#### LLM Utils (utils/LLM_utils.py)
-```python
-def CLIP_init(model_name: str = "openai/clip-vit-base-patch32") -> Tuple[Model, Processor, str]
-def encode_with_clip(texts: List[str], images: List[Image.Image], model, processor, device) -> Tuple[np.ndarray, np.ndarray]
-def openai_post_request(messages: List[Dict], model_name: str, max_tokens: int, temperature: float, api_key: str) -> Dict
-```
-
-## Data Models
-
-### Query Models
-```python
-class ChatMessage(BaseModel):
-    role: str
-    content: str
-
-class QueryType(BaseModel):
-    is_overview: bool = False
-    is_technical: bool = False
-    is_summary: bool = False
-
-class QueryResponse(BaseModel):
-    text_response: str
-    images: List[Dict[str, Any]] = field(default_factory=list)
-```
-
-### Configuration Model
-```python
-@dataclass
-class Config:
-    SERVER_PORT: int = 9000
-    RAW_DOCUMENTS_PATH: Path = Path("Raw Documents")
-    CLIP_MODEL_NAME: str = "openai/clip-vit-base-patch32"
-    USE_GPU: bool = True
-    # ... other configuration parameters
+def deduplicate_images(
+    images: List[Dict],
+    max_images: int = 8
+) -> List[Dict]:
+    """Remove duplicate images using perceptual hashing."""
 ```
 
 ## API Endpoints
 
 ### Document Management
-```python
-@app.post("/upload/document")
-@app.post("/process/documents")
-@app.get("/get/documents")
-@app.delete("/delete/document")
-@app.post("/folder/create")
-@app.delete("/folder/delete")
-@app.put("/folder/rename")
+
+#### Upload Document
+```http
+POST /upload/document
+Content-Type: multipart/form-data
+
+Parameters:
+- file: File (PDF, DOCX, XLSX)
+- folder: string (optional)
+
+Response:
+{
+    "status": "success",
+    "path": "path/to/document"
+}
+```
+
+#### Process Documents
+```http
+POST /process/documents
+
+Response:
+{
+    "status": "success"
+}
 ```
 
 ### Query Processing
-```python
-@app.post("/query/text")
-@app.post("/query/image")
-@app.post("/chat/reset")
-@app.get("/chat/history")
+
+#### Text Query
+```http
+POST /query/text
+Content-Type: application/x-www-form-urlencoded
+
+Parameters:
+- query: string
+
+Response:
+{
+    "status": "success",
+    "response": {
+        "text_response": string,
+        "images": [
+            {
+                "image": string (base64),
+                "caption": string,
+                "context": string,
+                "source": string,
+                "similarity": float
+            }
+        ]
+    }
+}
 ```
 
-### System Management
-```python
-@app.post("/webhook")
-@app.post("/rescan")
+#### Image Query
+```http
+POST /query/image
+Content-Type: multipart/form-data
+
+Parameters:
+- image: File
+- query: string (optional)
+
+Response:
+{
+    "response": string
+}
 ```
 
-## Event Flow
+## Configuration
 
-1. Document Upload
+### Environment Variables (.env)
+```plaintext
+OPENAI_API_KEY=your_api_key_here
+CONTAINER_NAME=atlantium_llm-web-app-1
+USE_CPU=0
+GITHUB_WEBHOOK_SECRET=your_webhook_secret
+```
+
+## Data Flow
+
+### 1. Document Processing Flow
 ```mermaid
-graph LR
-    A[Upload] --> B[Store File]
-    B --> C[Process Document]
-    C --> D[Extract Text/Images]
-    D --> E[Generate Embeddings]
-    E --> F[Update Index]
+sequenceDiagram
+    participant U as User
+    participant S as Server
+    participant D as Document Processor
+    participant I as FAISS Index
+    
+    U->>S: Upload Document
+    S->>D: Process Document
+    D->>D: Extract Text/Images
+    D->>D: Generate Embeddings
+    D->>I: Update Index
+    D->>S: Processing Complete
+    S->>U: Success Response
 ```
 
-2. Query Processing
+### 2. Query Processing Flow
 ```mermaid
-graph LR
-    A[Query] --> B[Get Context]
-    B --> C[Build Prompt]
-    C --> D[Get LLM Response]
-    D --> E[Format Response]
+sequenceDiagram
+    participant U as User
+    participant S as Server
+    participant I as FAISS Index
+    participant L as LLM
+
+    U->>S: Submit Query
+    S->>I: Search Context
+    I->>S: Return Relevant Documents
+    S->>L: Generate Response
+    L->>S: Return Response
+    S->>U: Send Response
 ```
 
+## Performance Optimization
+
+### 1. Batch Processing
+- Configure optimal batch size in config.py
+- Monitor memory usage during processing
+- Adjust based on available resources
+
+### 2. GPU Utilization
+- Enable GPU support when available
+- Monitor GPU memory usage
+- Implement proper cleanup
+
+### 3. Index Optimization
+- Regular index maintenance
+- Periodic cleanup of unused vectors
+- Optimal chunk size configuration
+
+## Monitoring and Logging
+
+### Log Configuration
+```python
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s: %(message)s',
+    handlers=[
+        logging.FileHandler(CONFIG.LOG_PATH/"system.log"),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+```
+
+## Support and Maintenance
+
+### System Updates
+- Regular dependency updates
+- Security patches
+- Performance optimizations
+- Bug fixes
+
+### Backup Procedures
+- Regular index backups
+- Document backups
+- Configuration backups
+- Log rotation
+
+For additional support, contact [Atlantium Technologies Support](mailto:support@atlantium.com).
