@@ -8,7 +8,6 @@
 * Play with similarity scores to have more precise answers. Pictures similarity needs to be better. Or choose the best percentile score
 * Continue playing with prompts, top_K and chunking to reduce hallucinations. (May be achieved with more data)
 * Need to remove header and footer of pdf/doc files form chinking/indexing - it is a garbage data. Similarly - prefaces, tables of content
-* "In this folder" instead of "Total". Or may be better to count total documents + in this folder
 
 # TBDs for development:
 * Switch to MongoDB instead of metadata in files
