@@ -542,10 +542,26 @@ function initializeMultiSelect() {
         if (confirm(`Are you sure you want to delete ${selectedItems.size} selected item(s)?`)) {
             try {
                 const deletePromises = Array.from(selectedItems).map(async (path) => {
-                    const response = await fetch(`/delete/document?path=${encodeURIComponent(path)}`, {
+                    const row = document.querySelector(`tr[data-path="${CSS.escape(path)}"]`);
+                    const isFolder = row.classList.contains('folder-row');
+                    const endpoint = isFolder ? '/folder/delete' : '/delete/document';
+
+                    const response = await fetch(`${endpoint}?path=${encodeURIComponent(path)}`, {
                         method: 'DELETE'
                     });
-                    if (!response.ok) throw new Error(`Failed to delete ${path}`);
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(isFolder ? error.detail?.message || 'Delete failed' : error.detail);
+                    }
+
+                    // Handle folder deletion response
+                    if (isFolder) {
+                        const result = await response.json();
+                        if (result.errors && result.errors.length > 0) {
+                            console.warn('Delete completed with errors:', result.errors);
+                        }
+                    }
                 });
 
                 await Promise.all(deletePromises);
@@ -572,22 +588,27 @@ function initializeMultiSelect() {
 function modifyTableRowsForSelection() {
     const rows = document.querySelectorAll('.documents-table tbody tr');
     rows.forEach(row => {
-        if (!row.classList.contains('folder-row')) {
-            const checkbox = document.createElement('td');
-            checkbox.style.width = '30px';
-            checkbox.innerHTML = '<input type="checkbox" class="document-checkbox">';
-            row.insertBefore(checkbox, row.firstChild);
-
-            // Add path data attribute for deletion
-            const docName = row.querySelector('.document-name');
-            if (docName) {
-                row.dataset.path = docName.dataset.path;
-            }
-        } else {
-            // Add empty cell for folders to maintain alignment
+        // Skip parent folder row (..)
+        if (row.querySelector('.folder-name')?.textContent.trim() === '..') {
             const emptyCell = document.createElement('td');
             emptyCell.style.width = '30px';
             row.insertBefore(emptyCell, row.firstChild);
+            return;
+        }
+
+        // Add checkbox for both files and folders
+        const checkbox = document.createElement('td');
+        checkbox.style.width = '30px';
+        checkbox.innerHTML = '<input type="checkbox" class="document-checkbox">';
+        row.insertBefore(checkbox, row.firstChild);
+
+        // Add path data attribute for deletion
+        const docName = row.querySelector('.document-name');
+        const folderName = row.querySelector('.folder-name');
+        if (docName) {
+            row.dataset.path = docName.dataset.path;
+        } else if (folderName) {
+            row.dataset.path = row.dataset.path; // Already set in the folder row
         }
     });
 }
@@ -636,45 +657,47 @@ async function loadDocuments(currentPath = '') {
         const tbody = document.createElement('tbody');
 
         // Add "up" navigation if not in root
-        if (currentPath) {
-            tbody.innerHTML += `
-                <tr class="folder-row" data-path="${encodeURIComponent(getParentPath(currentPath))}">
-                    <td style="width: 30px;"></td>
-                    <td>
-                        <div class="folder-name">
-                            <svg class="folder-icon" viewBox="0 0 24 24" width="24" height="24">
-                                <path fill="currentColor" d="M3 3l18 0v18H3V3zm2 2v14h14V5H5z"/>
-                                <path fill="currentColor" d="M15 11v6h-6v-6h6zm-2-2V7H7v2h6z"/>
-                            </svg>
-                            ..
-                        </div>
-                    </td>
-                    <td>Folder</td>
-                    <td>-</td>
-                    <td>-</td>
-                </tr>
-            `;
-        }
+            if (currentPath) {
+                tbody.innerHTML += `
+                    <tr class="folder-row" data-path="${encodeURIComponent(getParentPath(currentPath))}">
+                        <td style="width: 30px;"></td>
+                        <td>
+                            <div class="folder-name">
+                                <svg class="folder-icon" viewBox="0 0 24 24" width="24" height="24">
+                                    <path fill="currentColor" d="M3 3l18 0v18H3V3zm2 2v14h14V5H5z"/>
+                                    <path fill="currentColor" d="M15 11v6h-6v-6h6zm-2-2V7H7v2h6z"/>
+                                </svg>
+                                ..
+                            </div>
+                        </td>
+                        <td>Folder</td>
+                        <td>-</td>
+                        <td>-</td>
+                    </tr>
+                `;
+            }
 
-        // Add folders
-        data.folders.forEach(folder => {
-            tbody.innerHTML += `
-                <tr class="folder-row" data-path="${encodeURIComponent(folder.path)}">
-                    <td style="width: 30px;"></td>
-                    <td>
-                        <div class="folder-name">
-                            <svg class="folder-icon" viewBox="0 0 24 24" width="24" height="24">
-                                <path fill="currentColor" d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>
-                            </svg>
-                            ${escapeHtml(folder.name)}
-                        </div>
-                    </td>
-                    <td>Folder</td>
-                    <td>-</td>
-                    <td>${formatDate(folder.modified)}</td>
-                </tr>
-            `;
-        });
+            // Add folders
+            data.folders.forEach(folder => {
+                tbody.innerHTML += `
+                    <tr class="folder-row" data-path="${encodeURIComponent(folder.path)}">
+                        <td style="width: 30px;">
+                            <input type="checkbox" class="select-checkbox document-checkbox">
+                        </td>
+                        <td>
+                            <div class="folder-name">
+                                <svg class="folder-icon" viewBox="0 0 24 24" width="24" height="24">
+                                    <path fill="currentColor" d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>
+                                </svg>
+                                ${escapeHtml(folder.name)}
+                            </div>
+                        </td>
+                        <td>Folder</td>
+                        <td>-</td>
+                        <td>${formatDate(folder.modified)}</td>
+                    </tr>
+                `;
+            });
 
         // Add files
         data.files.forEach(file => {
@@ -720,7 +743,10 @@ async function loadDocuments(currentPath = '') {
         const folderRows = tableWrapper.querySelectorAll('.folder-row');
         folderRows.forEach(row => {
             row.addEventListener('click', (e) => {
-                if (!e.target.closest('.select-checkbox')) {
+                const isCheckbox = e.target.closest('.select-checkbox');
+                const isFolderName = e.target.closest('.folder-name');
+
+                if (!isCheckbox && isFolderName) {
                     const path = decodeURIComponent(row.dataset.path)
                         .split('/')
                         .map(segment => encodeURIComponent(segment))
