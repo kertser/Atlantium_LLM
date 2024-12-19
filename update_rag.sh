@@ -1,14 +1,20 @@
 #!/bin/bash
 set -e
 
-# Configuration with proper path handling
-REPO_URL="https://github.com/kertser/Atlantium_LLM.git"
-ACTUAL_USER=${SUDO_USER:-${USER}}
-APP_DIR="/home/${ACTUAL_USER}/Projects/Atlantium_LLM"
+# Use environment variables with defaults for flexibility
+REPO_URL=${REPO_URL:-"https://github.com/kertser/Atlantium_LLM.git"}
+BASE_DIR=${BASE_DIR:-"$HOME/Projects"}
+APP_DIR="${BASE_DIR}/Atlantium_LLM"
 LOG_DIR="${APP_DIR}/logs/updates"
-LOG_FILE="${LOG_DIR}/rag_update.log"
-BACKUP_DIR="/home/${ACTUAL_USER}/backups/rag"
-DATE=$(date +%Y%m%d_%H%M%S)
+BACKUP_DIR="${HOME}/backups/rag"
+
+# Ensure we're running with adequate permissions
+if [ "$EUID" -ne 0 ]; then
+    if ! groups | grep -q docker; then
+        echo "Please run as root or ensure user is in docker group"
+        exit 1
+    fi
+fi
 
 # Logging function
 log() {
