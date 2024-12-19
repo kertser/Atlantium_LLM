@@ -36,7 +36,7 @@ if [ -d "$APP_DIR/.git" ]; then
     log "Updating existing repository"
     cd "$APP_DIR"
     git fetch origin
-    git reset --hard origin/main
+    git reset --hard origin/master
 else
     log "Cloning fresh repository"
     rm -rf "$APP_DIR"
