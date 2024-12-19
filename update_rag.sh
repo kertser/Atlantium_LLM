@@ -67,7 +67,7 @@ if [ -f "docker-compose.yaml" ]; then
     docker-compose down
 
     log "Starting updated service"
-    docker-compose up -d || {
+    docker-compose --profile cpu up -d || {
         log "Service startup failed"
         exit 1
     }
