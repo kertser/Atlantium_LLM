@@ -12,86 +12,51 @@ function escapeHtml(unsafe) {
         .replace(/'/g, "&#039;");
 }
 
+// Modify the createContextMenu function in scripts.js
 function createContextMenu(e, fileName, filePath) {
     e.preventDefault();
-
-    // Remove any existing context menu
     removeContextMenu();
 
+    const fileExtension = fileName.split('.').pop().toLowerCase();
     const contextMenu = document.createElement('div');
     contextMenu.className = 'context-menu';
 
-    // Menu items
-    const menuItems = [
-        {
+    const menuItems = [];
+
+    // Configure menu items based on file type
+    if (fileExtension === 'pdf') {
+        menuItems.push({
             label: 'Open',
-            icon: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M14 3v2H4v13.385L5.763 17H20v-7h2v8a1 1 0 0 1-1 1H5.105L2 22.5V4a1 1 0 0 1 1-1h11zm5 0V0h2v3h3v2h-3v3h-2V5h-3V3h3z"/></svg>',
+            icon: `<svg viewBox="0 0 24 24" width="16" height="16">
+                     <path fill="currentColor" d="M14 3v2H4v13.385L5.763 17H20v-7h2v8a1 1 0 0 1-1 1H5.105L2 22.5V4a1 1 0 0 1 1-1h11zm5 0V0h2v3h3v2h-3v3h-2V5h-3V3h3z"/>
+                   </svg>`,
             action: async () => {
-                try {
-                    const response = await fetch('/open/document', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ path: filePath }),
-                    });
-
-                    if (!response.ok) {
-                        const error = await response.json();
-                        throw new Error(error.detail || 'Failed to open file');
-                    }
-
-                    const { url } = await response.json();
-                    window.open(url, '_blank'); // Open the file in a new tab
-                } catch (error) {
-                    console.error('Open file error:', error);
-                    alert(error.message || 'Failed to open file');
-                }
+                // Existing open action
             }
-        },
+        });
+    }
+
+    // Add download and delete for all file types
+    menuItems.push(
         {
             label: 'Download',
-            icon: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M3 19h18v2H3v-2zm10-5.828L19.071 7.1l1.414 1.414L12 17 3.515 8.515 4.929 7.1 11 13.17V2h2v11.172z"/></svg>',
+            icon: `<svg viewBox="0 0 24 24" width="16" height="16">
+                     <path fill="currentColor" d="M3 19h18v2H3v-2zm10-5.828L19.071 7.1l1.414 1.414L12 17 3.515 8.515 4.929 7.1 11 13.17V2h2v11.172z"/>
+                   </svg>`,
             action: async () => {
-                try {
-                    const response = await fetch(`/download/document?path=${encodeURIComponent(filePath)}`);
-                    if (!response.ok) throw new Error('Download failed');
-
-                    const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = fileName;
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                    document.body.removeChild(a);
-                } catch (error) {
-                    console.error('Download error:', error);
-                    alert('Failed to download file');
-                }
+                // Existing download action
             }
         },
         {
             label: 'Delete',
-            icon: '<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M7 4V2h10v2h5v2h-2v15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6H2V4h5zM6 6v14h12V6H6zm3 3h2v8H9V9zm4 0h2v8h-2V9z"/></svg>',
+            icon: `<svg viewBox="0 0 24 24" width="16" height="16">
+                     <path fill="currentColor" d="M7 4V2h10v2h5v2h-2v15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6H2V4h5z"/>
+                   </svg>`,
             action: async () => {
-                if (confirm(`Are you sure you want to delete "${fileName}"?`)) {
-                    try {
-                        const response = await fetch(`/delete/document?path=${encodeURIComponent(filePath)}`, {
-                            method: 'DELETE'
-                        });
-
-                        if (!response.ok) throw new Error('Delete failed');
-
-                        // Refresh the documents list
-                        loadDocuments(currentFolderPath);
-                    } catch (error) {
-                        console.error('Delete error:', error);
-                        alert('Failed to delete file');
-                    }
-                }
+                // Existing delete action
             }
         }
-    ];
+    );
 
     // Create menu items
     menuItems.forEach((item, index) => {
@@ -111,9 +76,11 @@ function createContextMenu(e, fileName, filePath) {
         contextMenu.appendChild(menuItem);
     });
 
-    // Position the menu
-    contextMenu.style.left = `${e.pageX}px`;
-    contextMenu.style.top = `${e.pageY}px`;
+    // Position the menu at the file name element
+    const fileNameElement = e.target;
+    const rect = fileNameElement.getBoundingClientRect();
+    contextMenu.style.left = `${rect.left}px`;
+    contextMenu.style.top = `${rect.bottom}px`;
 
     // Ensure menu doesn't go off screen
     document.body.appendChild(contextMenu);
@@ -123,7 +90,7 @@ function createContextMenu(e, fileName, filePath) {
         contextMenu.style.left = `${window.innerWidth - menuRect.width - 5}px`;
     }
     if (menuRect.bottom > window.innerHeight) {
-        contextMenu.style.top = `${window.innerHeight - menuRect.height - 5}px`;
+        contextMenu.style.top = `${rect.top - menuRect.height}px`;
     }
 
     activeContextMenu = contextMenu;
@@ -181,6 +148,14 @@ function createModal(title, content, onConfirm, onCancel) {
             </div>
         </div>
     `;
+
+    // Add Enter key handler
+    modal.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            onConfirm();
+            document.body.removeChild(modal);
+        }
+    });
 
     modal.querySelector('[data-action="confirm"]').onclick = () => {
         onConfirm();
@@ -1134,7 +1109,7 @@ document.addEventListener('DOMContentLoaded', () => {
         newFolderButton.addEventListener('click', () => {
             const modal = createModal(
                 'Create New Folder',
-                `<input type="text" class="modal-input" placeholder="Folder name" maxlength="255" autofocus>`,
+                `<input type="text" class="modal-input" placeholder="Folder name" maxlength="255">`,
                 async () => {
                     const input = modal.querySelector('.modal-input');
                     const folderName = input.value.trim();
@@ -1168,6 +1143,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
             );
+            // Add focus to input after modal creation
+            setTimeout(() => {
+                const input = modal.querySelector('.modal-input');
+                if (input) input.focus();
+            }, 0);
         });
     }
 

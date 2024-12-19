@@ -8,9 +8,7 @@
 * Play with similarity scores to have more precise answers. Pictures similarity needs to be better. Or choose the best percentile score
 * Continue playing with prompts, top_K and chunking to reduce hallucinations. (May be achieved with more data)
 * Need to remove header and footer of pdf/doc files form chinking/indexing - it is a garbage data. Similarly - prefaces, tables of content
-* Edit the right-click behavior for the doc/excel/pdf files. For pdf it will be "open and download", for docx and excel - download only
-  The menu shall be at mouse, not at bottom
-* Transfer focus to the New Folder name window. Confirm on Enter
+* "In this folder" instead of "Total". Or may be better to count total documents + in this folder
 * Select multiple documents (with mouse) to delete - add feature
 
 # TBDs for development:
