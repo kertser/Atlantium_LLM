@@ -553,6 +553,41 @@ table tr:hover {
     font-size: 0.9rem;
     border-collapse: separate;
     border-spacing: 0;
+    table-layout: fixed;
+}
+
+td .select-checkbox {
+    display: block;
+    margin: auto;
+}
+
+.documents-table th:first-child,
+.documents-table td:first-child {
+    width: 30px;
+    min-width: 30px;
+    max-width: 20px;
+    padding: 0.5rem;
+    text-align: center;
+}
+
+.documents-table th:nth-child(2),
+.documents-table td:nth-child(2) {
+    width: calc(40% - 30px); /* Adjust for smaller first column */
+}
+
+.documents-table th:nth-child(3),
+.documents-table td:nth-child(3) {
+    width: 15%;
+}
+
+.documents-table th:nth-child(4),
+.documents-table td:nth-child(4) {
+    width: 15%;
+}
+
+.documents-table th:nth-child(5),
+.documents-table td:nth-child(5) {
+    width: 20%;
 }
 
 .documents-container table {
@@ -577,6 +612,9 @@ table tr:hover {
     border-bottom: 1px solid #eee;
     border-left: 0 solid #eee;
     border-right: 0 solid #eee;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .documents-table tr:hover {
@@ -668,10 +706,37 @@ table tr:hover {
     font-weight: 500;
 }
 
+.documents-table tbody tr {
+    user-select: none; /* Prevent text selection while clicking */
+}
+
+.documents-table tbody tr.selected {
+    background-color: #e3f2fd !important; /* Light blue background for selected rows */
+    border-left: 3px solid var(--primary-color);
+}
+
 .documents-table tbody td {
     padding: 0.5rem 1rem;
     border-bottom: 1px solid #eee;
     background: inherit;
+}
+
+.document-actions .batch-actions {
+    display: none; /* Hidden by default */
+    gap: 0.5rem;
+}
+
+.document-actions .batch-actions.visible {
+    display: flex;
+}
+
+.select-checkbox {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    padding: 0;
+    vertical-align: middle;
+    cursor: pointer;
 }
 
 .context-menu {

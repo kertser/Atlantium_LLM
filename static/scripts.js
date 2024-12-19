@@ -381,8 +381,136 @@ async function uploadDocument(file) {
     return response.json();
 }
 
+function initializeMultiSelect() {
+    let selectedItems = new Set();
+    const batchActions = document.querySelector('.batch-actions');
+    const selectedCountSpan = document.querySelector('.selected-count');
+
+    // Handle select all checkbox
+    const selectAllCheckbox = document.querySelector('.select-all');
+    selectAllCheckbox.addEventListener('change', (e) => {
+        const checkboxes = document.querySelectorAll('.document-checkbox');
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = e.target.checked;
+            const row = checkbox.closest('tr');
+            if (e.target.checked) {
+                row.classList.add('selected');
+                selectedItems.add(row.dataset.path);
+            } else {
+                row.classList.remove('selected');
+                selectedItems.delete(row.dataset.path);
+            }
+        });
+        updateBatchActionsVisibility();
+    });
+
+    // Handle individual checkboxes
+    const tableBody = document.querySelector('.documents-table tbody');
+    tableBody.addEventListener('click', (e) => {
+        const checkbox = e.target.closest('.document-checkbox');
+        if (checkbox) {
+            const row = checkbox.closest('tr');
+            if (checkbox.checked) {
+                row.classList.add('selected');
+                selectedItems.add(row.dataset.path);
+            } else {
+                row.classList.remove('selected');
+                selectedItems.delete(row.dataset.path);
+                selectAllCheckbox.checked = false;
+            }
+            updateBatchActionsVisibility();
+        }
+    });
+
+    // Handle Shift+Click for range selection
+    let lastChecked = null;
+    tableBody.addEventListener('click', (e) => {
+        const checkbox = e.target.closest('.document-checkbox');
+        if (!checkbox) return;
+
+        if (e.shiftKey && lastChecked) {
+            const checkboxes = Array.from(document.querySelectorAll('.document-checkbox'));
+            const start = checkboxes.indexOf(checkbox);
+            const end = checkboxes.indexOf(lastChecked);
+            const [lower, upper] = [Math.min(start, end), Math.max(start, end)];
+
+            checkboxes.slice(lower, upper + 1).forEach(cb => {
+                cb.checked = lastChecked.checked;
+                const row = cb.closest('tr');
+                if (cb.checked) {
+                    row.classList.add('selected');
+                    selectedItems.add(row.dataset.path);
+                } else {
+                    row.classList.remove('selected');
+                    selectedItems.delete(row.dataset.path);
+                }
+            });
+        }
+
+        lastChecked = checkbox;
+        updateBatchActionsVisibility();
+    });
+
+    // Batch delete handler
+    const batchDeleteButton = document.getElementById('batch-delete-button');
+    batchDeleteButton.addEventListener('click', async () => {
+        if (selectedItems.size === 0) return;
+
+        if (confirm(`Are you sure you want to delete ${selectedItems.size} selected item(s)?`)) {
+            try {
+                const deletePromises = Array.from(selectedItems).map(async (path) => {
+                    const response = await fetch(`/delete/document?path=${encodeURIComponent(path)}`, {
+                        method: 'DELETE'
+                    });
+                    if (!response.ok) throw new Error(`Failed to delete ${path}`);
+                });
+
+                await Promise.all(deletePromises);
+                selectedItems.clear(); // Clear the selection
+                updateBatchActionsVisibility(); // Hide the delete button
+                await loadDocuments(currentFolderPath); // Reload the document list
+            } catch (error) {
+                console.error('Batch delete error:', error);
+                alert('Failed to delete some items');
+            }
+        }
+    });
+
+    function updateBatchActionsVisibility() {
+        selectedCountSpan.textContent = selectedItems.size;
+        if (selectedItems.size > 0) {
+            batchActions.classList.add('visible');
+        } else {
+            batchActions.classList.remove('visible');
+        }
+    }
+}
+
+function modifyTableRowsForSelection() {
+    const rows = document.querySelectorAll('.documents-table tbody tr');
+    rows.forEach(row => {
+        if (!row.classList.contains('folder-row')) {
+            const checkbox = document.createElement('td');
+            checkbox.style.width = '30px';
+            checkbox.innerHTML = '<input type="checkbox" class="document-checkbox">';
+            row.insertBefore(checkbox, row.firstChild);
+
+            // Add path data attribute for deletion
+            const docName = row.querySelector('.document-name');
+            if (docName) {
+                row.dataset.path = docName.dataset.path;
+            }
+        } else {
+            // Add empty cell for folders to maintain alignment
+            const emptyCell = document.createElement('td');
+            emptyCell.style.width = '30px';
+            row.insertBefore(emptyCell, row.firstChild);
+        }
+    });
+}
+
 async function loadDocuments(currentPath = '') {
-    currentFolderPath = currentPath; // Store current path
+    currentFolderPath = currentPath;
     try {
         const response = await fetch(`/get/documents?path=${encodeURIComponent(currentPath)}`);
         if (!response.ok) {
@@ -393,22 +521,20 @@ async function loadDocuments(currentPath = '') {
         const tableWrapper = document.querySelector('.documents-table-wrapper');
         if (!tableWrapper) return;
 
-        // Update document count - only count files
-        const docCount = document.getElementById('doc-count');
-        if (docCount) {
-            // Count only documents, not folders
-            const numDocuments = data.files.length;
-            docCount.textContent = `${numDocuments} document${numDocuments !== 1 ? 's' : ''}`;
-        }
+        // Clear the wrapper completely
+        tableWrapper.innerHTML = '';
 
-        // Create table structure
+        // Create new table with proper structure
         const table = document.createElement('table');
         table.className = 'documents-table';
 
-        // Create table header
+        // Create header with checkbox column
         const thead = document.createElement('thead');
         thead.innerHTML = `
             <tr>
+                <th style="width: 30px;">
+                    <input type="checkbox" class="select-checkbox select-all" title="Select all">
+                </th>
                 <th>Name</th>
                 <th>Type</th>
                 <th>Size</th>
@@ -417,12 +543,21 @@ async function loadDocuments(currentPath = '') {
         `;
         table.appendChild(thead);
 
+        // Create tbody
         const tbody = document.createElement('tbody');
+
+        // Update document count
+        const docCount = document.getElementById('doc-count');
+        if (docCount) {
+            const numDocuments = data.files.length;
+            docCount.textContent = `${numDocuments} document${numDocuments !== 1 ? 's' : ''}`;
+        }
 
         // Add "up" navigation if not in root
         if (currentPath) {
             tbody.innerHTML += `
                 <tr class="folder-row" data-path="${encodeURIComponent(getParentPath(currentPath))}">
+                    <td style="width: 30px;"></td>
                     <td>
                         <div class="folder-name">
                             <svg class="folder-icon" viewBox="0 0 24 24" width="24" height="24">
@@ -443,6 +578,7 @@ async function loadDocuments(currentPath = '') {
         data.folders.forEach(folder => {
             tbody.innerHTML += `
                 <tr class="folder-row" data-path="${encodeURIComponent(folder.path)}">
+                    <td style="width: 30px;"></td>
                     <td>
                         <div class="folder-name">
                             <svg class="folder-icon" viewBox="0 0 24 24" width="24" height="24">
@@ -458,9 +594,8 @@ async function loadDocuments(currentPath = '') {
             `;
         });
 
-        // Add files after sanitizing names
+        // Add files
         data.files.forEach(file => {
-            // Create sanitized file name (remove spaces before extension)
             const fileName = file.name;
             const lastDotIndex = fileName.lastIndexOf('.');
             let sanitizedName;
@@ -473,7 +608,10 @@ async function loadDocuments(currentPath = '') {
             }
 
             tbody.innerHTML += `
-                <tr>
+                <tr data-path="${encodeURIComponent(file.path)}">
+                    <td style="width: 30px;">
+                        <input type="checkbox" class="select-checkbox document-checkbox">
+                    </td>
                     <td>
                         <span class="document-name" data-path="${encodeURIComponent(file.path)}">${escapeHtml(sanitizedName)}</span>
                     </td>
@@ -485,24 +623,28 @@ async function loadDocuments(currentPath = '') {
         });
 
         table.appendChild(tbody);
-        tableWrapper.innerHTML = '';
-        tableWrapper.appendChild(table);
 
         // Add current path display
         const pathDisplay = document.createElement('div');
         pathDisplay.className = 'current-path';
-        pathDisplay.innerHTML = `Current Folder: <span class="folder-path">${decodeURIComponent(currentPath) || 'Root'}</span>`;
-        tableWrapper.insertBefore(pathDisplay, table);
+        pathDisplay.innerHTML = `Current Folder: <span class="folder-path">${currentPath ? decodeURIComponent(currentPath) : 'Root'}</span>`;
+        tableWrapper.appendChild(pathDisplay);
+        tableWrapper.appendChild(table);
+
+        // Initialize multi-select functionality
+        initializeMultiSelect();
 
         // Add click handlers for folder navigation
         const folderRows = tableWrapper.querySelectorAll('.folder-row');
         folderRows.forEach(row => {
-            row.addEventListener('click', () => {
-                const path = decodeURIComponent(row.dataset.path)
-                    .split('/')
-                    .map(segment => encodeURIComponent(segment))
-                    .join('/');
-                loadDocuments(path);
+            row.addEventListener('click', (e) => {
+                if (!e.target.closest('.select-checkbox')) {
+                    const path = decodeURIComponent(row.dataset.path)
+                        .split('/')
+                        .map(segment => encodeURIComponent(segment))
+                        .join('/');
+                    loadDocuments(path);
+                }
             });
         });
 

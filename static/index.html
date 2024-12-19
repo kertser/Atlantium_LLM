@@ -70,6 +70,16 @@
                 <div class="document-stats-actions">
                     <div class="document-stats">Total: <span id="doc-count">4</span></div>
                     <div class="document-actions">
+                        <!-- Batch actions div -->
+                        <div class="batch-actions">
+                            <button id="batch-delete-button" class="icon-button" title="Delete selected items">
+                                <svg viewBox="0 0 24 24" width="16" height="16">
+                                    <path fill="currentColor" d="M7 4V2h10v2h5v2h-2v15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6H2V4h5zM6 6v14h12V6H6z"/>
+                                </svg>
+                                Delete Selected (<span class="selected-count">0</span>)
+                            </button>
+                        </div>
+                        <!-- Regular action buttons -->
                         <button id="rescan-button" class="icon-button" title="Rescan for new documents">
                             <svg viewBox="0 0 24 24" width="16" height="16">
                                 <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
@@ -85,21 +95,8 @@
                     </div>
                 </div>
             </div>
-
             <div class="documents-table-wrapper">
-                <table class="documents-table">
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Type</th>
-                            <th>Size</th>
-                            <th>Modified</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <!-- Documents will be loaded here -->
-                    </tbody>
-                </table>
+                <!-- Everything will be populated by JavaScript -->
             </div>
         </div>
     </div>
