@@ -34,11 +34,20 @@ class Config:
     CHUNK_OVERLAP: int = 100
     MIN_CHUNK_SIZE: int = 100
     CHUNK_SIZE: int = 1000  # Optimal for larger content. Smaller chunks are more selective, but harder to compare
-    SIMILARITY_THRESHOLD: float = 0.75  # Text similarity
+    SIMILARITY_THRESHOLD: float = 0.8  # Text similarity
     IMAGE_SIMILARITY_THRESHOLD: float = 0.25  # Image similarity
     TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.6  # Technical confidence
-    MAX_METADATA_SIZE: int = 10000000  # We have to keep it large, since 100-200 docs can take 15Gb space
     SUPPORTED_EXTENSIONS: List[str] = None
+    MAX_TEXT_LENGTH: int = 10000  # Maximum length of stored text chunks
+    MAX_METADATA_SIZE: int = 1000000  # Maximum size in bytes
+    COMPRESSION_ENABLED = True
+    CLEANUP_FREQUENCY = 10  # Cleanup every N batches
+
+    def validate_metadata_size(self, metadata_path):
+        if os.path.getsize(metadata_path) > self.MAX_METADATA_SIZE:
+            # Trigger cleanup
+            return False
+        return True
 
     # Token limits for completeness
     MAX_TOKENS: int = 1000

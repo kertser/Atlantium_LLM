@@ -11,9 +11,7 @@
 * Edit the right-click behavior for the doc/excel/pdf files. For pdf it will be "open and download", for docx and excel - download only
   The menu shall be at mouse, not at bottom
 * Transfer focus to the New Folder name window. Confirm on Enter
-* Select multiple documents - add feature
-* Weak Server stuck on > 60 files. Probably large metadata. Need to make external DB.
-* Change the maximum number of files to be processed to 10 (relevant config value)
+* Select multiple documents (with mouse) to delete - add feature
 
 # TBDs for development:
 * Switch to MongoDB instead of metadata in files

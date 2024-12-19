@@ -26,6 +26,7 @@ from config import CONFIG
 from typing import Any, Tuple, List
 import faiss
 import hashlib
+import gc
 from tqdm import tqdm
 from utils.FAISS_utils import (
     initialize_faiss_index,
@@ -33,7 +34,8 @@ from utils.FAISS_utils import (
     save_faiss_index,
     save_metadata,
     load_faiss_index,
-    load_metadata
+    load_metadata,
+    optimize_faiss_index,
 )
 from utils.image_utils import zero_shot_classification
 from utils.LLM_utils import CLIP_init, encode_with_clip
@@ -122,6 +124,102 @@ def filter_technical_images(images_data, model, processor, device, source_doc):
 
     return filtered_images
 
+
+def compress_metadata(metadata):
+    """Remove unnecessary fields and compress metadata"""
+    compressed = []
+    for entry in metadata:
+        if not isinstance(entry, dict):
+            logging.warning(f"Skipping invalid metadata entry: {entry}")
+            continue
+
+        # Keep only essential fields
+        minimal_entry = {
+            'type': entry.get('type', 'unknown'),
+            'source_file_name': entry.get('source_file_name', ''),
+            'id': entry.get('id', '')
+        }
+
+        # Handle content field safely
+        content = entry.get('content', {})
+        if isinstance(content, dict):
+            if entry.get('type') == 'text-chunk':
+                minimal_entry['content'] = {
+                    'text': content.get('text', '')[:500],  # Limit text size
+                    'metadata': content.get('metadata', {})
+                }
+            elif entry.get('type') == 'image':
+                minimal_entry['content'] = {
+                    'image_id': content.get('image_id', ''),
+                    'source_doc': content.get('source_doc', ''),
+                    'page': content.get('page', 0)
+                }
+        else:
+            minimal_entry['content'] = {}
+
+        compressed.append(minimal_entry)
+    return compressed
+
+
+def cleanup_metadata(metadata, index):
+    """Remove duplicate entries and validate existing ones"""
+    if not metadata or not isinstance(metadata, list):
+        logging.warning("Empty or invalid metadata, returning empty list")
+        return [], index
+
+    seen_hashes = set()
+    cleaned_metadata = []
+    valid_indices = []
+
+    for idx, entry in enumerate(metadata):
+        try:
+            # Validate entry structure
+            if not isinstance(entry, dict) or 'content' not in entry:
+                continue
+
+            # Create hash of content
+            content = entry.get('content', {})
+            if isinstance(content, dict):
+                content_str = json.dumps(content, sort_keys=True, default=str)
+                content_hash = hashlib.md5(content_str.encode()).hexdigest()
+
+                if content_hash not in seen_hashes:
+                    seen_hashes.add(content_hash)
+                    cleaned_metadata.append(entry)
+                    valid_indices.append(idx)
+        except Exception as e:
+            logging.warning(f"Error processing metadata entry {idx}: {e}")
+            continue
+
+    # Rebuild index with only valid entries
+    try:
+        if index is not None and valid_indices:
+            new_index = faiss.IndexFlatL2(index.d)
+            vectors = np.vstack([index.reconstruct(idx) for idx in valid_indices])
+            new_index.add(vectors)
+            return cleaned_metadata, new_index
+    except Exception as e:
+        logging.error(f"Error rebuilding index: {e}")
+        return cleaned_metadata, index
+
+    return cleaned_metadata, index
+
+def process_incrementally(docs, batch_size=5):
+    """Process documents incrementally and save progress"""
+    for i in range(0, len(docs), batch_size):
+        batch = docs[i:i + batch_size]
+        try:
+            # Process batch
+            process_documents(batch)
+            # Save progress
+            update_processed_files(batch)
+            # Cleanup after each batch
+            metadata, index = cleanup_metadata(load_metadata(), load_index())
+            save_metadata(metadata)
+            save_faiss_index(index)
+        except Exception as e:
+            logging.error(f"Error processing batch {i//batch_size}: {e}")
+            continue
 
 def process_documents(model, processor, device, index, metadata, image_store, doc_paths=None):
     """
@@ -503,6 +601,20 @@ def get_processed_files():
         return set()
 
 
+def validate_metadata_entry(entry):
+    """Validate the structure of a metadata entry"""
+    if not isinstance(entry, dict):
+        return False
+
+    required_fields = ['type', 'source_file_name', 'content']
+    if not all(field in entry for field in required_fields):
+        return False
+
+    if not isinstance(entry['content'], dict):
+        return False
+
+    return True
+
 def validate_metadata_and_index(metadata: list, index: Any, image_store: ImageStore) -> Tuple[list, Any]:
     """
     Validate and clean both metadata and the FAISS index.
@@ -550,10 +662,11 @@ def validate_metadata_and_index(metadata: list, index: Any, image_store: ImageSt
 
 
 def main():
-    """Main function with progress bars for batch processing."""
+    """Main function with progress bars for batch processing and optimized memory management."""
     try:
         load_dotenv()
 
+        # Initialize document discovery
         try:
             all_docs = get_all_documents(CONFIG.RAW_DOCUMENTS_PATH, CONFIG.SUPPORTED_EXTENSIONS)
             if not all_docs:
@@ -566,6 +679,7 @@ def main():
             logging.error(f"Error finding documents: {e}")
             return 1
 
+        # Get processed files
         try:
             processed_files = get_processed_files()
         except Exception as e:
@@ -582,8 +696,12 @@ def main():
 
         clip_model = None
         index = None
+        metadata = []
+
         try:
+            # Initialize CLIP and FAISS
             with tqdm(desc="Initializing", total=2) as init_pbar:
+                # Initialize CLIP
                 clip_model, clip_processor, device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
                 if not clip_model or not clip_processor:
                     raise RuntimeError("Failed to initialize CLIP model")
@@ -593,11 +711,18 @@ def main():
                     # Ensure RAG_DATA directory exists
                     CONFIG.RAG_DATA.mkdir(parents=True, exist_ok=True)
 
+                    # Load or create FAISS index
                     if CONFIG.FAISS_INDEX_PATH.exists():
                         try:
                             index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
                             metadata = load_metadata(CONFIG.METADATA_PATH)
-                            logging.info("Loaded existing FAISS index and metadata")
+
+                            # Validate and cleanup existing metadata
+                            metadata, index = cleanup_metadata(metadata, index)
+                            metadata = compress_metadata(metadata)
+                            index, metadata = optimize_faiss_index(index, metadata)
+
+                            logging.info("Loaded and optimized existing FAISS index and metadata")
                         except Exception as e:
                             logging.warning(f"Failed to load existing index: {e}")
                             index = None
@@ -624,24 +749,57 @@ def main():
                     batch_docs = new_docs[i:i + batch_size]
                     batch_pbar.set_postfix({"Batch": f"{(i // batch_size) + 1}/{num_batches}"}, refresh=True)
 
-                    updated_index, new_metadata = process_documents(
-                        model=clip_model,
-                        processor=clip_processor,
-                        device=device,
-                        index=index,
-                        metadata=metadata,
-                        image_store=ImageStore(CONFIG.STORED_IMAGES_PATH),
-                        doc_paths=batch_docs
-                    )
+                    try:
+                        # Process current batch
+                        updated_index, new_metadata = process_documents(
+                            model=clip_model,
+                            processor=clip_processor,
+                            device=device,
+                            index=index,
+                            metadata=metadata,
+                            image_store=ImageStore(CONFIG.STORED_IMAGES_PATH),
+                            doc_paths=batch_docs
+                        )
 
-                    if new_metadata:
-                        index = updated_index
-                        metadata.extend(new_metadata)
-                        save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
-                        save_metadata(metadata, CONFIG.METADATA_PATH)
-                        update_processed_files(batch_docs)
+                        if new_metadata:
+                            # Validate new metadata before adding
+                            valid_new_metadata = [
+                                entry for entry in new_metadata
+                                if validate_metadata_entry(entry)
+                            ]
 
-                    batch_pbar.update(1)
+                            if valid_new_metadata:
+                                # Update index and metadata
+                                index = updated_index
+                                metadata.extend(valid_new_metadata)
+
+                                # Periodic optimization
+                                if i % (batch_size * CONFIG.CLEANUP_FREQUENCY) == 0:
+                                    logging.info("Performing periodic optimization...")
+                                    try:
+                                        metadata, index = cleanup_metadata(metadata, index)
+                                        metadata = compress_metadata(metadata)
+                                        index, metadata = optimize_faiss_index(index, metadata)
+                                    except Exception as e:
+                                        logging.error(f"Error during optimization: {e}")
+
+                                # Save progress
+                                try:
+                                    save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
+                                    save_metadata(metadata, CONFIG.METADATA_PATH)
+                                    update_processed_files(batch_docs)
+                                except Exception as e:
+                                    logging.error(f"Error saving progress: {e}")
+
+                        # Force garbage collection after each batch
+                        import gc
+                        gc.collect()
+
+                    except Exception as e:
+                        logging.error(f"Error processing batch {(i // batch_size) + 1}: {e}")
+                        continue
+                    finally:
+                        batch_pbar.update(1)
 
             logging.info("Processing completed successfully")
             return 0
@@ -651,6 +809,7 @@ def main():
             return 1
 
         finally:
+            # Cleanup resources
             if clip_model is not None and hasattr(clip_model, 'cpu'):
                 try:
                     clip_model.cpu()

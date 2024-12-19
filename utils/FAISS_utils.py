@@ -304,6 +304,43 @@ def query_with_context(index, metadata, model, processor, device="cpu", text_que
 
     return processed_results
 
+
+def optimize_faiss_index(index, metadata):
+    """Optimize FAISS index for memory efficiency"""
+    if not metadata or not index:
+        return index, metadata
+
+    try:
+        # Remove duplicate vectors
+        unique_vectors = {}
+        for idx, meta in enumerate(metadata):
+            try:
+                vector = index.reconstruct(idx)
+                vector_hash = hashlib.md5(vector.tobytes()).hexdigest()
+                if vector_hash not in unique_vectors:
+                    unique_vectors[vector_hash] = (vector, meta)
+            except Exception as e:
+                logging.warning(f"Error processing vector {idx}: {e}")
+                continue
+
+        # Rebuild index with unique vectors
+        new_index = faiss.IndexFlatL2(index.d)
+        new_metadata = []
+
+        for _, (vector, meta) in unique_vectors.items():
+            try:
+                new_index.add(np.array([vector]))
+                new_metadata.append(meta)
+            except Exception as e:
+                logging.warning(f"Error adding vector to new index: {e}")
+                continue
+
+        return new_index, new_metadata
+
+    except Exception as e:
+        logging.error(f"Error optimizing index: {e}")
+        return index, metadata
+
 def save_faiss_index(index, filepath):
     """Save the FAISS index to a file."""
     filepath_str = str(filepath)
