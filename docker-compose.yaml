@@ -58,7 +58,7 @@ services:
       - raw_docs:/app/Raw Documents
       - rag_data:/app/RAG_Data
       - logs:/app/logs
-      - /usr/local/bin/update_rag.sh:/usr/local/bin/update_rag.sh:ro
+      # - /usr/local/bin/update_rag.sh:/usr/local/bin/update_rag.sh:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME}/.docker/config.json:/root/.docker/config.json:ro
     env_file:
@@ -84,7 +84,7 @@ services:
       - raw_docs:/app/Raw Documents
       - rag_data:/app/RAG_Data
       - logs:/app/logs
-      - /usr/local/bin/update_rag.sh:/usr/local/bin/update_rag.sh:ro
+      # - /usr/local/bin/update_rag.sh:/usr/local/bin/update_rag.sh:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME}/.docker/config.json:/root/.docker/config.json:ro
     env_file:
