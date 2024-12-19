@@ -1314,7 +1314,8 @@ async def github_webhook(request: Request):
             raise HTTPException(status_code=403, detail="Invalid signature")
 
     try:
-        subprocess.run(["/usr/local/bin/update_rag.sh"], check=True)
+        # Updated path to use script from within container
+        subprocess.run(["/app/scripts/update_rag.sh"], check=True)
         return {"status": "success"}
     except subprocess.CalledProcessError as e:
         raise HTTPException(status_code=500, detail=str(e))
