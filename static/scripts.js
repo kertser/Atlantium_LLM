@@ -12,7 +12,6 @@ function escapeHtml(unsafe) {
         .replace(/'/g, "&#039;");
 }
 
-// Modify the createContextMenu function in scripts.js
 function createContextMenu(e, fileName, filePath) {
     e.preventDefault();
     removeContextMenu();
@@ -23,7 +22,7 @@ function createContextMenu(e, fileName, filePath) {
 
     const menuItems = [];
 
-    // Configure menu items based on file type
+    // Only add Open option for PDF files
     if (fileExtension === 'pdf') {
         menuItems.push({
             label: 'Open',
@@ -31,20 +30,48 @@ function createContextMenu(e, fileName, filePath) {
                      <path fill="currentColor" d="M14 3v2H4v13.385L5.763 17H20v-7h2v8a1 1 0 0 1-1 1H5.105L2 22.5V4a1 1 0 0 1 1-1h11zm5 0V0h2v3h3v2h-3v3h-2V5h-3V3h3z"/>
                    </svg>`,
             action: async () => {
-                // Existing open action
+                try {
+                    const response = await fetch('/open/document', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ path: filePath })
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.detail);
+                    }
+
+                    const data = await response.json();
+                    if (data.url) {
+                        window.open(data.url, '_blank');
+                    } else {
+                        throw new Error('Invalid file URL received');
+                    }
+                } catch (error) {
+                    console.error('Open file error:', error);
+                    alert(error.message || 'Failed to open file');
+                }
             }
         });
     }
 
-    // Add download and delete for all file types
+    // Add Download and Delete options for all files
     menuItems.push(
         {
             label: 'Download',
             icon: `<svg viewBox="0 0 24 24" width="16" height="16">
                      <path fill="currentColor" d="M3 19h18v2H3v-2zm10-5.828L19.071 7.1l1.414 1.414L12 17 3.515 8.515 4.929 7.1 11 13.17V2h2v11.172z"/>
                    </svg>`,
-            action: async () => {
-                // Existing download action
+            action: () => {
+                try {
+                    window.location.href = `/download/document?path=${encodeURIComponent(filePath)}`;
+                } catch (error) {
+                    console.error('Download file error:', error);
+                    alert('Failed to download file');
+                }
             }
         },
         {
@@ -53,7 +80,23 @@ function createContextMenu(e, fileName, filePath) {
                      <path fill="currentColor" d="M7 4V2h10v2h5v2h-2v15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6H2V4h5z"/>
                    </svg>`,
             action: async () => {
-                // Existing delete action
+                if (confirm('Are you sure you want to delete this file?')) {
+                    try {
+                        const response = await fetch(`/delete/document?path=${encodeURIComponent(filePath)}`, {
+                            method: 'DELETE'
+                        });
+
+                        if (!response.ok) {
+                            const error = await response.json();
+                            throw new Error(error.detail);
+                        }
+
+                        await loadDocuments(currentFolderPath);
+                    } catch (error) {
+                        console.error('Delete file error:', error);
+                        alert(error.message || 'Failed to delete file');
+                    }
+                }
             }
         }
     );
@@ -76,11 +119,9 @@ function createContextMenu(e, fileName, filePath) {
         contextMenu.appendChild(menuItem);
     });
 
-    // Position the menu at the file name element
-    const fileNameElement = e.target;
-    const rect = fileNameElement.getBoundingClientRect();
-    contextMenu.style.left = `${rect.left}px`;
-    contextMenu.style.top = `${rect.bottom}px`;
+    // Position the menu
+    contextMenu.style.left = `${e.pageX}px`;
+    contextMenu.style.top = `${e.pageY}px`;
 
     // Ensure menu doesn't go off screen
     document.body.appendChild(contextMenu);
@@ -90,7 +131,7 @@ function createContextMenu(e, fileName, filePath) {
         contextMenu.style.left = `${window.innerWidth - menuRect.width - 5}px`;
     }
     if (menuRect.bottom > window.innerHeight) {
-        contextMenu.style.top = `${rect.top - menuRect.height}px`;
+        contextMenu.style.top = `${window.innerHeight - menuRect.height - 5}px`;
     }
 
     activeContextMenu = contextMenu;
@@ -357,10 +398,52 @@ function updateDocumentContextMenu() {
                 }
             }
         },
-        // ... [existing menu items for download and delete]
+        {
+            label: 'Download',
+            icon: `
+                <svg viewBox="0 0 24 24" width="16" height="16">
+                    <path fill="currentColor" d="M3 19h18v2H3v-2zm10-5.828L19.071 7.1l1.414 1.414L12 17 3.515 8.515 4.929 7.1 11 13.17V2h2v11.172z"/>
+                </svg>
+            `,
+            action: async (filePath) => {
+                try {
+                    window.location.href = `/download/document?path=${encodeURIComponent(filePath)}`;
+                } catch (error) {
+                    console.error('Download file error:', error);
+                    alert('Failed to download file');
+                }
+            }
+        },
+        {
+            label: 'Delete',
+            icon: `
+                <svg viewBox="0 0 24 24" width="16" height="16">
+                    <path fill="currentColor" d="M7 4V2h10v2h5v2h-2v15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6H2V4h5z"/>
+                </svg>
+            `,
+            action: async (filePath) => {
+                if (confirm('Are you sure you want to delete this file?')) {
+                    try {
+                        const response = await fetch(`/delete/document?path=${encodeURIComponent(filePath)}`, {
+                            method: 'DELETE'
+                        });
+
+                        if (!response.ok) {
+                            const error = await response.json();
+                            throw new Error(error.detail);
+                        }
+
+                        await loadDocuments(currentFolderPath);
+                    } catch (error) {
+                        console.error('Delete file error:', error);
+                        alert(error.message || 'Failed to delete file');
+                    }
+                }
+            }
+        }
     ];
 
-    // Update your existing createContextMenu function to use this menuItems array
+    return menuItems;
 }
 
 async function uploadDocument(file) {

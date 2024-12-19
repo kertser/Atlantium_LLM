@@ -1092,7 +1092,8 @@ async def open_document(path: str = Body(..., embed=True)):
         if not full_path.exists() or not full_path.is_file():
             raise HTTPException(status_code=404, detail="File not found")
 
-        # Return the URL to access the file via `/files`
+        # Return the absolute URL to access the file via `/files`
+        # Replace with your actual server URL if needed
         file_url = f"/files/{sanitized_path}"
         return {"status": "success", "url": file_url}
 
@@ -1293,9 +1294,12 @@ async def get_chat_history():
     return {"history": history}
 
 
-@app.get("/favicon.png")
+@app.get('/favicon.png', include_in_schema=False)
 async def favicon():
-    return FileResponse("static/favicon.png", media_type="image/x-icon")
+    favicon_path = Path('static/favicon.png')  # Create this file or adjust the path
+    if favicon_path.exists():
+        return FileResponse(favicon_path)
+    return {'status_code': 404}
 
 
 @app.post("/webhook")
