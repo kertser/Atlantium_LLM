@@ -1,5 +1,5 @@
 # Base image
-FROM python:3.10-slim as base
+FROM python:3.10-slim AS base
 
 # Set working directory
 WORKDIR /app
@@ -31,12 +31,12 @@ COPY requirements_cpu.txt requirements_gpu.txt install_requirements.sh ./
 RUN chmod +x install_requirements.sh
 
 # GPU stage
-FROM base as gpu
+FROM base AS gpu
 ENV USE_CPU=0
 RUN ./install_requirements.sh
 
 # CPU stage
-FROM base as cpu
+FROM base AS cpu
 ENV USE_CPU=1
 RUN ./install_requirements.sh
 

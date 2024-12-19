@@ -8,6 +8,9 @@
 * Play with similarity scores to have more precise answers. Pictures similarity needs to be better. Or choose the best percentile score
 * Continue playing with prompts, top_K and chunking to reduce hallucinations. (May be achieved with more data)
 * Need to remove header and footer of pdf/doc files form chinking/indexing - it is a garbage data. Similarly - prefaces, tables of content
+* Folders can also be deleted - make available checkboxes
+* Delete, Open and Download - not working
+* Move all the scripts and docker-related stuff to /scripts folder
 
 # TBDs for development:
 * Switch to MongoDB instead of metadata in files
