@@ -2,9 +2,9 @@
 
 # Configuration
 REPO_URL="https://github.com/kertser/Atlantium_LLM.git"
-APP_DIR="/home/ubuntu/Atlantium_LLM"
+APP_DIR="/home/user/Projects/Atlantium_LLM"
 LOG_FILE="/app/logs/updates/rag_update.log"  # Updated path
-BACKUP_DIR="/home/ubuntu/backups/rag"
+BACKUP_DIR="/home/user/backups/rag"
 DATE=$(date +%Y%m%d_%H%M%S)
 
 # Logging function
