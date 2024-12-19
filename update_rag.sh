@@ -1,11 +1,13 @@
 #!/bin/bash
 set -e
 
-# Configuration
+# Configuration with proper path handling
 REPO_URL="https://github.com/kertser/Atlantium_LLM.git"
-APP_DIR="/home/user/Projects/Atlantium_LLM"
-LOG_FILE="/app/logs/updates/rag_update.log"
-BACKUP_DIR="/home/user/backups/rag"
+ACTUAL_USER=${SUDO_USER:-${USER}}
+APP_DIR="/home/${ACTUAL_USER}/Projects/Atlantium_LLM"
+LOG_DIR="${APP_DIR}/logs/updates"
+LOG_FILE="${LOG_DIR}/rag_update.log"
+BACKUP_DIR="/home/${ACTUAL_USER}/backups/rag"
 DATE=$(date +%Y%m%d_%H%M%S)
 
 # Logging function
@@ -15,8 +17,12 @@ log() {
 
 # Create required directories
 mkdir -p "$BACKUP_DIR"
-mkdir -p "$(dirname "$LOG_FILE")"
+mkdir -p "$LOG_DIR"
 touch "$LOG_FILE"
+
+# Ensure proper permissions
+chown -R ${ACTUAL_USER}:${ACTUAL_USER} "$LOG_DIR"
+chown ${ACTUAL_USER}:${ACTUAL_USER} "$LOG_FILE"
 
 # Error handling
 trap 'log "Error occurred. Exit code: $?"' ERR
@@ -45,36 +51,36 @@ else
 fi
 
 # Set permissions
-if ! chown -R user:user "$APP_DIR"; then
-    log "Failed to set ownership of $APP_DIR"
-    exit 1
-fi
+chown -R ${ACTUAL_USER}:${ACTUAL_USER} "$APP_DIR"
+chmod -R 755 "$APP_DIR"
 
-if ! chmod -R 755 "$APP_DIR"; then
-    log "Failed to set permissions on $APP_DIR"
-    exit 1
-fi
-
-# Rebuild and restart service
+# Rebuild and restart service with proper cleanup
 if [ -f "docker-compose.yaml" ]; then
+    log "Stopping existing service"
+    docker-compose down -v  # Stop and remove volumes
+
+    log "Cleaning old images"
+    docker image prune -f
+
     log "Rebuilding service with fresh image"
-    docker-compose build --no-cache || {
+    DOCKER_BUILDKIT=1 docker-compose build --no-cache || {
         log "Build failed"
         exit 1
     }
 
-    log "Stopping existing service"
-    docker-compose down
-
     log "Starting updated service"
-    docker-compose --profile cpu up -d || {
+    docker-compose --profile cpu up -d --force-recreate || {
         log "Service startup failed"
         exit 1
     }
 
-    # Clean old images
-    log "Cleaning old images"
-    docker image prune -f
+    # Verify service is running
+    sleep 5
+    if ! docker ps | grep -q "atlantium_llm-web-app"; then
+        log "Service failed to start properly"
+        docker-compose logs
+        exit 1
+    fi
 else
     log "Error: docker-compose.yaml not found"
     exit 1
