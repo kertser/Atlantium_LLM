@@ -89,8 +89,8 @@ logging.basicConfig(
 
 def clean_path(path: str) -> str:
     """
-    Sanitizes a file path by removing traversal sequences and replacing separators
-    with the system-specific separator.
+    Sanitizes a file path by removing traversal sequences, decoding URL encoding,
+    and replacing separators with the system-specific separator.
 
     Args:
         path (str): The path to be cleaned.
@@ -98,8 +98,13 @@ def clean_path(path: str) -> str:
     Returns:
         str: The sanitized file path.
     """
-    cleaned = path.replace('..', '').strip('/').strip('\\')
-    return cleaned.replace('\\', os.path.sep).replace('/', os.path.sep)
+    # First, decode any URL encoding
+    decoded = unquote(path)
+    # Remove any potential path traversal
+    cleaned = decoded.replace('..', '').strip('/').strip('\\')
+    # Normalize path separators
+    normalized = cleaned.replace('\\', os.path.sep).replace('/', os.path.sep)
+    return normalized
 
 class NoCacheStaticFiles(StaticFiles):
     """
@@ -770,8 +775,8 @@ async def upload_document(file: UploadFile, folder: str = Form("")):
         dict: A success status and the relative path of the saved file.
     """
     try:
-        # Sanitize and validate folder path
-        clean_folder = folder.replace('..', '').strip('/').strip('\\')
+        # Clean and decode the folder path
+        clean_folder = clean_path(folder)
 
         # Create full target directory path
         target_dir = CONFIG.RAW_DOCUMENTS_PATH
@@ -782,8 +787,8 @@ async def upload_document(file: UploadFile, folder: str = Form("")):
                 raise HTTPException(status_code=403, detail="Invalid folder path")
             target_dir.mkdir(parents=True, exist_ok=True)
 
-        # Sanitize filename
-        sanitized_filename = os.path.basename(file.filename)
+        # Clean and decode filename
+        sanitized_filename = clean_path(file.filename)
         if not sanitized_filename:
             raise HTTPException(status_code=400, detail="Invalid filename")
 
@@ -810,9 +815,11 @@ async def upload_document(file: UploadFile, folder: str = Form("")):
         finally:
             await file.close()
 
+        # Return relative path without URL encoding
+        relative_path = str(dest_path.relative_to(CONFIG.RAW_DOCUMENTS_PATH))
         return {
             "status": "success",
-            "path": str(dest_path.relative_to(CONFIG.RAW_DOCUMENTS_PATH))
+            "path": relative_path
         }
 
     except HTTPException:
@@ -1069,7 +1076,7 @@ async def serve_file(file_path: str):
 @app.post("/open/document")
 async def open_document(path: str = Body(..., embed=True)):
     try:
-        sanitized_path = clean_path(unquote(path))
+        sanitized_path = clean_path(path)
         full_path = CONFIG.RAW_DOCUMENTS_PATH / sanitized_path
 
         # Ensure the file exists and is accessible
@@ -1091,7 +1098,7 @@ async def download_document(path: str):
     """Download a document."""
     try:
         # Clean and validate the path
-        clean_file_path = clean_path(unquote(path))
+        clean_file_path = clean_path(path)
         full_path = CONFIG.RAW_DOCUMENTS_PATH / clean_file_path
 
         # Security check
@@ -1117,8 +1124,7 @@ async def delete_document(path: str):
     """Delete a document and remove it from RAG."""
     try:
         # Properly decode URL-encoded path
-        decoded_path = unquote(path)
-        clean_file_path = clean_path(decoded_path)
+        clean_file_path = clean_path(path)
         full_path = CONFIG.RAW_DOCUMENTS_PATH / clean_file_path
 
         logging.info(f"Received request to delete document: {full_path}")
@@ -1161,7 +1167,7 @@ async def create_new_folder(
 ):
     """Create a new folder."""
     try:
-        clean_parent_path = clean_path(unquote(parent_path))
+        clean_parent_path = clean_path(parent_path)
         full_parent_path = CONFIG.RAW_DOCUMENTS_PATH / clean_parent_path
 
         # Security check
@@ -1182,7 +1188,7 @@ async def create_new_folder(
 async def delete_folder(path: str):
     """Delete a folder and remove its contents from RAG."""
     try:
-        clean_folder_path = clean_path(unquote(path))
+        clean_folder_path = clean_path(path)
         full_path = CONFIG.RAW_DOCUMENTS_PATH / clean_folder_path
 
         # Security check
@@ -1219,9 +1225,7 @@ async def rename_folder(
 ):
     """Rename a folder and update RAG references."""
     try:
-        # Decode the URL-encoded path
-        decoded_path = unquote(path)
-        clean_folder_path = clean_path(decoded_path)
+        clean_folder_path = clean_path(path)
         full_path = CONFIG.RAW_DOCUMENTS_PATH / clean_folder_path
 
         # Security check
