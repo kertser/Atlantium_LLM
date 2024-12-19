@@ -25,7 +25,7 @@ RUN useradd -m -u 1000 appuser \
     && chown -R appuser:appuser /app
 
 # Copy requirements files and installation script
-COPY requirements_cpu.txt requirements_gpu.txt install_requirements.sh ./
+COPY requirements_cpu.txt requirements_gpu.txt scripts/install_requirements.sh ./
 
 # Set execute permissions on the script
 RUN chmod +x install_requirements.sh
@@ -46,6 +46,7 @@ FROM ${BUILD_TYPE:-cpu}
 USER root
 # Copy application code and set permissions
 COPY --chown=appuser:appuser . .
+COPY scripts/docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
 
 # Create necessary directories with correct permissions
