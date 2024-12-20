@@ -27,9 +27,11 @@
 set -e
 
 # Detect user environment
+SERVICE_VERSION="1.0.0"
 CURRENT_USER=${SUDO_USER:-$USER}
-USER_HOME=$(eval echo ~$CURRENT_USER)
-APP_DIR=${APP_DIR:-"$USER_HOME/Projects/Atlantium_LLM"}
+USER_HOME=$(eval echo ~"$CURRENT_USER")
+APP_DIR=${APP_DIR:-"$USER_HOME/Projects/Atlantium_LLM"
+SCRIPTS_DIR="$APP_DIR/scripts/update_service"
 LOG_DIR="$APP_DIR/logs/updates"
 BACKUP_DIR="$APP_DIR/backups"
 CONTAINER_NAME=${CONTAINER_NAME:-"atlantium_llm-web-app-1"}
@@ -79,10 +81,9 @@ verify_installation() {
     if [ ! -d "$APP_DIR" ]; then
         error_exit "Application directory not found: $APP_DIR"
     fi
-    
     if [ ! -f "$APP_DIR/docker-compose.yaml" ]; then
         error_exit "docker-compose.yaml not found in $APP_DIR"
-    }
+    fi
 }
 
 # Function to create backup (excluding Docker volumes)
@@ -220,6 +221,7 @@ verify_update() {
 
 # Main update process
 main() {
+    log "Update service version: $SERVICE_VERSION"
     log "Starting update process..."
     log "Using APP_DIR: $APP_DIR"
     log "Running as user: $CURRENT_USER"

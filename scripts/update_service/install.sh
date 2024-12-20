@@ -48,21 +48,21 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 # Add user to docker group if needed
-if ! groups $CURRENT_USER | grep -q docker; then
+if ! groups "$CURRENT_USER" | grep -q docker; then
     echo "Adding $CURRENT_USER to docker group..."
-    usermod -aG docker $CURRENT_USER
+    usermod -aG docker "$CURRENT_USER"
 fi
 
 # Create project directory structure
 echo "Creating directory structure..."
-mkdir -p "$APP_DIR/scripts"
+mkdir -p "$APP_DIR/scripts/update_service"
 mkdir -p "$APP_DIR/logs/updates"
 mkdir -p "$APP_DIR/backups"
 
 # Install the update script
 echo "Installing update script..."
-cp release_update.sh "$APP_DIR/scripts/"
-chmod +x "$APP_DIR/scripts/release_update.sh"
+cp release_update.sh "$APP_DIR/scripts/update_service"
+chmod +x "$APP_DIR/scripts/update_service/release_update.sh"
 
 # Create systemd service file
 echo "Creating systemd service..."
@@ -86,7 +86,7 @@ Environment="LOG_LEVEL=INFO"
 
 # Execution
 ExecStartPre=/bin/mkdir -p \${LOG_DIR}/updates
-ExecStart=$APP_DIR/scripts/release_update.sh
+ExecStart=$APP_DIR/scripts/update_service/release_update.sh
 
 # Restart configuration
 Restart=on-failure
@@ -99,7 +99,7 @@ NoNewPrivileges=yes
 ProtectSystem=full
 ProtectHome=read-only
 PrivateTmp=yes
-ProtectKernelTunables=yes
+ProtectKernelEnables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
@@ -113,8 +113,8 @@ EOF
 
 # Set proper permissions
 echo "Setting permissions..."
-chown -R $CURRENT_USER:$CURRENT_USER "$APP_DIR"
-chmod 755 "$APP_DIR/scripts/release_update.sh"
+chown -R "$CURRENT_USER":"$CURRENT_USER" "$APP_DIR"
+chmod 755 "$APP_DIR/scripts/update_service/release_update.sh"
 
 # Setup log rotation
 echo "Configuring log rotation..."
@@ -151,7 +151,7 @@ echo "  sudo systemctl disable atlantium-update"
 echo "  sudo rm /etc/systemd/system/atlantium-update.service"
 
 # Warning about docker group
-if groups $CURRENT_USER | grep -q docker; then
+if groups "$CURRENT_USER" | grep -q docker; then
     echo -e "\nIMPORTANT: You've been added to the docker group."
     echo "Please log out and back in for this change to take effect."
 fi

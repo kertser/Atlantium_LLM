@@ -110,13 +110,13 @@ git clone https://github.com/kertser/Atlantium_LLM.git
 cd Atlantium_LLM
 
 # Run installer
-sudo ./install.sh
+sudo ./scripts/update_service/install.sh
 ```
 
 ### Custom Installation
 If you want to install to a different location:
 ```bash
-sudo APP_DIR=/your/custom/path ./install.sh
+sudo APP_DIR=/your/custom/path ./scripts/update_service/install.sh
 ```
 
 ### Directory Structure
@@ -124,10 +124,11 @@ sudo APP_DIR=/your/custom/path ./install.sh
 ~/Projects/Atlantium_LLM/
 ├── logs/
 │   └── updates/        # Update logs
-├── backups/           # Code backups (not data)
-├── scripts/           # Update scripts
-├── RAG_Data/         # Persisted RAG data (Docker volume)
-├── Raw Documents/    # Persisted documents (Docker volume)
+├── backups/            # Code backups (not data)
+├── scripts/            # gereral scripts
+│   └── update_service/ # Update service scripts
+├── RAG_Data/           # Persisted RAG data (Docker volume)
+├── Raw Documents/      # Persisted documents (Docker volume)
 └── ... (application files)
 ```
 

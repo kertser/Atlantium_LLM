@@ -14,6 +14,8 @@ Description=Atlantium RAG Release Update Service
 Documentation=https://github.com/kertser/Atlantium_LLM
 After=network.target docker.service
 Wants=docker.service
+StartLimitIntervalSec=300
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -32,13 +34,11 @@ SupplementaryGroups=docker
 
 # Execution
 ExecStartPre=/bin/mkdir -p ${LOG_DIR}/updates
-ExecStart=${APP_DIR}/scripts/release_update.sh
+ExecStart=${APP_DIR}/scripts/update_service/release_update.sh
 
 # Restart configuration
 Restart=on-failure
 RestartSec=60
-StartLimitInterval=300
-StartLimitBurst=3
 
 # Security hardening (but allow docker and home access)
 NoNewPrivileges=yes
