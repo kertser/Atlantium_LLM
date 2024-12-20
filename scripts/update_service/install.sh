@@ -61,7 +61,6 @@ mkdir -p "$APP_DIR/backups"
 
 # Install the update script
 echo "Installing update script..."
-cp release_update.sh "$APP_DIR/scripts/update_service"
 chmod +x "$APP_DIR/scripts/update_service/release_update.sh"
 
 # Create systemd service file
