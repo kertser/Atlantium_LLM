@@ -26,7 +26,6 @@ from config import CONFIG
 from typing import Any, Tuple, List
 import faiss
 import hashlib
-import gc
 from tqdm import tqdm
 from utils.FAISS_utils import (
     initialize_faiss_index,
@@ -214,7 +213,7 @@ def process_incrementally(docs, batch_size=5):
             # Save progress
             update_processed_files(batch)
             # Cleanup after each batch
-            metadata, index = cleanup_metadata(load_metadata(), load_index())
+            metadata, index = cleanup_metadata(load_metadata(), load_faiss_index())
             save_metadata(metadata)
             save_faiss_index(index)
         except Exception as e:

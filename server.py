@@ -33,7 +33,7 @@ from logging.handlers import RotatingFileHandler
 import json
 from dotenv import load_dotenv
 from PIL import Image
-from typing import Optional, List, Dict, Tuple, Any, Union
+from typing import Optional, List, Dict, Tuple, Any
 from dataclasses import field
 import base64
 from io import BytesIO
@@ -46,8 +46,6 @@ from fastapi import Body
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 import shutil
-import hmac
-import hashlib
 import subprocess
 import faiss
 from datetime import datetime
@@ -59,7 +57,7 @@ from utils.image_store import ImageStore
 from utils.image_utils import deduplicate_images, zero_shot_classification
 from models.prompt_loader import PromptLoader
 from models.prompts import PromptBuilder
-from urllib.parse import unquote, quote
+from urllib.parse import unquote
 from utils.document_utils import (
     remove_document_from_rag,
     delete_folder_from_rag,

@@ -1,4 +1,5 @@
 
+import os
 from dataclasses import dataclass
 from typing import List
 from pathlib import Path
@@ -34,7 +35,7 @@ class Config:
     CHUNK_OVERLAP: int = 100
     MIN_CHUNK_SIZE: int = 100
     CHUNK_SIZE: int = 1000  # Optimal for larger content. Smaller chunks are more selective, but harder to compare
-    SIMILARITY_THRESHOLD: float = 0.8  # Text similarity
+    SIMILARITY_THRESHOLD: float = 0.75  # Text similarity
     IMAGE_SIMILARITY_THRESHOLD: float = 0.25  # Image similarity
     TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.6  # Technical confidence
     SUPPORTED_EXTENSIONS: List[str] = None
@@ -50,9 +51,9 @@ class Config:
         return True
 
     # Token limits for completeness
-    MAX_TOKENS: int = 1000
-    SUMMARY_MAX_TOKENS: int = 500  # Setting for summaries
-    DETAIL_MAX_TOKENS: int = 1500  # Setting for detailed responses
+    MAX_TOKENS: int = 2000
+    SUMMARY_MAX_TOKENS: int = 100  # Setting for summaries
+    DETAIL_MAX_TOKENS: int = 3000  # Setting for detailed responses
 
     # Query Configuration
     DEFAULT_TOP_K: int = 5
@@ -84,6 +85,7 @@ class Config:
             self.STORED_IMAGES_PATH = Path(self.STORED_IMAGES_PATH)
             self.STORED_TEXT_CHUNKS_PATH = Path(self.STORED_TEXT_CHUNKS_PATH)
             self.LOG_PATH = Path(self.LOG_PATH)
+
 
 # Create global config instance
 CONFIG = Config()
