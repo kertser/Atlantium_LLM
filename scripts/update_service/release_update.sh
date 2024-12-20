@@ -30,7 +30,7 @@ set -e
 SERVICE_VERSION="1.0.0"
 CURRENT_USER=${SUDO_USER:-$USER}
 USER_HOME=$(eval echo ~"$CURRENT_USER")
-APP_DIR=${APP_DIR:-"$USER_HOME/Projects/Atlantium_LLM"
+APP_DIR=${APP_DIR:-"$USER_HOME/Projects/Atlantium_LLM"}
 SCRIPTS_DIR="$APP_DIR/scripts/update_service"
 LOG_DIR="$APP_DIR/logs/updates"
 BACKUP_DIR="$APP_DIR/backups"

@@ -71,6 +71,8 @@ Description=Atlantium RAG Release Update Service
 Documentation=https://github.com/kertser/Atlantium_LLM
 After=network.target docker.service
 Wants=docker.service
+StartLimitIntervalSec=300
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -82,29 +84,33 @@ WorkingDirectory=$APP_DIR
 Environment="APP_DIR=$APP_DIR"
 Environment="LOG_DIR=$APP_DIR/logs"
 Environment="LOG_LEVEL=INFO"
+Environment="DOCKER_BUILDKIT=1"
+Environment="HOME=$USER_HOME"
+Environment="SCRIPTS_DIR=$APP_DIR/scripts/update_service"
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# Docker socket access
+SupplementaryGroups=docker
 
 # Execution
 ExecStartPre=/bin/mkdir -p \${LOG_DIR}/updates
-ExecStart=$APP_DIR/scripts/update_service/release_update.sh
+ExecStart=/bin/bash $APP_DIR/scripts/update_service/release_update.sh
 
 # Restart configuration
 Restart=on-failure
 RestartSec=60
-StartLimitInterval=300
-StartLimitBurst=3
 
-# Security hardening
+# Security hardening (but allow docker and home access)
 NoNewPrivileges=yes
 ProtectSystem=full
 ProtectHome=read-only
 PrivateTmp=yes
-ProtectKernelEnables=yes
+ProtectKernelTunables=yes
 ProtectKernelModules=yes
-ProtectControlGroups=yes
+ProtectControlGroups=no  # Required for Docker
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-RestrictNamespaces=yes
+RestrictNamespaces=no    # Required for Docker
 RestrictRealtime=yes
-SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target
