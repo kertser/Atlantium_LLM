@@ -9,7 +9,6 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
         python3-dev \
-        git \
         netcat-traditional \
         pciutils \
     && rm -rf /var/lib/apt/lists/*

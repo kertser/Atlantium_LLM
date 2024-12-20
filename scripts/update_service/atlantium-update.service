@@ -1,0 +1,56 @@
+# atlantium-update.service
+#
+# Purpose: Systemd service configuration for Atlantium RAG update service
+# Location: /etc/systemd/system/atlantium-update.service
+#
+# This service:
+# - Monitors and updates the Atlantium RAG application
+# - Runs with restricted permissions for security
+# - Automatically restarts on failure
+# - Manages dependencies and startup order
+
+[Unit]
+Description=Atlantium RAG Release Update Service
+Documentation=https://github.com/kertser/Atlantium_LLM
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=%i
+Group=docker
+WorkingDirectory=%h/Projects/Atlantium_LLM
+
+# Environment variables
+Environment="APP_DIR=%h/Projects/Atlantium_LLM"
+Environment="LOG_DIR=%h/Projects/Atlantium_LLM/logs"
+Environment="LOG_LEVEL=INFO"
+Environment="DOCKER_BUILDKIT=1"
+
+# Docker socket access
+SupplementaryGroups=docker
+
+# Execution
+ExecStartPre=/bin/mkdir -p ${LOG_DIR}/updates
+ExecStart=${APP_DIR}/scripts/release_update.sh
+
+# Restart configuration
+Restart=on-failure
+RestartSec=60
+StartLimitInterval=300
+StartLimitBurst=3
+
+# Security hardening (but allow docker and home access)
+NoNewPrivileges=yes
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=no  # Required for Docker
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=no    # Required for Docker
+RestrictRealtime=yes
+
+[Install]
+WantedBy=multi-user.target

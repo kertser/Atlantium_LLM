@@ -9,12 +9,6 @@
 # And then trigger the processing:
 # curl -X POST "http://server_ip:9000/process/documents"
 
-## Trigger github webhook manually:
-# curl -X POST http://localhost:9000/webhook \
-#  -H "X-Hub-Signature-256: sha256=$(echo -n "AtlantiumTechnologies1625" | openssl dgst -binary -sha256 | xxd -p -c 256)" \
-#  -d '{"ref":"refs/heads/master"}'
-## This should trigger the update process and one should see similar logs as a manual update.
-
 ## General commands:
 # Remove all containers
 # docker rm -f $(docker ps -a -q)
@@ -58,7 +52,6 @@ services:
       - raw_docs:/app/Raw Documents
       - rag_data:/app/RAG_Data
       - logs:/app/logs
-      - ./scripts/update_rag.sh:/app/scripts/update_rag.sh:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME}/.docker/config.json:/root/.docker/config.json:ro
     env_file:
@@ -84,7 +77,6 @@ services:
       - raw_docs:/app/Raw Documents
       - rag_data:/app/RAG_Data
       - logs:/app/logs
-      - ./scripts/update_rag.sh:/app/scripts/update_rag.sh:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME}/.docker/config.json:/root/.docker/config.json:ro
     env_file:
