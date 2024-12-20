@@ -24,7 +24,7 @@ set -e
 
 # Detect user environment
 CURRENT_USER=${SUDO_USER:-$USER}
-USER_HOME=$(eval echo ~$CURRENT_USER)
+USER_HOME=$(eval echo ~"$CURRENT_USER")
 DEFAULT_APP_DIR="$USER_HOME/Projects/Atlantium_LLM"
 
 # Allow override of installation directory

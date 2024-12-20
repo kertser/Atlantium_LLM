@@ -1,10 +1,12 @@
-# Technical Reference Documentation
+# Technical Reference
+
+This document provides comprehensive technical details about the Atlantium RAG system. For basic setup, see our [Installation Guide](installation.md).
 
 ## System Overview
 
-The Atlantium LLM system is a Retrieval-Augmented Generation (RAG) platform that combines document processing, vector embeddings, and language models to provide technical assistance for UV systems.
+The Atlantium LLM system is a Retrieval-Augmented Generation (RAG) platform that combines document processing, vector embeddings, and language models to provide technical assistance for UV systems. For user interface details, see our [Frontend Documentation](frontend.md).
 
-### Architecture Overview
+### Architecture Diagram
 
 ```mermaid
 graph TD
@@ -20,158 +22,121 @@ graph TD
 
 ## Directory Structure
 
-```
+```plaintext
 Atlantium_LLM/
 ├── config.py                   # System configuration
-├── server.py                   # FastAPI server implementation
-├── RAG_processor.py            # Document processing engine
-├── run.py                      # Server runner
-├── docker/                     # Container configuration
-│   ├── Dockerfile              # Container build instructions
-│   └── docker-compose.yaml     # Service orchestration
+├── server.py                   # FastAPI server
+├── RAG_processor.py           # Document processor
+├── run.py                     # Server runner
 ├── scripts/
-│   ├── docker-entrypoint.sh    # Container entry point
-│   ├── install_requirements.sh # Dependency installation
-│   └── update_rag.sh           # RAG system updater
-├── models/                     # AI model components
-│   ├── prompt_loader.py        # Template management
-│   ├── prompts.py              # Prompt construction
+│   ├── update_service/        # Update system components
+│   ├── docker-entrypoint.sh   # Container entry
+│   └── install_requirements.sh # Dependencies
+├── models/                    # AI model components
+│   ├── prompt_loader.py       # Template management
+│   ├── prompts.py            # Prompt construction
 │   └── templates/
-│       └── prompts.yaml        # System prompts
-├── utils/                      # Utility modules
-│   ├── FAISS_utils.py          # Vector operations
-│   ├── image_utils.py          # Image processing
-│   ├── LLM_utils.py            # LLM integration
-│   ├── RAG_utils.py            # Document processing
-│   ├── document_utils.py       # File operations
-│   └── image_store.py          # Image management
-├── static/                     # Frontend assets
-│   ├── index.html              # Web interface
-│   ├── styles.css              # UI styling
-│   ├── scripts.js              # Client-side logic
-│   └── favicon.png             # Site icon
-├── RAG_Data/                   # Generated data
-│   ├── stored_images/          # Processed images
-│   ├── stored_text_chunks/     # Text segments
-│   ├── faiss_index.bin         # Vector index
-│   └── metadata.json           # Index metadata
-├── Raw Documents/              # Source documents
-└── logs/                       # System logs
-    └── system.log              # Main log file
+│       └── prompts.yaml       # System prompts
+├── utils/                     # Utility modules
+│   ├── FAISS_utils.py        # Vector operations
+│   ├── image_utils.py        # Image processing
+│   ├── LLM_utils.py          # LLM integration
+│   ├── RAG_utils.py          # Document processing
+│   ├── document_utils.py     # File operations
+│   └── image_store.py        # Image management
+├── static/                   # Frontend assets
+│   ├── index.html            # Web interface
+│   ├── styles.css           # UI styling
+│   └── scripts.js           # Client logic
+└── docs/                    # Documentation
+    ├── installation.md      # Setup guide
+    ├── update-service.md    # Update system
+    ├── frontend.md         # UI documentation
+    ├── models.md           # AI model details
+    └── utils.md            # Utilities guide
 ```
 
 ## Core Components
 
-### 1. Server Implementation (server.py)
+### 1. Server Implementation
 
-#### RAGQueryServer
-Primary server class managing query processing and response generation.
+The FastAPI server ([server.py](../server.py)) manages query processing and response generation. For frontend details, see our [Frontend Documentation](frontend.md).
 
 ```python
 class RAGQueryServer:
     def __init__(self):
-        """Initialize server with CLIP model, FAISS index, and image store."""
-        self.openai_api_key = os.getenv("OPENAI_API_KEY")
-        self.model, self.processor, self.device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
+        """Initialize with CLIP model, FAISS index, and image store."""
+        self.model, self.processor = CLIP_init(CONFIG.CLIP_MODEL_NAME)
         self.index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
         self.image_store = ImageStore(CONFIG.STORED_IMAGES_PATH)
 
     async def process_text_query(
         self, 
-        query_text: str, 
+        query_text: str,
         top_k: int = CONFIG.DEFAULT_TOP_K
     ) -> QueryResponse:
         """Process text queries with context retrieval."""
 
     async def process_image_query(
-        self, 
-        image_data: bytes, 
+        self,
+        image_data: bytes,
         query_text: Optional[str] = None
     ) -> str:
         """Process image-based queries."""
 ```
 
-### 2. Document Processing (RAG_processor.py)
+### 2. Document Processing
 
-Handles document ingestion and processing:
+The RAG processor ([RAG_processor.py](../RAG_processor.py)) handles document ingestion and processing. For update procedures, see our [Update Service Guide](update-service.md).
 
 ```python
 def process_documents(
     model, 
-    processor, 
-    device, 
-    index, 
-    metadata, 
-    image_store, 
+    processor,
+    device,
+    index,
+    metadata,
+    image_store,
     doc_paths=None
 ) -> Tuple[faiss.Index, List[Dict]]:
-    """
-    Process documents to extract text and images, generate embeddings,
-    and update FAISS index.
-    
-    Args:
-        model: CLIP model instance
-        processor: CLIP processor
-        device: Computing device (CPU/GPU)
-        index: FAISS index
-        metadata: Index metadata
-        image_store: ImageStore instance
-        doc_paths: Optional list of document paths
-        
-    Returns:
-        Updated index and metadata
-    """
+    """Process documents and update FAISS index."""
 ```
 
-### 3. Vector Operations (FAISS_utils.py)
+### 3. Model Integration
 
-FAISS index management and vector operations:
+For detailed information about models and prompts, see our [Models Documentation](models.md).
 
 ```python
-def initialize_faiss_index(
-    dimension: int = CONFIG.EMBEDDING_DIMENSION,
-    use_gpu: bool = CONFIG.USE_GPU
-) -> faiss.Index:
-    """Initialize FAISS index with optional GPU support."""
-    
-def add_to_faiss(
-    embedding: np.ndarray,
-    source_file_name: str,
-    content_type: str,
-    content: Dict,
-    index: faiss.Index,
-    metadata: List[Dict],
-    processed_ids: Set[str] = None
-) -> bool:
-    """Add embedding to FAISS index with metadata."""
+# CLIP initialization
+model, processor = CLIP_init(CONFIG.CLIP_MODEL_NAME)
+
+# LLM integration
+response = openai_post_request(
+    messages=messages,
+    model_name=CONFIG.GPT_MODEL,
+    max_tokens=CONFIG.MAX_TOKENS,
+    temperature=CONFIG.TEMPERATURE
+)
 ```
 
-### 4. Image Processing (image_utils.py)
+### 4. Utility Functions
 
-Image analysis and processing utilities:
+For comprehensive utilities documentation, see our [Utils Documentation](utils.md).
 
 ```python
-def zero_shot_classification(
-    image: Union[Image.Image, str],
-    labels: List[str],
-    model: Any,
-    processor: Any,
-    device: str
-) -> Tuple[str, float]:
-    """Classify images using CLIP zero-shot classification."""
+# Vector operations
+index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION)
+add_to_faiss(embedding, source_file, content_type, content, index)
 
-def deduplicate_images(
-    images: List[Dict],
-    max_images: int = 8
-) -> List[Dict]:
-    """Remove duplicate images using perceptual hashing."""
+# Image processing
+image_class = zero_shot_classification(image, labels, model)
+unique_images = deduplicate_images(images, max_images=8)
 ```
 
 ## API Endpoints
 
 ### Document Management
 
-#### Upload Document
 ```http
 POST /upload/document
 Content-Type: multipart/form-data
@@ -179,53 +144,26 @@ Content-Type: multipart/form-data
 Parameters:
 - file: File (PDF, DOCX, XLSX)
 - folder: string (optional)
-
-Response:
-{
-    "status": "success",
-    "path": "path/to/document"
-}
 ```
 
-#### Process Documents
 ```http
 POST /process/documents
 
-Response:
-{
+Response: {
     "status": "success"
 }
 ```
 
 ### Query Processing
 
-#### Text Query
 ```http
 POST /query/text
 Content-Type: application/x-www-form-urlencoded
 
 Parameters:
 - query: string
-
-Response:
-{
-    "status": "success",
-    "response": {
-        "text_response": string,
-        "images": [
-            {
-                "image": string (base64),
-                "caption": string,
-                "context": string,
-                "source": string,
-                "similarity": float
-            }
-        ]
-    }
-}
 ```
 
-#### Image Query
 ```http
 POST /query/image
 Content-Type: multipart/form-data
@@ -233,26 +171,11 @@ Content-Type: multipart/form-data
 Parameters:
 - image: File
 - query: string (optional)
-
-Response:
-{
-    "response": string
-}
-```
-
-## Configuration
-
-### Environment Variables (.env)
-```plaintext
-OPENAI_API_KEY=your_api_key_here
-CONTAINER_NAME=atlantium_llm-web-app-1
-USE_CPU=0
-GITHUB_WEBHOOK_SECRET=your_webhook_secret
 ```
 
 ## Data Flow
 
-### 1. Document Processing Flow
+### 1. Document Processing
 ```mermaid
 sequenceDiagram
     participant U as User
@@ -269,7 +192,7 @@ sequenceDiagram
     S->>U: Success Response
 ```
 
-### 2. Query Processing Flow
+### 2. Query Processing
 ```mermaid
 sequenceDiagram
     participant U as User
@@ -287,24 +210,20 @@ sequenceDiagram
 
 ## Performance Optimization
 
-### 1. Batch Processing
-- Configure optimal batch size in config.py
+### 1. Resource Management
+- Configure batch sizes in [config.py](../config.py)
 - Monitor memory usage during processing
-- Adjust based on available resources
+- Implement proper GPU cleanup
 
-### 2. GPU Utilization
-- Enable GPU support when available
-- Monitor GPU memory usage
-- Implement proper cleanup
+### 2. Index Optimization
+- Regular maintenance tasks
+- Periodic deduplication
+- Optimal chunk sizing
 
-### 3. Index Optimization
-- Regular index maintenance
-- Periodic cleanup of unused vectors
-- Optimal chunk size configuration
+For deployment configurations, see our [Installation Guide](installation.md).
 
 ## Monitoring and Logging
 
-### Log Configuration
 ```python
 logging.basicConfig(
     level=logging.INFO,
@@ -316,18 +235,35 @@ logging.basicConfig(
 )
 ```
 
-## Support and Maintenance
+## Troubleshooting Guide
 
-### System Updates
-- Regular dependency updates
-- Security patches
-- Performance optimizations
-- Bug fixes
+### Common Issues
 
-### Backup Procedures
-- Regular index backups
-- Document backups
-- Configuration backups
-- Log rotation
+1. Memory Management:
+   - Monitor resource usage
+   - Adjust batch sizes
+   - Implement cleanup routines
 
-For additional support, contact [Atlantium Technologies Support](mailto:support@atlantium.com).
+2. GPU Utilization:
+   - Check NVIDIA drivers
+   - Monitor GPU memory
+   - Handle OOM errors
+
+3. Index Maintenance:
+   - Regular optimization
+   - Error handling
+   - Backup procedures
+
+For installation-related issues, see our [Installation Guide](installation.md#troubleshooting).
+
+## Related Documentation
+
+- [Installation Guide](installation.md) - Setup instructions
+- [Update Service Guide](update-service.md) - Automatic updates
+- [Frontend Documentation](frontend.md) - Web interface
+- [Models Documentation](models.md) - AI components
+- [Utils Documentation](utils.md) - Utility functions
+
+## Support
+
+For technical support, contact [Mike Kertser](mailto:mikek@atlantium.com).
