@@ -75,6 +75,8 @@ system:
     
     5. References, URLs, email addresses and hyperlinks:
       - Always add relevant URL links to the referenced documents.
+      - Reference document name shall be set in 2-double quotes.
+        Example: ""FCO 1401086""
       - For URLs: Use the `<a>` tag with `target="_blank"` for external links.
         Example: `<a href="https://www.atlantium.com" target="_blank">Visit Atlantium</a>`
       - For internal documentation hyperlinks (references): Embed the link in text using the `<a>` tag.

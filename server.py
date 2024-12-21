@@ -442,6 +442,78 @@ class RAGQueryServer:
     def prepare_messages(self, prompt: str) -> List[Dict[str, str]]:
         return self.formatter.prepare_messages(prompt)
 
+    def get_images_from_referenced_documents(self, response_text: str) -> List[Dict]:
+        """
+        Get images from documents referenced in the OpenAI response text.
+        Documents are referenced using double-double quotes, e.g., ""Document ID""
+
+        Args:
+            response_text: The text response from OpenAI containing document references
+
+        Returns:
+            List of relevant images with their metadata
+        """
+        try:
+            # Extract document references using double-double quotes pattern
+            referenced_docs = set()
+            matches = re.finditer(r'""([^"]+)""', response_text)
+
+            for match in matches:
+                doc_ref = match.group(1).strip()
+                # Remove any spaces from reference for matching
+                doc_ref = doc_ref.replace(' ', '')
+                referenced_docs.add(doc_ref)
+                logging.info(f"Found document reference: {doc_ref}")
+
+            if not referenced_docs:
+                logging.info("No document references found in response")
+                return []
+
+            # Load image metadata
+            with open(CONFIG.IMAGE_METADATA_PATH, 'r', encoding='utf-8') as f:
+                image_metadata = json.load(f)
+
+            # Get images from referenced documents
+            relevant_images = []
+            processed_ids = set()
+
+            for image_id, img_data in image_metadata.items():
+                source_doc = img_data.get('source_document', '')
+
+                # Remove spaces and special characters from source_doc for matching
+                clean_source = re.sub(r'[\s\-_.]', '', source_doc)
+
+                # Check if any reference matches this source
+                for doc_ref in referenced_docs:
+                    if doc_ref in clean_source:
+                        if image_id not in processed_ids:
+                            try:
+                                base64_image = self.image_store.get_base64_image(image_id)
+                                if base64_image:
+                                    image_info = {
+                                        'image': base64_image,
+                                        'image_id': image_id,
+                                        'caption': img_data.get('caption', ''),
+                                        'context': img_data.get('context', ''),
+                                        'source': source_doc,
+                                        'page_number': img_data.get('page_number'),
+                                        'width': img_data.get('width'),
+                                        'height': img_data.get('height')
+                                    }
+                                    relevant_images.append(image_info)
+                                    processed_ids.add(image_id)
+                                    logging.info(f"Added image {image_id} from document {source_doc}")
+                            except Exception as e:
+                                logging.error(f"Error processing image {image_id}: {e}")
+                            break
+
+            logging.info(f"Found {len(relevant_images)} images from {len(referenced_docs)} referenced documents")
+            return relevant_images
+
+        except Exception as e:
+            logging.error(f"Error getting images from response: {e}")
+            return []
+
     def process_text_query(self, query_text: str, top_k: int = CONFIG.DEFAULT_TOP_K) -> QueryResponse:
         try:
             logging.info(f"Processing query: {query_text}")
@@ -470,8 +542,8 @@ class RAGQueryServer:
                 text_response = self.formatter.prompt_builder.build_no_answer_message(query_text)[1]['content']
                 return QueryResponse(text_response=text_response, images=[])
 
-            # Get contexts and images
-            contexts, images = self.get_relevant_contexts(results, query_text)
+            # Get contexts only (ignore images from initial search)
+            contexts, _ = self.get_relevant_contexts(results, query_text)
 
             # Handle conflict scenarios
             if len(contexts) > 1 and "conflicting" in query_text.lower():
@@ -486,14 +558,9 @@ class RAGQueryServer:
                 ambiguity_response = self.formatter.prompt_builder.build_ambiguity_message(query_text)
                 return QueryResponse(text_response=ambiguity_response[1]['content'], images=[])
 
-            # Deduplicate images
-            if images:
-                images = deduplicate_images(images)
-                logging.info(f"After deduplication: {len(images)} unique images")
-
             # Prepare prompt and get GPT response
             query_type = self.determine_query_type(query_text)
-            prompt = self.prepare_prompt(query_text, contexts, query_type, images)
+            prompt = self.prepare_prompt(query_text, contexts, query_type, [])  # No images in prompt
 
             response = openai_post_request(
                 messages=self.prepare_messages(prompt),
@@ -505,6 +572,13 @@ class RAGQueryServer:
 
             text_response = response['choices'][0]['message']['content'].strip()
             text_response = self.formatter.format_response(text_response)
+
+            # Get images from documents referenced in the response
+            images = self.get_images_from_referenced_documents(text_response)
+
+            if images:
+                images = deduplicate_images(images)
+                logging.info(f"After deduplication: {len(images)} unique images")
 
             # Update chat history
             self.chat_history.append({"role": "user", "content": query_text})

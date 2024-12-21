@@ -31,9 +31,9 @@ class Config:
     USE_GPU: bool = True
 
     # Thresholds (not percentiles)
-    SIMILARITY_THRESHOLD: float = 0.7  # Text similarity
-    IMAGE_SIMILARITY_THRESHOLD: float = 0.2  # Image similarity
-    TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.5  # Technical confidence
+    SIMILARITY_THRESHOLD: float = 0.75  # Text similarity
+    IMAGE_SIMILARITY_THRESHOLD: float = 0.25  # Image similarity
+    TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.6  # Technical confidence
 
     # Document Processing
     BATCH_SIZE: int = 5  # Document processing in batches. For limited RAM it is 2-5. For GPU 8-16GB it is 8-16
