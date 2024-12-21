@@ -461,7 +461,7 @@ class RAGQueryServer:
                 processor=self.processor,
                 device=self.device,
                 text_query=query_text,
-                top_k=top_k * 2
+                top_k=top_k
             )
 
             # Handle empty results

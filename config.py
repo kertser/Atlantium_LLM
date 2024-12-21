@@ -30,10 +30,10 @@ class Config:
     EMBEDDING_DIMENSION: int = 512
     USE_GPU: bool = True
 
-    # Thresholds
-    SIMILARITY_THRESHOLD: float = 0.75  # Text similarity
-    IMAGE_SIMILARITY_THRESHOLD: float = 0.25  # Image similarity
-    TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.6  # Technical confidence
+    # Thresholds (not percentiles)
+    SIMILARITY_THRESHOLD: float = 0.7  # Text similarity
+    IMAGE_SIMILARITY_THRESHOLD: float = 0.2  # Image similarity
+    TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.5  # Technical confidence
 
     # Document Processing
     BATCH_SIZE: int = 5  # Document processing in batches. For limited RAM it is 2-5. For GPU 8-16GB it is 8-16
@@ -58,7 +58,7 @@ class Config:
     DETAIL_MAX_TOKENS: int = 3000  # Setting for detailed responses
 
     # Query Configuration
-    DEFAULT_TOP_K: int = 5
+    DEFAULT_TOP_K: int = 10
     TEMPERATURE: float = 0.01
     GPT_MODEL: str = "gpt-4o-mini"
 

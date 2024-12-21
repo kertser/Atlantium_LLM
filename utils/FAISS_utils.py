@@ -221,7 +221,7 @@ def query_faiss(index, metadata, query_embeddings, top_k):
         logging.info(f"Metadata contains {len(image_indices)} images and {len(text_indices)} text chunks")
 
         # Search in full index
-        k = min(len(metadata), top_k * 2)  # Get more results initially
+        k = min(len(metadata), top_k)  # Get more results initially
         distances, indices = index.search(query_embeddings, k)
 
         # Separate results by type
@@ -313,7 +313,7 @@ def query_with_context(index, metadata, model, processor, device="cpu", text_que
     query_embeddings = np.vstack(query_embeddings)
 
     # Query FAISS
-    results = query_faiss(index, metadata, query_embeddings, top_k * 2)
+    results = query_faiss(index, metadata, query_embeddings, top_k)
 
     if not results or not results[0]:
         logging.error("No results retrieved from FAISS index")
