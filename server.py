@@ -300,15 +300,12 @@ class RAGQueryServer:
 
         logging.info(f"Processing query: {query_text}")
         logging.info(f"Found {len(results[0])} results")
+        logging.info(f"Current thresholds: SIMILARITY={CONFIG.SIMILARITY_THRESHOLD}, "
+                     f"IMAGE_SIMILARITY={CONFIG.IMAGE_SIMILARITY_THRESHOLD}, "
+                     f"TECHNICAL_CONFIDENCE={CONFIG.TECHNICAL_CONFIDENCE_THRESHOLD}")
 
-        # Labels for zero-shot classification
-        labels = [
-            "a technical image",
-            "a non-technical image",
-        ]
-
-        # Truncate query text to fit CLIP model's maximum length
-        truncated_query = ' '.join(query_text.split()[:50])  # Approximate token limit
+        labels = ["a technical image", "a non-technical image"]
+        truncated_query = ' '.join(query_text.split()[:50])
 
         try:
             # Get CLIP embedding for query
@@ -317,7 +314,7 @@ class RAGQueryServer:
                 return_tensors="pt",
                 padding=True,
                 truncation=True,
-                max_length=77  # CLIP's maximum sequence length
+                max_length=77
             )
             query_input = {k: v.to(self.device) for k, v in query_input.items()}
             query_embedding = self.model.get_text_features(**query_input)
@@ -328,11 +325,10 @@ class RAGQueryServer:
 
             for result in results[0]:
                 metadata = result['metadata']
-                logging.info(f"Metadata type: {metadata.get('type')}")
+                logging.info(f"Processing result type: {metadata.get('type')} with distance: {result['distance']}")
 
                 if metadata.get('type') == 'text-chunk':
                     if result['distance'] < 1 / CONFIG.SIMILARITY_THRESHOLD:
-                        # Use the get_content function provided by query_with_context
                         if 'get_content' in metadata:
                             chunk_text = metadata['get_content']()
                             if chunk_text:
@@ -340,68 +336,66 @@ class RAGQueryServer:
                                 logging.info("Added text context")
 
                 elif metadata.get('type') == 'image':
-                    logging.info(f"Image metadata: {json.dumps(metadata, indent=2)}")
-                    # Get image ID from new metadata structure
-                    image_data = metadata.get('image', {})
-                    image_id = image_data.get('id')
-                    logging.info(f"Image ID: {image_id}")
+                    if result['distance'] < 1 / CONFIG.SIMILARITY_THRESHOLD:  # Add initial distance check
+                        logging.info(f"Full image metadata: {json.dumps(metadata, indent=2)}")
 
-                    if image_id:
-                        try:
-                            image, img_metadata = self.image_store.get_image(image_id)
-                            if image:
-                                logging.info(f"Successfully loaded image {image_id}")
+                        # Try both possible image ID locations
+                        image_id = (metadata.get('image', {}).get('id') or
+                                    metadata.get('content', {}).get('image_id'))
 
-                                # Perform zero-shot classification
-                                predicted_label, confidence = zero_shot_classification(
-                                    image=image,
-                                    labels=labels,
-                                    model=self.model,
-                                    processor=self.processor,
-                                    device=self.device
-                                )
+                        logging.info(f"Found image ID: {image_id}")
 
-                                # Only process technical images
-                                if predicted_label == "a technical image" and confidence > CONFIG.TECHNICAL_CONFIDENCE_THRESHOLD:
-                                    logging.info(
-                                        f"Image {image_id} classified as technical with confidence {confidence}")
+                        if image_id:
+                            try:
+                                image, img_metadata = self.image_store.get_image(image_id)
+                                if image:
+                                    logging.info(f"Successfully loaded image {image_id}")
 
-                                    image_input = self.processor(images=image, return_tensors="pt").to(self.device)
-                                    image_embedding = self.model.get_image_features(**image_input)
-                                    image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
+                                    predicted_label, confidence = zero_shot_classification(
+                                        image=image,
+                                        labels=labels,
+                                        model=self.model,
+                                        processor=self.processor,
+                                        device=self.device
+                                    )
+                                    logging.info(f"Classification result: {predicted_label} (confidence: {confidence})")
 
-                                    similarity = (query_embedding @ image_embedding.T).item()
-                                    logging.info(f"Similarity score for image {image_id}: {similarity}")
+                                    if predicted_label == "a technical image" and confidence > CONFIG.TECHNICAL_CONFIDENCE_THRESHOLD:
+                                        image_input = self.processor(images=image, return_tensors="pt").to(self.device)
+                                        image_embedding = self.model.get_image_features(**image_input)
+                                        image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
 
-                                    if similarity > CONFIG.IMAGE_SIMILARITY_THRESHOLD:
-                                        base64_image = self.image_store.get_base64_image(image_id)
-                                        if base64_image:
-                                            image_data = {
-                                                'image': base64_image,
-                                                'image_id': image_id,
-                                                'caption': image_data.get('caption', ''),
-                                                'context': image_data.get('context', ''),
-                                                'source': str(metadata.get('path', '')),
-                                                'similarity': similarity,
-                                                'technical_confidence': confidence
-                                            }
-                                            relevant_images.append(image_data)
-                                            logging.info(
-                                                f"Added technical image {image_id} with similarity {similarity}")
+                                        similarity = (query_embedding @ image_embedding.T).item()
+                                        logging.info(f"Image similarity score: {similarity}")
+
+                                        if similarity > CONFIG.IMAGE_SIMILARITY_THRESHOLD:
+                                            base64_image = self.image_store.get_base64_image(image_id)
+                                            if base64_image:
+                                                image_data = {
+                                                    'image': base64_image,
+                                                    'image_id': image_id,
+                                                    'caption': metadata.get('image', {}).get('caption', ''),
+                                                    'context': metadata.get('image', {}).get('context', ''),
+                                                    'source': str(metadata.get('path', '')),
+                                                    'similarity': similarity,
+                                                    'technical_confidence': confidence
+                                                }
+                                                relevant_images.append(image_data)
+                                                logging.info(f"Added technical image {image_id}")
+                                    else:
+                                        logging.info(f"Image {image_id} not classified as technical")
                                 else:
-                                    logging.info(f"Skipped non-technical image {image_id} (confidence: {confidence})")
-                            else:
-                                logging.warning(f"Failed to load image {image_id}")
-                        except Exception as e:
-                            logging.error(f"Error processing image {image_id}: {e}")
-                            continue
+                                    logging.warning(f"Could not load image {image_id}")
+                            except Exception as e:
+                                logging.error(f"Error processing image {image_id}: {e}")
+                                continue
 
             relevant_images.sort(key=lambda x: x['similarity'], reverse=True)
-            logging.info(f"Found {len(relevant_contexts)} contexts and {len(relevant_images)} technical images")
+            logging.info(f"Final results: {len(relevant_contexts)} contexts, {len(relevant_images)} images")
             return relevant_contexts, relevant_images
 
         except Exception as e:
-            logging.error(f"Error in get_relevant_contexts: {e}")
+            logging.error(f"Error in get_relevant_contexts: {e}", exc_info=True)
             return [], []
 
     def get_image_data(self, image_id: str, metadata: Dict, similarity: float) -> Optional[Dict]:

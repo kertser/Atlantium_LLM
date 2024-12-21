@@ -206,42 +206,77 @@ def add_to_faiss(embedding, source_file_name, content_type, content, index, meta
         logging.error(f"Error adding {content_type} to FAISS: {e}")
         raise
 
+
 def query_faiss(index, metadata, query_embeddings, top_k):
-    """Query FAISS index with improved error handling"""
+    """Query FAISS index with separate searches for text and images"""
     try:
-        # Handle empty metadata case
         if not metadata:
             logging.info("No documents indexed yet")
             return []
 
-        # Add logging
-        logging.info(f"Querying FAISS index with {len(metadata)} total entries")
+        # Get indices for text and images
+        text_indices = [i for i, m in enumerate(metadata) if m.get('type') == 'text-chunk']
+        image_indices = [i for i, m in enumerate(metadata) if m.get('type') == 'image']
 
-        # Get all results, but ensure k is at least 1
-        k = max(1, min(len(metadata), top_k * 2))
+        logging.info(f"Metadata contains {len(image_indices)} images and {len(text_indices)} text chunks")
+
+        # Search in full index
+        k = min(len(metadata), top_k * 2)  # Get more results initially
         distances, indices = index.search(query_embeddings, k)
 
-        logging.info(f"Query returned {len(indices[0])} results")
-
-        results = []
+        # Separate results by type
         text_results = []
         image_results = []
 
+        # First pass - collect all results
+        seen_indices = set()
         for idx, distance in zip(indices[0], distances[0]):
             if idx >= len(metadata):
                 continue
+
             result = {
                 "idx": int(idx),
                 "metadata": metadata[idx],
                 "distance": float(distance)
             }
-            if metadata[idx].get('type') == 'image':
-                image_results.append(result)
-            else:
-                text_results.append(result)
 
-        # Combine results with logging
-        results.append(text_results[:top_k] + image_results[:top_k])
+            # Add to appropriate list based on type
+            if idx in text_indices:
+                text_results.append(result)
+                seen_indices.add(idx)
+            elif idx in image_indices:
+                image_results.append(result)
+                seen_indices.add(idx)
+
+        # If we don't have enough image results, do a targeted image search
+        if len(image_results) < top_k and image_indices:
+            # Create a mask for image indices
+            mask = np.zeros(len(metadata), dtype=bool)
+            mask[image_indices] = True
+
+            # Search again with mask
+            D, I = index.search(query_embeddings, len(image_indices))
+
+            # Add new image results that weren't found before
+            for idx, distance in zip(I[0], D[0]):
+                if idx in image_indices and idx not in seen_indices:
+                    result = {
+                        "idx": int(idx),
+                        "metadata": metadata[idx],
+                        "distance": float(distance)
+                    }
+                    image_results.append(result)
+                    if len(image_results) >= top_k:
+                        break
+
+        # Sort results by distance
+        text_results.sort(key=lambda x: x['distance'])
+        image_results.sort(key=lambda x: x['distance'])
+
+        # Take top_k of each type
+        final_results = text_results[:top_k] + image_results[:top_k]
+        results = [final_results]  # Maintain expected return format
+
         logging.info(f"Returning {len(text_results[:top_k])} text and {len(image_results[:top_k])} image results")
         return results
 

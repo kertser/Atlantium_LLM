@@ -393,7 +393,7 @@ def rename_folder_in_rag(old_path: Path, new_path: Path) -> tuple[bool, str]:
     try:
         # Load all metadata files
         faiss_metadata_path = CONFIG.METADATA_PATH
-        image_metadata_path = CONFIG.STORED_IMAGES_PATH / "image_metadata.json"
+        image_metadata_path = CONFIG.IMAGE_METADATA_PATH
         processed_files_path = Path("processed_files.json")
 
         # Get the old and new folder names for replacement

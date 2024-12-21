@@ -1,8 +1,8 @@
-
 import os
 from dataclasses import dataclass
 from typing import List
 from pathlib import Path
+
 
 @dataclass
 class Config:
@@ -22,7 +22,7 @@ class Config:
 
     # Logging
     LOG_PATH: Path = Path("logs")
-    LOG_BACKUP_COUNT:  int = 5  # Maximum log backups
+    LOG_BACKUP_COUNT: int = 5  # Maximum log backups
     MAX_LOG_SIZE: int = 10000
 
     # CLIP Configuration
@@ -37,9 +37,9 @@ class Config:
 
     # Document Processing
     BATCH_SIZE: int = 5  # Document processing in batches. For limited RAM it is 2-5. For GPU 8-16GB it is 8-16
-    CHUNK_OVERLAP: int = 100
+    CHUNK_OVERLAP: int = 100  # set to 200
     MIN_CHUNK_SIZE: int = 100
-    CHUNK_SIZE: int = 1000  # Optimal for larger content. Smaller chunks are more selective, but harder to compare
+    CHUNK_SIZE: int = 1000  #  set to 800 - Optimal for larger content. Smaller chunks are more selective, but harder to compare
     SUPPORTED_EXTENSIONS: List[str] = None
     MAX_TEXT_LENGTH: int = 10000  # Maximum length of stored text chunks
     MAX_METADATA_SIZE: int = 1000000  # Maximum size in bytes
