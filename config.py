@@ -30,14 +30,16 @@ class Config:
     EMBEDDING_DIMENSION: int = 512
     USE_GPU: bool = True
 
+    # Thresholds
+    SIMILARITY_THRESHOLD: float = 0.75  # Text similarity
+    IMAGE_SIMILARITY_THRESHOLD: float = 0.25  # Image similarity
+    TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.6  # Technical confidence
+
     # Document Processing
     BATCH_SIZE: int = 5  # Document processing in batches. For limited RAM it is 2-5. For GPU 8-16GB it is 8-16
     CHUNK_OVERLAP: int = 100
     MIN_CHUNK_SIZE: int = 100
     CHUNK_SIZE: int = 1000  # Optimal for larger content. Smaller chunks are more selective, but harder to compare
-    SIMILARITY_THRESHOLD: float = 0.75  # Text similarity
-    IMAGE_SIMILARITY_THRESHOLD: float = 0.25  # Image similarity
-    TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.6  # Technical confidence
     SUPPORTED_EXTENSIONS: List[str] = None
     MAX_TEXT_LENGTH: int = 10000  # Maximum length of stored text chunks
     MAX_METADATA_SIZE: int = 1000000  # Maximum size in bytes

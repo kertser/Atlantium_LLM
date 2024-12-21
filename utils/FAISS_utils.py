@@ -4,6 +4,7 @@ import faiss
 import json
 import numpy as np
 import logging
+import hashlib
 from config import CONFIG
 
 # Define GPU functions at module level
