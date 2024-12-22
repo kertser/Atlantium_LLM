@@ -184,24 +184,24 @@ update_docker() {
     export DOCKER_BUILDKIT=1
 
     log "Stopping current container..."
-    docker-compose down || log "Warning: Issue stopping containers"
+    sudo docker-compose down || log "Warning: Issue stopping containers"
 
     log "Cleaning old images..."
-    docker image prune -f
+    sudo docker image prune -f
 
     log "Building new container..."
-    if ! docker-compose build --no-cache; then
+    if ! sudo docker-compose build --no-cache; then
         log "Build failed. Retrying with CPU configuration."
         export BUILD_TYPE=cpu
         export USE_CPU=1
         PROFILE="cpu"
-        if ! docker-compose build --no-cache; then
+        if ! sudo docker-compose build --no-cache; then
             error_exit "Build failed even with CPU configuration"
         fi
     fi
 
     log "Starting new container..."
-    if ! docker-compose --profile ${PROFILE} up -d; then
+    if ! sudo docker-compose --profile ${PROFILE} up -d; then
         error_exit "Failed to start container"
     fi
 
@@ -220,7 +220,7 @@ update_docker() {
 verify_update() {
     log "Verifying update..."
 
-    if ! docker ps | grep -q "$CONTAINER_NAME"; then
+    if ! sudo docker ps | grep -q "$CONTAINER_NAME"; then
         error_exit "Container is not running after update"
     fi
 
@@ -228,7 +228,7 @@ verify_update() {
         error_exit "Service is not responding after update"
     fi
 
-    if docker logs "$CONTAINER_NAME" 2>&1 | grep -i "error"; then
+    if sudo docker logs "$CONTAINER_NAME" 2>&1 | grep -i "error"; then
         log "Warning: Found errors in container logs"
     fi
 

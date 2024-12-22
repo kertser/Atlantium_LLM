@@ -58,7 +58,7 @@ main() {
 
     # Clean up any existing containers and volumes
     echo "Cleaning up existing deployment..."
-    docker-compose down -v
+    sudo docker-compose down -v
 
     # Detect GPU and set configuration
     if detect_gpu_configuration; then
@@ -78,12 +78,12 @@ main() {
 
     # Build containers
     echo "Building containers..."
-    if ! docker-compose build --no-cache; then
+    if ! sudo docker-compose build --no-cache; then
         echo "Build failed. Retrying with CPU configuration."
         export BUILD_TYPE=cpu
         export USE_CPU=1
         PROFILE="cpu"
-        if ! docker-compose build --no-cache; then
+        if ! sudo docker-compose build --no-cache; then
             echo "Error: Build failed even with CPU configuration."
             exit 1
         fi
@@ -96,7 +96,7 @@ main() {
 
     # Start containers with appropriate profile
     echo "Starting containers with ${PROFILE} profile..."
-    if docker-compose --profile ${PROFILE} up -d; then
+    if sudo docker-compose --profile ${PROFILE} up -d; then
         echo "Deployment complete. Service available at http://localhost:9000"
 
         # Wait for service to be ready

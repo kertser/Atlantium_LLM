@@ -144,13 +144,13 @@ Group=docker
 WorkingDirectory=$APP_DIR
 
 # Environment variables
-Environment=APP_DIR=$APP_DIR
-Environment=LOG_DIR=$APP_DIR/logs
-Environment=LOG_LEVEL=INFO
-Environment=DOCKER_BUILDKIT=1
-Environment=HOME=$USER_HOME
-Environment=SCRIPTS_DIR=$APP_DIR/scripts/update_service
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment="APP_DIR=$APP_DIR"
+Environment="LOG_DIR=$APP_DIR/logs"
+Environment="LOG_LEVEL=INFO"
+Environment="DOCKER_BUILDKIT=1"
+Environment="HOME=$USER_HOME"
+Environment="SCRIPTS_DIR=$APP_DIR/scripts/update_service"
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 # Docker socket access
 SupplementaryGroups=docker
@@ -176,9 +176,9 @@ RestrictNamespaces=false
 RestrictRealtime=yes
 
 # Directory permissions
-ReadWritePaths=$APP_DIR/logs
-ReadWritePaths=$APP_DIR/backups
-ReadWritePaths=$APP_DIR/scripts
+ReadWritePaths=${APP_DIR}/logs
+ReadWritePaths=${APP_DIR}/backups
+ReadWritePaths=${APP_DIR}/scripts
 
 [Install]
 WantedBy=multi-user.target

@@ -34,11 +34,11 @@ RestartSec=60
 
 # Security settings
 NoNewPrivileges=yes
+ProtectSystem=false
+ProtectHome=false
 PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
-ProtectSystem=false
-ProtectHome=false
 ProtectControlGroups=false
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RestrictNamespaces=false
