@@ -10,7 +10,6 @@
 * Need to remove header and footer of pdf/doc files form chinking/indexing - it is a garbage data. Similarly - prefaces, tables of content
 * Close file/folder add/delete with password (sort of unlocking menu)
 * Image-related issues are directly related to extraction of data
-* Add to the output the URL links to the referenced documents
 * Add the images from these documents - sources are from the output, not from the similarity scores.
 
 # TBDs for development:

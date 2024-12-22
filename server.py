@@ -187,7 +187,7 @@ class EnhancedResponseFormatter:
                 def find_matching_path(doc_ref: str) -> str:
                     # Remove spaces from the reference
                     search_term = doc_ref.replace(' ', '')
-                    logging.info(f"Looking for document reference: {search_term}")
+                    # logging.info(f"Looking for document reference: {search_term}")
 
                     for file_path in processed_files:
                         # Normalize path separators
@@ -197,9 +197,9 @@ class EnhancedResponseFormatter:
                             # Extract path relative to Raw Documents
                             if 'Raw Documents/' in norm_path:
                                 relative_path = norm_path.split('Raw Documents/')[1]
-                                logging.info(f"Found matching path: {relative_path}")
+                                # logging.info(f"Found matching path: {relative_path}")
                                 return relative_path
-                    logging.info(f"No matching path found for {search_term}")
+                    # logging.info(f"No matching path found for {search_term}")
                     return ''
 
                 # Find and replace document references
@@ -606,15 +606,18 @@ class RAGQueryServer:
                 messages=self.prepare_messages(prompt),
                 model_name=CONFIG.GPT_MODEL,
                 max_tokens=CONFIG.DETAIL_MAX_TOKENS,
-                temperature=0.3 if query_type.is_technical else 0.7,
+                temperature=CONFIG.TEMPERATURE if query_type.is_technical else 0.7,
                 api_key=self.openai_api_key
             )
 
+            # Get the response
             text_response = response['choices'][0]['message']['content'].strip()
-            text_response = self.formatter.format_response(text_response)
 
             # Get images from documents referenced in the response
             images = self.get_images_from_referenced_documents(text_response)
+
+            # Format the response
+            text_response = self.formatter.format_response(text_response)
 
             if images:
                 images = deduplicate_images(images)
