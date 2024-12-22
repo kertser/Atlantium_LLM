@@ -15,11 +15,6 @@
 #
 # Usage: sudo ./install.sh
 
-#!/bin/bash
-
-# install.sh
-# Installs the Atlantium RAG update service for the current user
-
 set -e
 
 # Detect user environment
@@ -54,16 +49,23 @@ validate_environment() {
         echo "Error: Insufficient disk space. Need at least ${MIN_SPACE_MB}MB"
         exit 1
     fi
-}
 
-# Call the validation function
-validate_environment
+    # Validate date
+    CURRENT_YEAR=$(date +%Y)
+    if [ "$CURRENT_YEAR" -lt 2024 ]; then
+        echo "Error: System date appears incorrect. Please check your system clock"
+        exit 1
+    fi
+}
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then
     echo "Please run with sudo"
     exit 1
 fi
+
+# Call the validation function
+validate_environment
 
 echo "Installing Atlantium RAG update service..."
 echo "User: $CURRENT_USER"
@@ -91,19 +93,27 @@ mkdir -p "$APP_DIR/backups"
 # Set proper directory ownership and permissions
 echo "Setting directory permissions..."
 chown -R "$CURRENT_USER:$CURRENT_USER" "$APP_DIR"
-chmod -R u+rwX,g+rX,o+rX "$APP_DIR"  # Base permissions
-chmod -R 755 "$APP_DIR/scripts"       # Executable permissions for scripts
-chmod -R 755 "$APP_DIR/logs"          # Ensure logs directory is writable
-chmod -R 755 "$APP_DIR/backups"       # Ensure backups directory is writable
+find "$APP_DIR" -type d -exec chmod 775 {} \;
+find "$APP_DIR" -type f -exec chmod 664 {} \;
+find "$APP_DIR/scripts" -type f -name "*.sh" -exec chmod +x {} \;
 
 # Ensure specific permissions for logs directory
-find "$APP_DIR/logs" -type d -exec chmod 755 {} \;
-find "$APP_DIR/logs" -type f -exec chmod 644 {} \;
+find "$APP_DIR/logs" -type d -exec chmod 775 {} \;
+find "$APP_DIR/logs" -type f -exec chmod 664 {} \;
 
 # Create log file with proper permissions if it doesn't exist
 touch "$APP_DIR/logs/updates/update.log"
 chown "$CURRENT_USER:$CURRENT_USER" "$APP_DIR/logs/updates/update.log"
-chmod 644 "$APP_DIR/logs/updates/update.log"
+chmod 664 "$APP_DIR/logs/updates/update.log"
+
+# Set ACL permissions if available
+if command -v setfacl >/dev/null 2>&1; then
+    echo "Setting ACL permissions..."
+    setfacl -R -m u:"$CURRENT_USER":rwx "$APP_DIR/logs"
+    setfacl -R -m u:"$CURRENT_USER":rwx "$APP_DIR/backups"
+    setfacl -R -d -m u:"$CURRENT_USER":rwx "$APP_DIR/logs"
+    setfacl -R -d -m u:"$CURRENT_USER":rwx "$APP_DIR/backups"
+fi
 
 # Verify permissions
 echo "Verifying permissions..."
@@ -134,13 +144,13 @@ Group=docker
 WorkingDirectory=$APP_DIR
 
 # Environment variables
-Environment="APP_DIR=$APP_DIR"
-Environment="LOG_DIR=$APP_DIR/logs"
-Environment="LOG_LEVEL=INFO"
-Environment="DOCKER_BUILDKIT=1"
-Environment="HOME=$USER_HOME"
-Environment="SCRIPTS_DIR=$APP_DIR/scripts/update_service"
-Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment=APP_DIR=$APP_DIR
+Environment=LOG_DIR=$APP_DIR/logs
+Environment=LOG_LEVEL=INFO
+Environment=DOCKER_BUILDKIT=1
+Environment=HOME=$USER_HOME
+Environment=SCRIPTS_DIR=$APP_DIR/scripts/update_service
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Docker socket access
 SupplementaryGroups=docker
@@ -153,26 +163,26 @@ ExecStart=/bin/bash $APP_DIR/scripts/update_service/release_update.sh
 Restart=on-failure
 RestartSec=60
 
-# Security hardening (but allow docker and home access)
+# Security settings
 NoNewPrivileges=yes
-ProtectSystem=full
-ProtectHome=read-only
+ProtectSystem=false
+ProtectHome=false
 PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
-ProtectControlGroups=no  # Required for Docker
+ProtectControlGroups=false
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-RestrictNamespaces=no    # Required for Docker
+RestrictNamespaces=false
 RestrictRealtime=yes
+
+# Directory permissions
+ReadWritePaths=$APP_DIR/logs
+ReadWritePaths=$APP_DIR/backups
+ReadWritePaths=$APP_DIR/scripts
 
 [Install]
 WantedBy=multi-user.target
 EOF
-
-# Set proper permissions
-echo "Setting permissions..."
-chown -R "$CURRENT_USER":"$CURRENT_USER" "$APP_DIR"
-chmod 755 "$APP_DIR/scripts/update_service/release_update.sh"
 
 # Setup log rotation
 echo "Configuring log rotation..."
@@ -183,16 +193,29 @@ $APP_DIR/logs/updates/update.log {
     compress
     missingok
     notifempty
-    create 0640 $CURRENT_USER $CURRENT_USER
+    create 0664 $CURRENT_USER $CURRENT_USER
 }
 EOF
 
-# Reload systemd and start service
-echo "Starting service..."
-if ! systemctl daemon-reload; then
-    echo "Error: Failed to reload systemd configuration"
-    exit 1
+# Set SELinux context if SELinux is enabled
+if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
+    echo "Setting SELinux context..."
+    chcon -R -t container_file_t "$APP_DIR/logs"
+    chcon -R -t container_file_t "$APP_DIR/backups"
+    semanage fcontext -a -t container_file_t "$APP_DIR/logs(/.*)?"
+    semanage fcontext -a -t container_file_t "$APP_DIR/backups(/.*)?"
+    restorecon -R "$APP_DIR"
 fi
+
+# Reload and restart service
+echo "Starting service..."
+systemctl daemon-reload
+
+# Stop the service if it's running
+systemctl stop atlantium-update || true
+
+# Clear any failed status
+systemctl reset-failed atlantium-update || true
 
 if ! systemctl enable atlantium-update; then
     echo "Error: Failed to enable service"
@@ -201,10 +224,13 @@ fi
 
 if ! systemctl start atlantium-update; then
     echo "Error: Failed to start service"
-    echo "Checking service logs..."
+    echo "Checking logs..."
     journalctl -u atlantium-update -n 50 --no-pager
     exit 1
 fi
+
+# Wait for service to stabilize
+sleep 2
 
 # Show status
 echo -e "\nInstallation complete!"
@@ -227,17 +253,11 @@ if groups "$CURRENT_USER" | grep -q docker; then
     echo "Please log out and back in for this change to take effect."
 fi
 
-# Verify service can write to logs
-echo "Verifying service can write to logs..."
-if ! sudo -u "$CURRENT_USER" touch "$APP_DIR/logs/updates/test.log" 2>/dev/null; then
-    echo "Warning: Service might have issues writing to log directory"
-    echo "Please check permissions and systemd service configuration"
-    # Don't exit here, just warn the user
-fi
-rm -f "$APP_DIR/logs/updates/test.log"
-
-# Verify service is running correctly
+# Final verification
+echo "Performing final verification..."
 if ! systemctl is-active --quiet atlantium-update; then
     echo "Warning: Service is not running. Checking logs..."
     journalctl -u atlantium-update -n 50 --no-pager
+else
+    echo "Service is running correctly."
 fi

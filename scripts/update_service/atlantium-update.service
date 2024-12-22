@@ -32,21 +32,22 @@ ExecStart=/bin/bash $APP_DIR/scripts/update_service/release_update.sh
 Restart=on-failure
 RestartSec=60
 
-# Security hardening (but allow docker and home access)
+# Security settings
 NoNewPrivileges=yes
-ProtectSystem=false      # Changed from 'full' to allow writing to directories
-ProtectHome=false       # Changed from 'read-only' to allow writing to home directory
 PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
-ProtectControlGroups=false  # Required for Docker
+ProtectSystem=false
+ProtectHome=false
+ProtectControlGroups=false
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-RestrictNamespaces=false    # Required for Docker
+RestrictNamespaces=false
 RestrictRealtime=yes
 
-# Add ReadWritePaths to explicitly allow writing to these directories
-ReadWritePaths=$APP_DIR/logs
-ReadWritePaths=$APP_DIR/backups
+# Directory permissions
+ReadWritePaths=${APP_DIR}/logs
+ReadWritePaths=${APP_DIR}/backups
+ReadWritePaths=${APP_DIR}/scripts
 
 [Install]
 WantedBy=multi-user.target
