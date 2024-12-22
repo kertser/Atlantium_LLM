@@ -1,14 +1,3 @@
-# atlantium-update.service
-#
-# Purpose: Systemd service configuration for Atlantium RAG update service
-# Location: /etc/systemd/system/atlantium-update.service
-#
-# This service:
-# - Monitors and updates the Atlantium RAG application
-# - Runs with restricted permissions for security
-# - Automatically restarts on failure
-# - Manages dependencies and startup order
-
 [Unit]
 Description=Atlantium RAG Release Update Service
 Documentation=https://github.com/kertser/Atlantium_LLM
@@ -24,19 +13,19 @@ Group=docker
 WorkingDirectory=$APP_DIR
 
 # Environment variables
-Environment=APP_DIR=$APP_DIR
-Environment=LOG_DIR=$APP_DIR/logs
-Environment=LOG_LEVEL=INFO
-Environment=DOCKER_BUILDKIT=1
-Environment=HOME=$USER_HOME
-Environment=SCRIPTS_DIR=$APP_DIR/scripts/update_service
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment="APP_DIR=$APP_DIR"
+Environment="LOG_DIR=$APP_DIR/logs"
+Environment="LOG_LEVEL=INFO"
+Environment="DOCKER_BUILDKIT=1"
+Environment="HOME=$USER_HOME"
+Environment="SCRIPTS_DIR=$APP_DIR/scripts/update_service"
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 # Docker socket access
 SupplementaryGroups=docker
 
 # Execution
-ExecStartPre=/bin/mkdir -p ${LOG_DIR}/updates
+ExecStartPre=/bin/mkdir -p \${LOG_DIR}/updates
 ExecStart=/bin/bash $APP_DIR/scripts/update_service/release_update.sh
 
 # Restart configuration
@@ -45,15 +34,19 @@ RestartSec=60
 
 # Security hardening (but allow docker and home access)
 NoNewPrivileges=yes
-ProtectSystem=full
-ProtectHome=read-only
+ProtectSystem=false      # Changed from 'full' to allow writing to directories
+ProtectHome=false       # Changed from 'read-only' to allow writing to home directory
 PrivateTmp=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
-ProtectControlGroups=no  # Required for Docker
+ProtectControlGroups=false  # Required for Docker
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-RestrictNamespaces=no    # Required for Docker
+RestrictNamespaces=false    # Required for Docker
 RestrictRealtime=yes
+
+# Add ReadWritePaths to explicitly allow writing to these directories
+ReadWritePaths=$APP_DIR/logs
+ReadWritePaths=$APP_DIR/backups
 
 [Install]
 WantedBy=multi-user.target
