@@ -1,5 +1,3 @@
-# For first manual deployment:  INITIALIZE_RAG=true docker-compose up -d
-
 # To upload the docs with CLI:
 # curl -X POST "http://server_ip:9000/upload/document" \
 #     -H "accept: application/json" \
@@ -11,9 +9,9 @@
 
 ## General commands:
 # Remove all containers
-# docker rm -f $(docker ps -a -q)
+# sudo docker rm -f $(docker ps -a -q)
 # Remove all:
-# docker system prune --all --volumes --force
+# sudo docker system prune --all --volumes --force
 # Get the  last 100 lines of logs:
 # docker logs atlantium_llm-web-app-1 -f --tail=100
 
@@ -21,7 +19,7 @@
 # git clone https://github.com/kertser/Atlantium_LLM.git
 # cd Atlantium_LLM
 # cp .env.example .env
-# chmod +x deploy.sh install_requirements.sh
+# sudo chmod +x deploy.sh
 # sudo ./deploy.sh --init
 # The web app will be available at http://server_ip:9000
 

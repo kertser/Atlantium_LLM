@@ -3,7 +3,6 @@
 # install.sh
 #
 # Purpose: Install and configure Atlantium RAG update service
-# Author: Your Name
 # Date: December 2024
 #
 # This script:
@@ -43,17 +42,10 @@ validate_environment() {
     fi
 
     # Check disk space
-    MIN_SPACE_MB=1000
+    MIN_SPACE_MB=6000 # 6GB
     AVAILABLE_SPACE=$(df -m "$APP_DIR" | awk 'NR==2 {print $4}')
     if [ "$AVAILABLE_SPACE" -lt "$MIN_SPACE_MB" ]; then
         echo "Error: Insufficient disk space. Need at least ${MIN_SPACE_MB}MB"
-        exit 1
-    fi
-
-    # Validate date
-    CURRENT_YEAR=$(date +%Y)
-    if [ "$CURRENT_YEAR" -lt 2024 ]; then
-        echo "Error: System date appears incorrect. Please check your system clock"
         exit 1
     fi
 }
@@ -81,7 +73,7 @@ fi
 # Add user to docker group if needed
 if ! groups "$CURRENT_USER" | grep -q docker; then
     echo "Adding $CURRENT_USER to docker group..."
-    usermod -aG docker "$CURRENT_USER"
+    sudo usermod -aG docker "$CURRENT_USER"
 fi
 
 # Create project directory structure and set permissions
@@ -92,7 +84,7 @@ mkdir -p "$APP_DIR/backups"
 
 # Set proper directory ownership and permissions
 echo "Setting directory permissions..."
-chown -R "$CURRENT_USER:$CURRENT_USER" "$APP_DIR"
+sudo chown -R "$CURRENT_USER:$CURRENT_USER" "$APP_DIR"
 find "$APP_DIR" -type d -exec chmod 775 {} \;
 find "$APP_DIR" -type f -exec chmod 664 {} \;
 find "$APP_DIR/scripts" -type f -name "*.sh" -exec chmod +x {} \;
@@ -103,8 +95,8 @@ find "$APP_DIR/logs" -type f -exec chmod 664 {} \;
 
 # Create log file with proper permissions if it doesn't exist
 touch "$APP_DIR/logs/updates/update.log"
-chown "$CURRENT_USER:$CURRENT_USER" "$APP_DIR/logs/updates/update.log"
-chmod 664 "$APP_DIR/logs/updates/update.log"
+sudo chown "$CURRENT_USER:$CURRENT_USER" "$APP_DIR/logs/updates/update.log"
+sudo chmod 664 "$APP_DIR/logs/updates/update.log"
 
 # Set ACL permissions if available
 if command -v setfacl >/dev/null 2>&1; then
@@ -124,65 +116,11 @@ fi
 
 # Install the update script
 echo "Installing update script..."
-chmod +x "$APP_DIR/scripts/update_service/release_update.sh"
+sudo chmod +x "$APP_DIR/scripts/update_service/release_update.sh"
 
 # Create systemd service file
 echo "Creating systemd service..."
-cat > /etc/systemd/system/atlantium-update.service << EOF
-[Unit]
-Description=Atlantium RAG Release Update Service
-Documentation=https://github.com/kertser/Atlantium_LLM
-After=network.target docker.service
-Wants=docker.service
-StartLimitIntervalSec=300
-StartLimitBurst=3
-
-[Service]
-Type=simple
-User=$CURRENT_USER
-Group=docker
-WorkingDirectory=$APP_DIR
-
-# Environment variables
-Environment="APP_DIR=$APP_DIR"
-Environment="LOG_DIR=$APP_DIR/logs"
-Environment="LOG_LEVEL=INFO"
-Environment="DOCKER_BUILDKIT=1"
-Environment="HOME=$USER_HOME"
-Environment="SCRIPTS_DIR=$APP_DIR/scripts/update_service"
-Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-
-# Docker socket access
-SupplementaryGroups=docker
-
-# Execution
-ExecStartPre=/bin/mkdir -p \${LOG_DIR}/updates
-ExecStart=/bin/bash $APP_DIR/scripts/update_service/release_update.sh
-
-# Restart configuration
-Restart=on-failure
-RestartSec=60
-
-# Security settings
-NoNewPrivileges=yes
-ProtectSystem=false
-ProtectHome=false
-PrivateTmp=yes
-ProtectKernelTunables=yes
-ProtectKernelModules=yes
-ProtectControlGroups=false
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-RestrictNamespaces=false
-RestrictRealtime=yes
-
-# Directory permissions
-ReadWritePaths=${APP_DIR}/logs
-ReadWritePaths=${APP_DIR}/backups
-ReadWritePaths=${APP_DIR}/scripts
-
-[Install]
-WantedBy=multi-user.target
-EOF
+sudo cp "$APP_DIR"/scripts/update_service/atlantium-update.service /etc/systemd/system/
 
 # Setup log rotation
 echo "Configuring log rotation..."
