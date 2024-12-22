@@ -177,6 +177,51 @@ class EnhancedResponseFormatter:
 
     @staticmethod
     def format_response(content: str) -> str:
+
+        def process_document_references(text: str) -> str:
+            try:
+                # Load processed files
+                with open("processed_files.json", 'r', encoding='utf-8') as f:
+                    processed_files = json.load(f)
+
+                def find_matching_path(doc_ref: str) -> str:
+                    # Remove spaces from the reference
+                    search_term = doc_ref.replace(' ', '')
+                    logging.info(f"Looking for document reference: {search_term}")
+
+                    for file_path in processed_files:
+                        # Normalize path separators
+                        norm_path = file_path.replace('\\', '/')
+                        clean_path = norm_path.replace(' ', '')
+                        if search_term in clean_path:
+                            # Extract path relative to Raw Documents
+                            if 'Raw Documents/' in norm_path:
+                                relative_path = norm_path.split('Raw Documents/')[1]
+                                logging.info(f"Found matching path: {relative_path}")
+                                return relative_path
+                    logging.info(f"No matching path found for {search_term}")
+                    return ''
+
+                # Find and replace document references
+                pattern = r'""([^"]+)""'
+
+                def replacement(match):
+                    doc_ref = match.group(1)
+                    rel_path = find_matching_path(doc_ref)
+                    if rel_path:
+                        # Create an onclick handler that calls openDocument
+                        return f'<a href="javascript:void(0)" onclick="openDocument(\'{rel_path}\')" class="doc-link">{doc_ref}</a>'
+                    # Return just the reference text without double-double quotes if no match found
+                    return doc_ref
+
+                # Replace all document references
+                text = re.sub(pattern, replacement, text)
+                return text
+
+            except Exception as e:
+                logging.error(f"Error processing document references: {e}")
+                return text
+
         def clean_text(text: str) -> str:
             # Clean up excess whitespace while preserving structure
             text = re.sub(r'\s*\n\s*\n\s*\n+', '\n\n', text)
@@ -184,24 +229,18 @@ class EnhancedResponseFormatter:
             return text.strip()
 
         def format_lists(content: str) -> str:
-            # Add <br> before valid numbered list items (number followed by dot and space)
+            # Add <br> before valid numbered list items
             content = re.sub(r'([^\n])\s*(\d+\.\s+(?=[A-Za-z]))', r'\1<br>\2', content)
-
-            # Add <br> before headers (## or ### or **)
-            content = re.sub(r'([^\n])\s*(#{2, 3}\s+)', r'\1<br>\2', content)
-
+            # Add <br> before headers
+            content = re.sub(r'([^\n])\s*(#{2,3}\s+)', r'\1<br>\2', content)
             # Format bullet points with proper indentation
             content = re.sub(r'(?m)^[•\-]\s*', r'  • ', content)
-
-            # Remove bulet points from bold text items with bulets
+            # Remove bullet points from bold text items with bullets
             content = re.sub(r'\*\*\s*•\s*', r'• ', content)
-
-            # Format numbered lists with proper indentation, including bold numbered text
+            # Format numbered lists with proper indentation
             content = re.sub(r'(?m)^(\d+\.\s+)(\*\*.*?\*\*)', r'    \1\2', content)
-
-            # Ensure line breaks between list items, including bold list items
+            # Ensure line breaks between list items
             content = re.sub(r'(?<!<br>)(\d+\.\s+)(\*\*.*?\*\*)', r'<br>\1\2', content)
-
             return content
 
         def apply_emphasis(content: str) -> str:
@@ -213,6 +252,7 @@ class EnhancedResponseFormatter:
         def format_section(title: str, content: str) -> str:
             # Format section with consistent spacing
             formatted_content = clean_text(content)
+            formatted_content = process_document_references(formatted_content)
             formatted_content = format_lists(formatted_content)
             formatted_content = apply_emphasis(formatted_content)
             return f"# {title}\n\n{formatted_content}"

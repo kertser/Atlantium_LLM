@@ -799,6 +799,28 @@ td .select-checkbox {
     transform-origin: center;  /* Add this */
 }
 
+.doc-link {
+    color: var(--primary-color);
+    text-decoration: none;
+    border-bottom: 1px solid var(--primary-color);
+    padding-bottom: 1px;
+    transition: all 0.2s ease;
+}
+
+.doc-link:hover {
+    color: var(--primary-dark);
+    border-bottom-color: var(--primary-dark);
+}
+
+.doc-link:active {
+    opacity: 0.8;
+}
+
+.doc-link:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
 @keyframes loading {
     0% { content: ''; }
     25% { content: '.'; }

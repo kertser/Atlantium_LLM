@@ -446,6 +446,34 @@ function updateDocumentContextMenu() {
     return menuItems;
 }
 
+async function openDocument(path) {
+    try {
+        const response = await fetch('/open/document', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ path: path })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to open document');
+        }
+
+        const data = await response.json();
+        if (data.status === 'success' && data.url) {
+            // Open in a new tab
+            window.open(data.url, '_blank');
+        } else {
+            throw new Error('Invalid file URL received');
+        }
+    } catch (error) {
+        console.error('Open file error:', error);
+        alert(error.message || 'Failed to open file');
+    }
+}
+
 async function uploadDocument(file) {
     const formData = new FormData();
     formData.append('file', file);
