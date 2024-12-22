@@ -5,24 +5,6 @@
 # Purpose: Automatically update Atlantium RAG application from GitHub release branch
 # Author: Your Name
 # Date: December 2024
-#
-# This script:
-# 1. Monitors the release branch for new tagged versions
-# 2. Creates backups before updates
-# 3. Updates the application code
-# 4. Rebuilds and restarts Docker containers
-# 5. Verifies the update success
-#
-# Requirements:
-# - Docker and docker-compose installed
-# - Git installed
-# - User running script must be in docker group
-# - Application directory structure set up
-
-#!/bin/bash
-
-# release_update.sh
-# Updates Atlantium RAG system from GitHub release branch while preserving Docker volumes
 
 set -e
 
@@ -31,24 +13,47 @@ SERVICE_VERSION="1.0.0"
 CURRENT_USER=${SUDO_USER:-$USER}
 USER_HOME=$(eval echo ~"$CURRENT_USER")
 APP_DIR=${APP_DIR:-"$USER_HOME/Projects/Atlantium_LLM"}
-SCRIPTS_DIR="$APP_DIR/scripts/update_service"
 LOG_DIR="$APP_DIR/logs/updates"
 BACKUP_DIR="$APP_DIR/backups"
 CONTAINER_NAME=${CONTAINER_NAME:-"atlantium_llm-web-app-1"}
+TEMP_DIR="/tmp/atlantium_update_${RANDOM}"
 
-# Create required directories
-mkdir -p "$LOG_DIR"
-mkdir -p "$BACKUP_DIR"
-
-# Logging function
+# Logging function with proper file handling
 log() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_DIR/update.log"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    local message="$timestamp - $1"
+    echo "$message"
+    # Use temporary file to avoid race conditions
+    echo "$message" > "${TEMP_DIR}/temp.log" && \
+    cat "${TEMP_DIR}/temp.log" >> "$LOG_DIR/update.log"
 }
 
 # Error handling
 error_exit() {
     log "ERROR: $1"
+    rm -rf "${TEMP_DIR}"
     exit 1
+}
+
+# Cleanup function
+cleanup() {
+    rm -rf "${TEMP_DIR}"
+}
+
+# Set up temporary directory and trap
+setup_temp() {
+    mkdir -p "${TEMP_DIR}" || error_exit "Cannot create temporary directory"
+    trap cleanup EXIT
+}
+
+# Create required directories with proper permissions
+setup_directories() {
+    for dir in "$LOG_DIR" "$BACKUP_DIR"; do
+        if [ ! -d "$dir" ]; then
+            mkdir -p "$dir" || error_exit "Cannot create directory: $dir"
+            chmod 775 "$dir" || error_exit "Cannot set permissions on: $dir"
+        fi
+    done
 }
 
 # Function to check docker
@@ -57,22 +62,6 @@ check_docker() {
     if ! docker info >/dev/null 2>&1; then
         error_exit "Docker is not running or user doesn't have docker permissions"
     fi
-}
-
-# Function to detect GPU configuration (from your deploy.sh)
-detect_gpu_configuration() {
-    log "Checking GPU configuration..."
-    
-    # Check for NVIDIA drivers
-    if [ -f "/proc/driver/nvidia/version" ] && nvidia-smi &> /dev/null; then
-        if command -v nvidia-container-cli &> /dev/null; then
-            log "GPU configuration verified successfully"
-            return 0
-        fi
-    fi
-    
-    log "Using CPU configuration"
-    return 1
 }
 
 # Function to verify installation
@@ -84,69 +73,104 @@ verify_installation() {
     if [ ! -f "$APP_DIR/docker-compose.yaml" ]; then
         error_exit "docker-compose.yaml not found in $APP_DIR"
     fi
+
+    # Verify write permissions
+    if ! touch "$LOG_DIR/.write_test" 2>/dev/null; then
+        error_exit "Cannot write to log directory"
+    fi
+    rm -f "$LOG_DIR/.write_test"
+
+    if ! touch "$BACKUP_DIR/.write_test" 2>/dev/null; then
+        error_exit "Cannot write to backup directory"
+    fi
+    rm -f "$BACKUP_DIR/.write_test"
 }
 
-# Function to create backup (excluding Docker volumes)
+# Function to create backup with proper error handling
 create_backup() {
     log "Creating backup..."
-    timestamp=$(date +%Y%m%d_%H%M%S)
-    BACKUP_FILE="$BACKUP_DIR/backup_$timestamp.tar.gz"
-    
-    # Backup code and configuration, excluding Docker volumes and temporary files
-    tar --exclude='*.log' \
-        --exclude='*.tmp' \
-        --exclude='RAG_Data' \
-        --exclude='Raw Documents' \
-        --exclude="$BACKUP_DIR" \
-        -czf "$BACKUP_FILE" -C "$APP_DIR" . || error_exit "Backup failed"
-    
-    # Clean old backups
-    cd "$BACKUP_DIR" || error_exit "Cannot access backup directory"
-    ls -t backup_*.tar.gz | tail -n +6 | xargs -r rm
-    
-    log "Backup created: $BACKUP_FILE"
+    local timestamp=$(date +%Y%m%d_%H%M%S)
+    local temp_backup="${TEMP_DIR}/backup_${timestamp}.tar.gz"
+    local final_backup="$BACKUP_DIR/backup_${timestamp}.tar.gz"
+
+    # Create backup in temporary location first
+    if ! tar --exclude='*.log' \
+            --exclude='*.tmp' \
+            --exclude='RAG_Data' \
+            --exclude='Raw Documents' \
+            --exclude="$BACKUP_DIR" \
+            --exclude="${TEMP_DIR}" \
+            -czf "$temp_backup" -C "$APP_DIR" .; then
+        error_exit "Failed to create backup"
+    fi
+
+    # Move backup to final location
+    if ! mv "$temp_backup" "$final_backup"; then
+        error_exit "Failed to move backup to final location"
+    fi
+
+    # Clean old backups (keep last 5)
+    find "$BACKUP_DIR" -name "backup_*.tar.gz" -type f -printf '%T@ %p\n' | \
+        sort -n | head -n -5 | cut -d' ' -f2- | xargs -r rm
+
+    log "Backup created successfully: $final_backup"
+}
+
+# Function to detect GPU configuration
+detect_gpu_configuration() {
+    log "Checking GPU configuration..."
+    if [ -f "/proc/driver/nvidia/version" ] && nvidia-smi &> /dev/null; then
+        if command -v nvidia-container-cli &> /dev/null; then
+            log "GPU configuration verified successfully"
+            return 0
+        fi
+    fi
+    log "Using CPU configuration"
+    return 1
 }
 
 # Function to update code
 update_code() {
     log "Updating code..."
     cd "$APP_DIR" || error_exit "Cannot access application directory"
-    
-    # Get current version
+
     OLD_VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "unknown")
-    
-    # Fetch latest changes
-    git fetch origin || error_exit "Failed to fetch from repository"
-    
-    # Switch to release branch
-    git checkout release || error_exit "Failed to checkout release branch"
-    git pull origin release || error_exit "Failed to pull release branch"
-    
-    # Get latest release tag
-    LATEST_TAG=$(git describe --tags --abbrev=0 origin/release 2>/dev/null)
-    
-    if [ -z "$LATEST_TAG" ]; then
-        error_exit "No release tags found on release branch"
+
+    if ! git fetch origin; then
+        error_exit "Failed to fetch from repository"
     fi
-    
-    # Check if update is needed
+
+    if ! git checkout release; then
+        error_exit "Failed to checkout release branch"
+    fi
+
+    if ! git pull origin release; then
+        error_exit "Failed to pull release branch"
+    fi
+
+    LATEST_TAG=$(git describe --tags --abbrev=0 origin/release 2>/dev/null)
+
+    if [ -z "$LATEST_TAG" ]; then
+        error_exit "No release tags found"
+    fi
+
     if [ "$OLD_VERSION" = "$LATEST_TAG" ]; then
         log "Already at latest version: $LATEST_TAG"
         exit 0
     fi
-    
+
     log "Updating from $OLD_VERSION to $LATEST_TAG"
-    
-    # Checkout latest tag
-    git checkout "$LATEST_TAG" || error_exit "Failed to checkout latest tag"
+
+    if ! git checkout "$LATEST_TAG"; then
+        error_exit "Failed to checkout latest tag"
+    fi
 }
 
 # Function to update docker container
 update_docker() {
     log "Updating docker container..."
     cd "$APP_DIR" || error_exit "Cannot access application directory"
-    
-    # Detect GPU/CPU configuration
+
     if detect_gpu_configuration; then
         export BUILD_TYPE=gpu
         export USE_CPU=0
@@ -157,18 +181,14 @@ update_docker() {
         PROFILE="cpu"
     fi
 
-    # Enable BuildKit
     export DOCKER_BUILDKIT=1
-    
-    # Stop current container (preserving volumes)
+
     log "Stopping current container..."
     docker-compose down || log "Warning: Issue stopping containers"
-    
-    # Clean old images
+
     log "Cleaning old images..."
     docker image prune -f
-    
-    # Build new container
+
     log "Building new container..."
     if ! docker-compose build --no-cache; then
         log "Build failed. Retrying with CPU configuration."
@@ -179,15 +199,12 @@ update_docker() {
             error_exit "Build failed even with CPU configuration"
         fi
     fi
-    
-    # Start new container
+
     log "Starting new container..."
     if ! docker-compose --profile ${PROFILE} up -d; then
         error_exit "Failed to start container"
     fi
-    
-    # Wait for container
-    log "Waiting for container to be ready..."
+
     for i in {1..30}; do
         if curl -s http://localhost:9000 >/dev/null; then
             log "Container is ready"
@@ -195,32 +212,34 @@ update_docker() {
         fi
         sleep 2
     done
-    
+
     error_exit "Container failed to become ready"
 }
 
 # Function to verify update
 verify_update() {
     log "Verifying update..."
-    
+
     if ! docker ps | grep -q "$CONTAINER_NAME"; then
         error_exit "Container is not running after update"
     fi
-    
+
     if ! curl -s http://localhost:9000 >/dev/null; then
         error_exit "Service is not responding after update"
     fi
-    
-    # Check container logs for errors
+
     if docker logs "$CONTAINER_NAME" 2>&1 | grep -i "error"; then
         log "Warning: Found errors in container logs"
     fi
-    
+
     log "Update verification successful"
 }
 
 # Main update process
 main() {
+    setup_temp
+    setup_directories
+
     log "Update service version: $SERVICE_VERSION"
     log "Starting update process..."
     log "Using APP_DIR: $APP_DIR"
