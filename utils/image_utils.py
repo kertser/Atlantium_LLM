@@ -5,6 +5,7 @@ from typing import Tuple, List, Dict, Union
 from PIL import Image
 import imagehash
 import torch
+from config import CONFIG
 
 
 def zero_shot_classification(
@@ -118,10 +119,15 @@ def normalize_and_hash_image(image_data: str, target_size: Tuple[int, int] = (22
         return None, None
 
 
-def are_images_similar(hash1: str, hash2: str, threshold: int = 5) -> bool:
+def are_images_similar(hash1: str, hash2: str, threshold: float = CONFIG.DEDUPLICATION_THRESHOLD) -> bool:
     """
-    Compare image hashes to determine similarity.
-    Lower threshold means stricter matching.
+    Compare image hashes to determine similarity with structural comparison.
+    Args:
+        hash1: First image hash string
+        hash2: Second image hash string
+        threshold: Similarity between the images threshold (0.0 to 1.0)
+    Returns:
+        bool: True if images are more similar than the threshold
     """
     try:
         # Split combined hashes
@@ -133,9 +139,17 @@ def are_images_similar(hash1: str, hash2: str, threshold: int = 5) -> bool:
         dhash_diff = imagehash.hex_to_hash(dhash1) - imagehash.hex_to_hash(dhash2)
         phash_diff = imagehash.hex_to_hash(phash1) - imagehash.hex_to_hash(phash2)
 
-        # Images are similar if any two hash types indicate similarity
-        similarities = [diff <= threshold for diff in (avg_diff, dhash_diff, phash_diff)]
-        return sum(similarities) >= 2
+        # Calculate similarity scores (0-1 range)
+        avg_similarity = 1 - (avg_diff / 64)  # Hash size is 64 bits
+        dhash_similarity = 1 - (dhash_diff / 64)
+        phash_similarity = 1 - (phash_diff / 64)
+
+        # Calculate weighted average (giving more weight to perceptual hash)
+        similarity = (0.2 * avg_similarity + 0.3 * dhash_similarity + 0.5 * phash_similarity)  # phash is best for structural similarity
+
+        # logging.info(f"Image similarity score: {similarity:.4f}")
+        return similarity >= threshold
+
     except Exception as e:
         logging.error(f"Error comparing image hashes: {e}")
         return False
@@ -166,66 +180,49 @@ def merge_image_metadata(primary_img: dict, secondary_img: dict) -> dict:
     return merged
 
 
-def deduplicate_images(images: List[Dict], max_images: int = 8) -> List[Dict]:
+def deduplicate_images(images: List[Dict], similarity_threshold: float = CONFIG.DEDUPLICATION_THRESHOLD) -> List[Dict]:
     """
-    Deduplicate images using perceptual hashing with size normalization.
-
-    Args:
-        images: List of image dictionaries
-        max_images: Maximum number of images to return
-
-    Returns:
-        List of deduplicated images, limited to max_images
+    Deduplicate images with improved similarity detection
     """
-    # Dictionary to track unique images by their perceptual hash
-    unique_images = {}
-    hash_groups = {}  # Track groups of similar images
+    if not images:
+        return []
+
+    unique_images = []
 
     for img in images:
-        image_id = img.get('image_id')
-        if not image_id or not img.get('image'):
+        try:
+            # Skip if no image data
+            if 'image' not in img:
+                continue
+
+            # Convert base64 to PIL Image for size check
+            image_bytes = base64.b64decode(img['image'])
+            current_image = Image.open(BytesIO(image_bytes))
+
+            # Skip small images (likely logos/icons)
+            if current_image.size[0] < 200 or current_image.size[1] < 200:
+                # logging.info(f"Skipping small image: {current_image.size}")
+                continue
+
+            # Calculate hash for current image
+            current_hash = normalize_and_hash_image(img['image'])[0]
+
+            # Check similarity with existing unique images
+            is_duplicate = False
+            for existing in unique_images:
+                existing_hash = normalize_and_hash_image(existing['image'])[0]
+                if are_images_similar(current_hash, existing_hash, similarity_threshold):
+                    is_duplicate = True
+                    # logging.info("Found duplicate image")
+                    break
+
+            if not is_duplicate:
+                unique_images.append(img)
+                logging.info(f"Added unique image {img.get('image_id', 'unknown')}")
+
+        except Exception as e:
+            logging.error(f"Error processing image: {e}")
             continue
 
-        # Calculate normalized hash and get original size
-        image_hash, original_size = normalize_and_hash_image(img['image'])
-        if not image_hash:
-            continue
-
-        # Check if this image is similar to any existing ones
-        found_match = False
-        for existing_hash in list(unique_images.keys()):
-            if are_images_similar(image_hash, existing_hash):
-                found_match = True
-                # Use existing hash as the group key
-                group_hash = existing_hash
-                if img.get('similarity', 0) > unique_images[group_hash].get('similarity', 0):
-                    # Keep metadata from old image
-                    old_metadata = unique_images[group_hash]
-                    unique_images[group_hash] = img
-                    # Merge metadata
-                    img = merge_image_metadata(img, old_metadata)
-
-                # Track image ID in hash group
-                if group_hash not in hash_groups:
-                    hash_groups[group_hash] = set()
-                hash_groups[group_hash].add(image_id)
-
-                logging.info(f"Found similar images. ID: {image_id}, Size: {original_size}")
-                break
-
-        if not found_match:
-            unique_images[image_hash] = img
-            hash_groups[image_hash] = {image_id}
-            logging.info(f"New unique image. ID: {image_id}, Size: {original_size}")
-
-    # Log duplicate groups
-    for hash_val, ids in hash_groups.items():
-        if len(ids) > 1:
-            logging.info(f"Duplicate image group with {len(ids)} variants: {ids}")
-
-    # Convert to list and sort by similarity
-    deduplicated = list(unique_images.values())
-    deduplicated.sort(key=lambda x: x.get('similarity', 0), reverse=True)
-
-    logging.info(f"Deduplicated {len(images)} images to {len(deduplicated)} unique images")
-    return deduplicated[:max_images]
+    logging.info(f"Deduplicated {len(images)} images to {len(unique_images)} unique images")
+    return unique_images

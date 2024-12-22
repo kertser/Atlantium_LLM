@@ -365,25 +365,31 @@ class RAGQueryServer:
 
             for result in results[0]:
                 metadata = result['metadata']
-                logging.info(f"Processing result type: {metadata.get('type')} with distance: {result['distance']}")
+                # Convert distance to similarity score: similarity = 1 - (distance/2)
+                similarity = 1 - (result['distance'] / 2)
+                logging.info(
+                    f"Processing result type: {metadata.get('type')} with similarity: {similarity:.4f} (raw distance: {result['distance']:.4f})")
 
                 if metadata.get('type') == 'text-chunk':
-                    if result['distance'] < 1 / CONFIG.SIMILARITY_THRESHOLD:
+                    # Use similarity score instead of distance
+                    if similarity > CONFIG.SIMILARITY_THRESHOLD:
                         if 'get_content' in metadata:
                             chunk_text = metadata['get_content']()
                             if chunk_text:
                                 relevant_contexts.append(chunk_text.strip())
                                 logging.info("Added text context")
 
+
                 elif metadata.get('type') == 'image':
-                    if result['distance'] < 1 / CONFIG.SIMILARITY_THRESHOLD:  # Add initial distance check
-                        logging.info(f"Full image metadata: {json.dumps(metadata, indent=2)}")
+                    # Use similarity score instead of distance
+                    if similarity > CONFIG.IMAGE_SIMILARITY_THRESHOLD:
+                        # logging.info(f"Full image metadata: {json.dumps(metadata, indent=2)}")
 
                         # Try both possible image ID locations
                         image_id = (metadata.get('image', {}).get('id') or
                                     metadata.get('content', {}).get('image_id'))
 
-                        logging.info(f"Found image ID: {image_id}")
+                        # logging.info(f"Found image ID: {image_id}")
 
                         if image_id:
                             try:
@@ -398,17 +404,18 @@ class RAGQueryServer:
                                         processor=self.processor,
                                         device=self.device
                                     )
-                                    logging.info(f"Classification result: {predicted_label} (confidence: {confidence})")
+                                    # logging.info(f"Classification result: {predicted_label} (confidence: {confidence})")
 
                                     if predicted_label == "a technical image" and confidence > CONFIG.TECHNICAL_CONFIDENCE_THRESHOLD:
                                         image_input = self.processor(images=image, return_tensors="pt").to(self.device)
                                         image_embedding = self.model.get_image_features(**image_input)
                                         image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
 
-                                        similarity = (query_embedding @ image_embedding.T).item()
-                                        logging.info(f"Image similarity score: {similarity}")
+                                        # This is the refined similarity score for the image content
+                                        content_similarity = (query_embedding @ image_embedding.T).item()
+                                        logging.info(f"Image content similarity score: {content_similarity:.4f}")
 
-                                        if similarity > CONFIG.IMAGE_SIMILARITY_THRESHOLD:
+                                        if content_similarity > CONFIG.IMAGE_SIMILARITY_THRESHOLD:
                                             base64_image = self.image_store.get_base64_image(image_id)
                                             if base64_image:
                                                 image_data = {
@@ -417,13 +424,14 @@ class RAGQueryServer:
                                                     'caption': metadata.get('image', {}).get('caption', ''),
                                                     'context': metadata.get('image', {}).get('context', ''),
                                                     'source': str(metadata.get('path', '')),
-                                                    'similarity': similarity,
+                                                    'similarity': content_similarity,  # Use the refined similarity
                                                     'technical_confidence': confidence
                                                 }
                                                 relevant_images.append(image_data)
-                                                logging.info(f"Added technical image {image_id}")
+                                                # logging.info(f"Added technical image {image_id}")
                                     else:
-                                        logging.info(f"Image {image_id} not classified as technical")
+                                        pass
+                                        # logging.info(f"Image {image_id} not classified as technical")
                                 else:
                                     logging.warning(f"Could not load image {image_id}")
                             except Exception as e:

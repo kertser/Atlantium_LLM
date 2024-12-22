@@ -33,7 +33,8 @@ class Config:
     # Thresholds (not percentiles)
     SIMILARITY_THRESHOLD: float = 0.75  # Text similarity
     IMAGE_SIMILARITY_THRESHOLD: float = 0.25  # Image similarity
-    TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.6  # Technical confidence
+    TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.75  # Technical confidence
+    DEDUPLICATION_THRESHOLD = 0.70 # Threshold for image deduplication
 
     # Document Processing
     BATCH_SIZE: int = 5  # Document processing in batches. For limited RAM it is 2-5. For GPU 8-16GB it is 8-16

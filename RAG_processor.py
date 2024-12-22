@@ -82,14 +82,7 @@ def filter_technical_images(images_data, model, processor, device, source_doc):
     filtered_images = []
 
     # Define classification labels
-    labels = [
-        "a technical image",
-        "a technical diagram",
-        "a technical schematic",
-        "a non-technical image",
-        "a decorative image",
-        "a photo"
-    ]
+    labels = ["a technical image", "a non-technical image"]
 
     for img_data in images_data:
         try:
@@ -104,23 +97,27 @@ def filter_technical_images(images_data, model, processor, device, source_doc):
                 device=device
             )
 
-            # Check if image is classified as technical
-            is_technical = any(
-                predicted_label.startswith(tech_label)
-                for tech_label in ["a technical image", "a technical diagram", "a technical schematic"]
-            )
+            # Convert confidence to similarity score (0-1 range)
+            similarity = confidence if predicted_label == "a technical image" else 1 - confidence
 
-            if is_technical and confidence > CONFIG.TECHNICAL_CONFIDENCE_THRESHOLD:
-                logging.info(f"Technical image found in {source_doc} (confidence: {confidence:.2f})")
+            # Log the similarity score
+            logging.info(f"Image from {source_doc}: {predicted_label} (similarity: {similarity:.4f})")
+
+            # Use similarity threshold for filtering
+            if similarity > CONFIG.TECHNICAL_CONFIDENCE_THRESHOLD:
+                logging.info(f"Technical image found in {source_doc} (similarity: {similarity:.4f})")
+                # Add similarity score to image data for later use
+                img_data['technical_similarity'] = similarity
                 filtered_images.append(img_data)
             else:
-                logging.info(f"Skipping non-technical image in {source_doc} "
-                             f"(label: {predicted_label}, confidence: {confidence:.2f})")
+                logging.info(f"Skipping non-technical image in {source_doc} (similarity: {similarity:.4f})")
 
         except Exception as e:
             logging.error(f"Error processing image from {source_doc}: {e}")
             continue
 
+    # Sort filtered images by similarity score
+    filtered_images.sort(key=lambda x: x.get('technical_similarity', 0), reverse=True)
     return filtered_images
 
 
