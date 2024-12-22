@@ -15,7 +15,6 @@
 * Android mobile app development (TBD)
 * Offline and fine-tuned LLMs (TBD)
 * Multimodal Input - Connect audio model (TBD)
-* Think of other Agents (Video Agent) (TBD)
 
 # Add to documents:
 - manual deploy without updates (docker and with no docker)
