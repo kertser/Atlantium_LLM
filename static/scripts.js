@@ -966,7 +966,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (fileMap.size + files.length > maxfiles) {
-            alert('You can select no more than {maxfiles} files at a time');
+            alert(`You can select no more than ${maxfiles} files at a time`);
             return;
         }
 
@@ -1476,6 +1476,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const newFolderButton = document.getElementById('new-folder-button');
     if (newFolderButton) {
         newFolderButton.addEventListener('click', () => {
+
             const modal = createModal(
                 'Create New Folder',
                 `<input type="text" class="modal-input" placeholder="Folder name" maxlength="255">`,

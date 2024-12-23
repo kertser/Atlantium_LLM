@@ -1,8 +1,8 @@
-# Base image
-FROM python:3.10-slim AS base
-
 # Declare and use BUILD_TYPE argument for subsequent stages
 ARG BUILD_TYPE
+
+# Base image
+FROM python:3.10-slim AS base
 
 # Set working directory
 WORKDIR /app
