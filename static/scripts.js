@@ -1,6 +1,7 @@
 // Add current path tracking
 let currentFolderPath = '';
 let activeContextMenu = null;
+let maxfiles = 50; // Maximum files that can be uploaded at once
 
 // Helper functions (defined outside DOMContentLoaded to be available globally)
 function escapeHtml(unsafe) {
@@ -865,18 +866,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateFileCount() {
         const fileCount = fileMap.size;
-        const remainingSlots = 10 - fileCount;
+        const remainingSlots = maxfiles - fileCount;
 
-        // Update the upload box text to show remaining slots
-        const uploadContent = document.querySelector('.upload-content p:first-child');
+        // Update all paragraphs in upload-content to handle both the message and supported formats
+        const uploadContent = document.querySelector('.upload-content');
         if (uploadContent) {
-            uploadContent.textContent = `Drag and drop files or click to upload (${fileCount}/10 files)`;
+            const paragraphs = uploadContent.querySelectorAll('p');
+            // Update just the first text paragraph (second p element, after the SVG)
+            if (paragraphs[0]) {
+                if (fileCount === 0) {
+                    paragraphs[0].textContent = 'Drag and drop files or click to upload';
+                } else {
+                    paragraphs[0].textContent = `${fileCount} file${fileCount !== 1 ? 's' : ''} selected (${remainingSlots} slot${remainingSlots !== 1 ? 's' : ''} remaining)`;
+                }
+            }
+            // Keep the supported formats text unchanged
+            // paragraphs[1] contains "Supported formats: PDF, DOCX, XLSX"
         }
     }
 
     function handleFiles(files) {
-        if (fileMap.size + files.length > 10) {
-            alert('You can select no more than 10 files at a time');
+        if (fileMap.size + files.length > maxfiles) {
+            alert('You can select no more than {maxfiles} files at a time');
             return;
         }
 
@@ -918,7 +929,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (fileMap.size === 0) {
                 processBtn.style.display = 'none';
             }
-            updateFileCount(); // Update the count after removing a file
+            updateFileCount(); // Add this call
         });
 
         return div;
@@ -1329,6 +1340,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Clean up
             uploadList.innerHTML = '';
             fileMap.clear();
+            updateFileCount();
 
             // Refresh documents list for current folder
             await loadDocuments(currentFolderPath);
