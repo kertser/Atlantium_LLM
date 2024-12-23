@@ -23,8 +23,6 @@
 # sudo ./deploy.sh --init
 # The web app will be available at http://server_ip:9000
 
-version: '3.8'
-
 services:
   web-app-gpu:
     container_name: ${CONTAINER_NAME:-atlantium_llm-web-app-1}
@@ -48,21 +46,16 @@ services:
       - "9000:9000"
     volumes:
       - type: bind
-        source: ./Raw Documents
+        source: ${PWD}/Raw Documents
         target: /app/Raw Documents
       - type: bind
-        source: ./RAG_Data
+        source: ${PWD}/RAG_Data
         target: /app/RAG_Data
       - type: bind
-        source: ./logs
+        source: ${PWD}/logs
         target: /app/logs
-      - type: bind
-        source: /var/run/docker.sock
-        target: /var/run/docker.sock
-      - type: bind
-        source: ${HOME}/.docker/config.json
-        target: /root/.docker/config.json
-        read_only: true
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HOME}/.docker/config.json:/root/.docker/config.json:ro
     env_file:
       - .env
     restart: unless-stopped
@@ -84,21 +77,16 @@ services:
       - "9000:9000"
     volumes:
       - type: bind
-        source: ./Raw Documents
+        source: ${PWD}/Raw Documents
         target: /app/Raw Documents
       - type: bind
-        source: ./RAG_Data
+        source: ${PWD}/RAG_Data
         target: /app/RAG_Data
       - type: bind
-        source: ./logs
+        source: ${PWD}/logs
         target: /app/logs
-      - type: bind
-        source: /var/run/docker.sock
-        target: /var/run/docker.sock
-      - type: bind
-        source: ${HOME}/.docker/config.json
-        target: /root/.docker/config.json
-        read_only: true
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HOME}/.docker/config.json:/root/.docker/config.json:ro
     env_file:
       - .env
     restart: unless-stopped
