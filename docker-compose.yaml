@@ -47,11 +47,22 @@ services:
     ports:
       - "9000:9000"
     volumes:
-      - raw_docs:/app/Raw Documents
-      - rag_data:/app/RAG_Data
-      - logs:/app/logs
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ${HOME}/.docker/config.json:/root/.docker/config.json:ro
+      - type: bind
+        source: ./Raw Documents
+        target: /app/Raw Documents
+      - type: bind
+        source: ./RAG_Data
+        target: /app/RAG_Data
+      - type: bind
+        source: ./logs
+        target: /app/logs
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+      - type: bind
+        source: ${HOME}/.docker/config.json
+        target: /root/.docker/config.json
+        read_only: true
     env_file:
       - .env
     restart: unless-stopped
@@ -72,21 +83,24 @@ services:
     ports:
       - "9000:9000"
     volumes:
-      - raw_docs:/app/Raw Documents
-      - rag_data:/app/RAG_Data
-      - logs:/app/logs
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ${HOME}/.docker/config.json:/root/.docker/config.json:ro
+      - type: bind
+        source: ./Raw Documents
+        target: /app/Raw Documents
+      - type: bind
+        source: ./RAG_Data
+        target: /app/RAG_Data
+      - type: bind
+        source: ./logs
+        target: /app/logs
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+      - type: bind
+        source: ${HOME}/.docker/config.json
+        target: /root/.docker/config.json
+        read_only: true
     env_file:
       - .env
     restart: unless-stopped
     profiles:
       - cpu
-
-volumes:
-  raw_docs:
-    driver: local
-  rag_data:
-    driver: local
-  logs:
-    driver: local
