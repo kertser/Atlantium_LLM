@@ -1452,6 +1452,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const rescanButton = document.getElementById('rescan-button');
     if (rescanButton) {
         rescanButton.addEventListener('click', async () => {
+            if (!isAuthenticated) {
+                const authenticated = await createAuthModal();
+                if (!authenticated) return;
+            }
+
             if (rescanButton.classList.contains('loading')) return;
 
             rescanButton.classList.add('loading');
@@ -1475,7 +1480,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const newFolderButton = document.getElementById('new-folder-button');
     if (newFolderButton) {
-        newFolderButton.addEventListener('click', () => {
+        newFolderButton.addEventListener('click', async () => {
+            if (!isAuthenticated) {
+                const authenticated = await createAuthModal();
+                if (!authenticated) return;
+            }
 
             const modal = createModal(
                 'Create New Folder',
