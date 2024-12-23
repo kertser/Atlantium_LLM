@@ -11,6 +11,7 @@
   One good idea is to keep this data with special metadata entry: 'block_type': position,  # 'header', 'footer', 'toc', 'content'
   Then adding flags in the query processing to control whether to include this content and weight different content types differently in relevance scoring
   It will provide more data in format_response function
+* Image metadata is stored and accessed as absolute path instead of relative. Bad for docker app. Need to be fixed.
 
 # TBDs for development:
 * Switch to MongoDB instead of metadata in files

@@ -23,8 +23,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONIOENCODING=utf-8
 
 # Create and switch to non-root user
-RUN useradd -m -u 1000 appuser \
-    && chown -R appuser:appuser /
+RUN useradd -m -u 1000 appuser
 
 # Copy requirements files and installation script
 COPY requirements_cpu.txt requirements_gpu.txt scripts/install_requirements.sh ./
@@ -53,7 +52,7 @@ RUN chmod +x docker-entrypoint.sh
 
 # Create necessary directories with correct permissions
 RUN mkdir -p "RAG_Data/stored_images" "Raw Documents" logs \
-    && chown -R appuser:appuser "RAG_Data" "Raw Documents" logs \
+    && chown -R appuser:appuser "RAG_Data" "Raw Documents" logs docker-entrypoint.sh \
     && chmod -R 755 "RAG_Data" "Raw Documents" logs
 
 USER appuser
