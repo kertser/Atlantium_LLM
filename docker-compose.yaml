@@ -47,13 +47,13 @@ services:
     volumes:
       - type: bind
         source: ./Raw Documents
-        target: /app/Raw Documents
+        target: /Raw Documents
       - type: bind
         source: ./RAG_Data
-        target: /app/RAG_Data
+        target: /RAG_Data
       - type: bind
         source: ./logs
-        target: /app/logs
+        target: /logs
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME}/.docker/config.json:/root/.docker/config.json:ro
     env_file:
@@ -78,13 +78,13 @@ services:
     volumes:
       - type: bind
         source: ./Raw Documents
-        target: /app/Raw Documents
+        target: /Raw Documents
       - type: bind
         source: ./RAG_Data
-        target: /app/RAG_Data
+        target: /RAG_Data
       - type: bind
         source: ./logs
-        target: /app/logs
+        target: /logs
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME}/.docker/config.json:/root/.docker/config.json:ro
     env_file:
