@@ -1,7 +1,67 @@
-// Add current path tracking
-let currentFolderPath = '';
+const AUTH_PASSWORD = "atlantium";
+
+let currentFolderPath = ''; // Add current path tracking
 let activeContextMenu = null;
 let maxfiles = 50; // Maximum files that can be uploaded at once
+let isAuthenticated = false;
+
+// Authentication modal creation
+async function createAuthModal() {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Authentication Required</h3>
+            </div>
+            <div class="modal-body">
+                <input type="password" class="modal-input" placeholder="Enter password" id="auth-password">
+                <div class="error-message" style="color: red; display: none; margin-top: 8px;">
+                    Incorrect password
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="icon-button" data-action="cancel">Cancel</button>
+                <button class="icon-button" data-action="confirm">Authenticate</button>
+            </div>
+        </div>
+    `;
+
+    // Handle authentication
+    const confirmButton = modal.querySelector('[data-action="confirm"]');
+    const cancelButton = modal.querySelector('[data-action="cancel"]');
+    const passwordInput = modal.querySelector('#auth-password');
+    const errorMessage = modal.querySelector('.error-message');
+
+    return new Promise((resolve, reject) => {
+        confirmButton.onclick = () => {
+            const password = passwordInput.value;
+            if (password === AUTH_PASSWORD) {
+                isAuthenticated = true;
+                document.body.removeChild(modal);
+                resolve(true);
+            } else {
+                errorMessage.style.display = 'block';
+                passwordInput.value = '';
+            }
+        };
+
+        cancelButton.onclick = () => {
+            document.body.removeChild(modal);
+            resolve(false);
+        };
+
+        // Add Enter key handler
+        passwordInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                confirmButton.click();
+            }
+        });
+
+        document.body.appendChild(modal);
+        passwordInput.focus();
+    });
+}
 
 // Helper functions (defined outside DOMContentLoaded to be available globally)
 function escapeHtml(unsafe) {
@@ -81,6 +141,10 @@ function createContextMenu(e, fileName, filePath) {
                      <path fill="currentColor" d="M7 4V2h10v2h5v2h-2v15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6H2V4h5z"/>
                    </svg>`,
             action: async () => {
+                if (!isAuthenticated) {
+                    const authenticated = await createAuthModal();
+                    if (!authenticated) return;
+                }
                 if (confirm('Are you sure you want to delete this file?')) {
                     try {
                         const response = await fetch(`/delete/document?path=${encodeURIComponent(filePath)}`, {
@@ -277,7 +341,12 @@ function createFolderContextMenu(e, folderPath, folderName) {
                 </svg>
             `,
             className: 'delete',
-            action: () => {
+            action: async () => {
+                if (!isAuthenticated) {
+                    const authenticated = await createAuthModal();
+                    if (!authenticated) return;
+                }
+
                 const modal = createModal(
                     'Delete Folder',
                     `
@@ -566,6 +635,11 @@ function initializeMultiSelect() {
     // Batch delete handler
     const batchDeleteButton = document.getElementById('batch-delete-button');
     batchDeleteButton.addEventListener('click', async () => {
+        if (!isAuthenticated) {
+            const authenticated = await createAuthModal();
+            if (!authenticated) return;
+        }
+
         if (selectedItems.size === 0) return;
 
         if (confirm(`Are you sure you want to delete ${selectedItems.size} selected item(s)?`)) {
@@ -885,7 +959,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function handleFiles(files) {
+    async function handleFiles(files) {
+        if (!isAuthenticated) {
+            const authenticated = await createAuthModal();
+            if (!authenticated) return;
+        }
+
         if (fileMap.size + files.length > maxfiles) {
             alert('You can select no more than {maxfiles} files at a time');
             return;

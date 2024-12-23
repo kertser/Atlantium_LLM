@@ -821,6 +821,21 @@ td .select-checkbox {
     outline-offset: 2px;
 }
 
+.modal-input {
+    width: 100%;
+    padding: 8px;
+    margin: 8px 0;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 16px;
+}
+
+.modal-input:focus {
+    border-color: var(--primary-color);
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2);
+}
+
 @keyframes loading {
     0% { content: ''; }
     25% { content: '.'; }
