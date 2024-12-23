@@ -5,7 +5,7 @@ ARG BUILD_TYPE
 FROM python:3.10-slim AS base
 
 # Set working directory
-WORKDIR /
+WORKDIR /app
 
 # Install system dependencies including lspci for GPU detection
 RUN apt-get update \
@@ -51,14 +51,14 @@ COPY scripts/docker-entrypoint.sh ./
 RUN chmod +x docker-entrypoint.sh
 
 # Create necessary directories with correct permissions
-RUN mkdir -p "RAG_Data/stored_images" "Raw Documents" logs \
-    && chown -R appuser:appuser "RAG_Data" "Raw Documents" logs docker-entrypoint.sh \
-    && chmod -R 755 "RAG_Data" "Raw Documents" logs
+RUN mkdir -p "/app/RAG_Data/stored_images" "/app/Raw Documents" /app/logs \
+    && chown -R appuser:appuser /app \
+    && chmod -R 755 "/app/RAG_Data" "/app/Raw Documents" /app/logs
 
 USER appuser
 
 # Expose the port
 EXPOSE 9000
 
-ENTRYPOINT ["/docker-entrypoint.sh"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["python", "run.py"]

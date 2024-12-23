@@ -751,7 +751,7 @@ def main():
                             device=device,
                             index=index,
                             metadata=metadata,
-                            image_store=ImageStore(CONFIG.STORED_IMAGES_PATH),
+                            image_store=ImageStore(),
                             doc_paths=batch_docs
                         )
 

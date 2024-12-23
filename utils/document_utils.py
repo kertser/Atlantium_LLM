@@ -175,7 +175,7 @@ def rescan_documents(config: CONFIG) -> tuple[bool, str]:
                     metadata = []
 
                 # Initialize image store
-                image_store = ImageStore(config.STORED_IMAGES_PATH)
+                image_store = ImageStore()
 
                 # Process documents with all required arguments
                 success = process_documents(
@@ -229,7 +229,7 @@ def remove_document_from_rag(doc_path: Path) -> tuple[bool, str]:
         # Load current data
         original_index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
         metadata = load_metadata(CONFIG.METADATA_PATH)
-        image_store = ImageStore(CONFIG.STORED_IMAGES_PATH)
+        image_store = ImageStore()  # Changed this line - no parameter needed
         logger.info(f"Successfully loaded index with {len(metadata)} entries")
 
         # Get relative path for comparison

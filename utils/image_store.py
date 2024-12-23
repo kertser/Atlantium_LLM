@@ -11,14 +11,16 @@ import imagehash
 from config import CONFIG
 
 class ImageStore:
-    def __init__(self, base_path: Path):
-        """Initialize the ImageStore with a base path for storing images and metadata"""
-        self.base_path = Path(base_path)
+    def __init__(self):
+        """Initialize the image store with paths from config"""
+        self.base_path = CONFIG.STORED_IMAGES_PATH
         self.metadata_path = CONFIG.IMAGE_METADATA_PATH
 
-        # Create directory if it doesn't exist
+        # Create directories if they don't exist
         self.base_path.mkdir(parents=True, exist_ok=True)
+        self.metadata_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Load existing metadata or create new
         self.metadata = self._load_metadata()
         self._verify_stored_images()
 
@@ -93,7 +95,7 @@ class ImageStore:
             raise
 
     def store_image(self, image: Image.Image, source_doc: str, page_num: int,
-                    caption: Optional[str] = None, context: Optional[str] = None) -> str:
+                   caption: Optional[str] = None, context: Optional[str] = None) -> str:
         """Store an image and return its ID"""
         try:
             image_id = self._generate_image_id(image, source_doc, page_num)
@@ -109,16 +111,16 @@ class ImageStore:
             elif image.mode != 'RGB':
                 image = image.convert('RGB')
 
-            # Save image directly in base_path
+            # Save image with relative path
             image_path = self.base_path / f"{image_id}.png"
             image.save(image_path, "PNG")
             logging.info(f"Saved image to {image_path}")
 
-            # Store metadata
+            # Store metadata with relative path
             self.metadata[image_id] = {
                 "source_document": str(source_doc),
                 "page_number": page_num,
-                "path": str(image_path.absolute()),
+                "path": str(image_path.relative_to(CONFIG.BASE_DIR)),  # Store relative path
                 "caption": caption,
                 "context": context,
                 "width": image.width,
@@ -133,24 +135,23 @@ class ImageStore:
             raise
 
     def get_image(self, image_id: str) -> Tuple[Optional[Image.Image], Optional[Dict]]:
-        """Retrieve an image and its metadata by ID"""
+        """Get an image and its metadata by ID"""
         try:
             if image_id not in self.metadata:
-                logging.info(f"Image ID not found in metadata: {image_id}")
                 return None, None
 
-            image_data = self.metadata[image_id]
-            image_path = Path(image_data["path"])
+            metadata = self.metadata[image_id]
+            # Convert stored relative path to absolute
+            image_path = CONFIG.BASE_DIR / metadata["path"]
 
             if not image_path.exists():
-                logging.warning(f"Image file not found: {image_path}")
+                logging.error(f"Image file not found: {image_path}")
                 return None, None
 
-            image = Image.open(image_path)
-            return image, image_data
+            return Image.open(image_path), metadata
 
         except Exception as e:
-            logging.error(f"Error loading image {image_id}: {e}")
+            logging.error(f"Error retrieving image {image_id}: {e}")
             return None, None
 
     @lru_cache(maxsize=100)

@@ -7,12 +7,6 @@ from typing import List, Set, Dict
 import os
 from config import CONFIG
 
-def get_project_root() -> Path:
-    """Get the project root directory."""
-    current_file = Path(__file__).resolve()
-    return current_file.parent.parent
-
-
 def setup_logging() -> None:
     """Set up console-only logging configuration."""
     logging.basicConfig(
@@ -21,23 +15,13 @@ def setup_logging() -> None:
         handlers=[logging.StreamHandler()]
     )
 
-def ensure_root_directory() -> None:
-    """Ensure we're in the project root directory."""
-    project_root = get_project_root()
-    current_dir = Path.cwd()
-
-    if current_dir != project_root:
-        os.chdir(project_root)
-        logging.info(f"Changed working directory to project root: {project_root}")
-
 def create_required_directories() -> Dict[str, bool]:
     """
-    Create all required directories from project root.
+    Create all required directories from base directory.
 
     Returns:
         Dict[str, bool]: Dictionary of directory paths and their creation status
     """
-    ensure_root_directory()
     creation_status = {}
 
     directories = {
@@ -52,27 +36,29 @@ def create_required_directories() -> Dict[str, bool]:
 
     for name, directory in directories.items():
         try:
-            if not directory.exists():
-                directory.mkdir(parents=True, exist_ok=True)
-                creation_status[str(directory)] = True
-                logging.info(f"Created directory: {name} at {directory}")
+            # Ensure directory path is absolute
+            abs_dir = CONFIG.BASE_DIR / directory
+            if not abs_dir.exists():
+                abs_dir.mkdir(parents=True, exist_ok=True)
+                creation_status[str(abs_dir)] = True
+                logging.info(f"Created directory: {name} at {abs_dir}")
             else:
-                creation_status[str(directory)] = False
-                logging.info(f"Directory already exists: {name} at {directory}")
+                creation_status[str(abs_dir)] = False
+                logging.info(f"Directory already exists: {name} at {abs_dir}")
 
             # Verify directory is writable
-            test_file = directory / ".write_test"
+            test_file = abs_dir / ".write_test"
             try:
                 test_file.touch()
                 test_file.unlink()
-                logging.info(f"Verified write access to: {directory}")
+                logging.info(f"Verified write access to: {abs_dir}")
             except Exception as e:
-                logging.error(f"Directory {directory} is not writable: {e}")
-                creation_status[str(directory)] = False
+                logging.error(f"Directory {abs_dir} is not writable: {e}")
+                creation_status[str(abs_dir)] = False
 
         except Exception as e:
-            logging.error(f"Failed to create/verify directory {name} at {directory}: {e}")
-            creation_status[str(directory)] = False
+            logging.error(f"Failed to create/verify directory {name} at {abs_dir}: {e}")
+            creation_status[str(abs_dir)] = False
 
     # Log summary
     created = sum(1 for status in creation_status.values() if status)
@@ -91,18 +77,15 @@ def initialize_rag_database(
         # Set up logging first
         setup_logging()
 
-        # Ensure we're in project root
-        ensure_root_directory()
-        project_root = get_project_root()
-        logging.info(f"Initializing RAG database in: {project_root}")
+        logging.info(f"Initializing RAG database in: {CONFIG.BASE_DIR}")
 
-        # Define default paths relative to project root
+        # Define default paths relative to base directory
         if paths_to_clean is None:
             paths_to_clean = [
                 CONFIG.FAISS_INDEX_PATH,
                 CONFIG.METADATA_PATH,
                 CONFIG.IMAGE_METADATA_PATH,
-                Path("processed_files.json"),
+                CONFIG.BASE_DIR / "processed_files.json",
             ]
 
         if directories_to_clean is None:
@@ -122,7 +105,7 @@ def initialize_rag_database(
             if file_path in handled_paths:
                 continue
 
-            abs_path = file_path if file_path.is_absolute() else project_root / file_path
+            abs_path = CONFIG.BASE_DIR / file_path if not file_path.is_absolute() else file_path
             try:
                 if abs_path.exists():
                     abs_path.unlink()
@@ -139,7 +122,7 @@ def initialize_rag_database(
             if dir_path in handled_paths:
                 continue
 
-            abs_path = dir_path if dir_path.is_absolute() else project_root / dir_path
+            abs_path = CONFIG.BASE_DIR / dir_path if not dir_path.is_absolute() else dir_path
             try:
                 if abs_path.exists():
                     shutil.rmtree(abs_path)
@@ -155,7 +138,7 @@ def initialize_rag_database(
 
         # Create empty processed_files.json
         try:
-            processed_files_path = project_root / "processed_files.json"
+            processed_files_path = CONFIG.BASE_DIR / "processed_files.json"
             processed_files_path.write_text("[]", encoding="utf-8")
             logging.info("Created empty processed_files.json")
         except Exception as e:

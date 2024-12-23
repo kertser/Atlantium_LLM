@@ -12,6 +12,7 @@
   Then adding flags in the query processing to control whether to include this content and weight different content types differently in relevance scoring
   It will provide more data in format_response function
 * Image metadata is stored and accessed as absolute path instead of relative. Bad for docker app. Need to be fixed.
+* Visualize the document processing with progress bar - over the "processing" button
 
 # TBDs for development:
 * Switch to MongoDB instead of metadata in files

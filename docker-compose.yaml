@@ -27,6 +27,7 @@ services:
   web-app-gpu:
     container_name: ${CONTAINER_NAME:-atlantium_llm-web-app-1}
     environment:
+      - APP_BASE_DIR=/app
       - PYTHONIOENCODING=utf-8
       - USE_CPU=0
       - INITIALIZE_RAG=${INITIALIZE_RAG:-false}
@@ -47,13 +48,13 @@ services:
     volumes:
       - type: bind
         source: ./Raw Documents
-        target: /Raw Documents
+        target: /app/Raw Documents
       - type: bind
         source: ./RAG_Data
-        target: /RAG_Data
+        target: /app/RAG_Data
       - type: bind
         source: ./logs
-        target: /logs
+        target: /app/logs
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME}/.docker/config.json:/root/.docker/config.json:ro
     env_file:
@@ -65,6 +66,7 @@ services:
   web-app-cpu:
     container_name: ${CONTAINER_NAME:-atlantium_llm-web-app-1}
     environment:
+      - APP_BASE_DIR=/app
       - PYTHONIOENCODING=utf-8
       - USE_CPU=1
       - INITIALIZE_RAG=${INITIALIZE_RAG:-false}
@@ -78,13 +80,13 @@ services:
     volumes:
       - type: bind
         source: ./Raw Documents
-        target: /Raw Documents
+        target: /app/Raw Documents
       - type: bind
         source: ./RAG_Data
-        target: /RAG_Data
+        target: /app/RAG_Data
       - type: bind
         source: ./logs
-        target: /logs
+        target: /app/logs
       - /var/run/docker.sock:/var/run/docker.sock
       - ${HOME}/.docker/config.json:/root/.docker/config.json:ro
     env_file:

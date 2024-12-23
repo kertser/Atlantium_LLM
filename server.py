@@ -316,7 +316,7 @@ class RAGQueryServer:
             save_faiss_index(self.index, CONFIG.FAISS_INDEX_PATH)
             save_metadata(self.metadata, CONFIG.METADATA_PATH)
 
-        self.image_store = ImageStore(CONFIG.STORED_IMAGES_PATH)
+        self.image_store = ImageStore()
         self.similarity_threshold = CONFIG.SIMILARITY_THRESHOLD
         self.formatter = EnhancedResponseFormatter()
         self.reset_chat()
@@ -1411,6 +1411,7 @@ async def get_chat_history():
     return {"history": history}
 
 
+@app.get('/favicon.ico', include_in_schema=False)
 @app.get('/favicon.png', include_in_schema=False)
 async def favicon():
     favicon_path = Path('static/favicon.png')  # Create this file or adjust the path

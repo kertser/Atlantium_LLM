@@ -8,7 +8,7 @@ if [ "$INITIALIZE_RAG" = "true" ]; then
 fi
 
 # Create required directories if they don't exist
-for dir in "RAG_Data/stored_images" "Raw Documents" logs; do
+for dir in "/app/RAG_Data/stored_images" "/app/Raw Documents" /app/logs; do
     if [ ! -d "$dir" ]; then
         mkdir -p "$dir"
         echo "Created directory: $dir"
@@ -16,7 +16,7 @@ for dir in "RAG_Data/stored_images" "Raw Documents" logs; do
 done
 
 # Set proper permissions
-chmod -R 755 "RAG_Data" "Raw Documents" logs || {
+chmod -R 755 "/app/RAG_Data" "/app/Raw Documents" /app/logs || {
     echo "Error setting permissions on required directories"
     exit 1
 }

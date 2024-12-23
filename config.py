@@ -3,25 +3,29 @@ from dataclasses import dataclass
 from typing import List
 from pathlib import Path
 
+# Get base directory from environment variable or use current directory for local development
+BASE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 
 @dataclass
 class Config:
+    # BASE_DIR as a class attribute
+    BASE_DIR: Path = BASE_DIR
     # Ports and URLs
     SERVER_PORT: int = 9000
 
     # Base Paths
-    RAW_DOCUMENTS_PATH: Path = Path("Raw Documents")
-    RAG_DATA: Path = Path("RAG_Data")  # Base directory for all RAG data
+    RAW_DOCUMENTS_PATH: Path = BASE_DIR / "Raw Documents"
+    RAG_DATA: Path = BASE_DIR / "RAG_Data"  # Base directory for all RAG data
 
-    # Specific Data Paths
-    FAISS_INDEX_PATH: Path = Path("RAG_Data/faiss_index.bin")
-    METADATA_PATH: Path = Path("RAG_Data/faiss_metadata.json")
-    IMAGE_METADATA_PATH: Path = Path("RAG_Data/image_metadata.json")
-    STORED_IMAGES_PATH: Path = Path("RAG_Data/stored_images")
-    STORED_TEXT_CHUNKS_PATH: Path = Path("RAG_Data/stored_text_chunks")
+    # Specific Data Paths - use RAG_DATA as base
+    FAISS_INDEX_PATH: Path = RAG_DATA / "faiss_index.bin"
+    METADATA_PATH: Path = RAG_DATA / "faiss_metadata.json"
+    IMAGE_METADATA_PATH: Path = RAG_DATA / "image_metadata.json"
+    STORED_IMAGES_PATH: Path = RAG_DATA / "stored_images"
+    STORED_TEXT_CHUNKS_PATH: Path = RAG_DATA / "stored_text_chunks"
 
     # Logging
-    LOG_PATH: Path = Path("logs")
+    LOG_PATH: Path = BASE_DIR / "logs"
     LOG_BACKUP_COUNT: int = 5  # Maximum log backups
     MAX_LOG_SIZE: int = 10000
 
@@ -78,6 +82,11 @@ class Config:
     def __post_init__(self):
         if self.SUPPORTED_EXTENSIONS is None:
             self.SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.xlsx']
+
+            # Create directories if they don't exist
+            for path in [self.RAW_DOCUMENTS_PATH, self.RAG_DATA, self.LOG_PATH,
+                         self.STORED_IMAGES_PATH, self.STORED_TEXT_CHUNKS_PATH]:
+                path.mkdir(parents=True, exist_ok=True)
 
             # Ensure all paths are Path objects
             self.RAW_DOCUMENTS_PATH = Path(self.RAW_DOCUMENTS_PATH)
