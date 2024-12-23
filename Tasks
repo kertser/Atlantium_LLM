@@ -7,7 +7,10 @@
 # Urgent Tasks / Errors:
 * Play with similarity scores to have more precise answers.
 * Continue playing with prompts, top_K and chunking to reduce hallucinations. (May be achieved with more data)
-* Need to remove header and footer of pdf/doc files form chinking/indexing - it is a garbage data. Similarly - prefaces, tables of content
+* Need to treat headers and footers of pdf/doc files form chinking/indexing - it is a garbage data. Similarly - prefaces, tables of content
+  One good idea is to keep this data with special metadata entry: 'block_type': position,  # 'header', 'footer', 'toc', 'content'
+  Then adding flags in the query processing to control whether to include this content and weight different content types differently in relevance scoring
+  It will provide more data in format_response function
 
 # TBDs for development:
 * Switch to MongoDB instead of metadata in files
