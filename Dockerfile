@@ -5,7 +5,7 @@ ARG BUILD_TYPE
 FROM python:3.10-slim AS base
 
 # Set working directory
-WORKDIR /app
+WORKDIR /
 
 # Install system dependencies including lspci for GPU detection
 RUN apt-get update \
@@ -24,7 +24,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Create and switch to non-root user
 RUN useradd -m -u 1000 appuser \
-    && chown -R appuser:appuser /app
+    && chown -R appuser:appuser /
 
 # Copy requirements files and installation script
 COPY requirements_cpu.txt requirements_gpu.txt scripts/install_requirements.sh ./
@@ -61,5 +61,5 @@ USER appuser
 # Expose the port
 EXPOSE 9000
 
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["python", "run.py"]
