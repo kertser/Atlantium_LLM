@@ -53,21 +53,31 @@ RUN ./install_requirements.sh
 # Final stage - will be selected during build
 FROM ${BUILD_TYPE:-cpu}
 
+# Switch to root temporarily for permissions
+USER root
+
 # Copy entrypoint script first and set its permissions
 COPY scripts/docker-entrypoint.sh /app/
-RUN chmod 755 /app/docker-entrypoint.sh && \
-    chown appuser:appuser /app/docker-entrypoint.sh
+RUN chmod 755 /app/docker-entrypoint.sh
 
-# Copy application code and set permissions
-COPY --chown=appuser:appuser . .
+# Copy application code
+COPY . .
 
-# Set final permissions
+# Set all permissions correctly
 RUN chown -R appuser:appuser /app && \
     find /app -type d -exec chmod 775 {} \; && \
     find /app -type f -exec chmod 664 {} \; && \
-    # Ensure entrypoint remains executable
-    chmod 755 /app/docker-entrypoint.sh
+    chmod 755 /app/docker-entrypoint.sh && \
+    # Ensure these directories exist with correct ownership
+    mkdir -p "/app/RAG_Data/stored_images" \
+            "/app/RAG_Data/stored_text_chunks" \
+            "/app/Raw Documents" \
+            /app/logs && \
+    chown -R appuser:appuser "/app/RAG_Data" \
+            "/app/Raw Documents" \
+            /app/logs
 
+# Switch to appuser for runtime
 USER appuser
 
 EXPOSE 9000

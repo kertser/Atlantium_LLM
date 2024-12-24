@@ -8,10 +8,21 @@ verify_directory() {
         echo "ERROR: Required directory missing: $dir"
         return 1
     fi
-    if [ "$(stat -c '%u:%g' "$dir")" != "$(id -u appuser):$(id -g appuser)" ]; then
+
+    # Get numeric UID and GID of appuser
+    local app_uid=$(id -u appuser)
+    local app_gid=$(id -g appuser)
+
+    # Get ownership of directory
+    local dir_owner=$(stat -c '%u' "$dir")
+    local dir_group=$(stat -c '%g' "$dir")
+
+    if [ "$dir_owner" != "$app_uid" ] || [ "$dir_group" != "$app_gid" ]; then
         echo "ERROR: Wrong ownership on: $dir"
+        echo "Expected $app_uid:$app_gid, got $dir_owner:$dir_group"
         return 1
     fi
+
     echo "Verified directory: $dir"
     return 0
 }
@@ -25,6 +36,12 @@ if [ "$INITIALIZE_RAG" = "true" ]; then
     }
 fi
 
+# Debug information
+echo "Current user: $(id)"
+echo "appuser details: $(id appuser)"
+echo "Directory ownership:"
+ls -la /app/RAG_Data
+
 # Verify required directories
 required_dirs=(
     "/app/RAG_Data"
@@ -37,7 +54,7 @@ required_dirs=(
 echo "Verifying directory structure..."
 for dir in "${required_dirs[@]}"; do
     verify_directory "$dir" || {
-        echo "Directory verification failed"
+        echo "Directory verification failed for: $dir"
         exit 1
     }
 done
@@ -47,9 +64,11 @@ PROCESSED_FILE="/app/processed_files.json"
 if [ ! -f "$PROCESSED_FILE" ]; then
     echo "Creating $PROCESSED_FILE"
     echo "{}" > "$PROCESSED_FILE"
+    chown appuser:appuser "$PROCESSED_FILE"
+    chmod 664 "$PROCESSED_FILE"
 fi
 
-# Verify permissions were set correctly
+# Verify final structure
 echo "Directory structure verification complete"
 ls -la /app/RAG_Data
 ls -la "/app/Raw Documents"
