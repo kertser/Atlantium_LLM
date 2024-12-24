@@ -608,7 +608,7 @@ class RAGQueryServer:
 
             # Prepare prompt and get GPT response
             query_type = self.determine_query_type(query_text)
-            prompt = self.prepare_prompt(query_text, contexts, query_type, [])  # No images in prompt
+            prompt = self.prepare_prompt(query_text, contexts, query_type, [])
 
             response = openai_post_request(
                 messages=self.prepare_messages(prompt),
@@ -774,15 +774,9 @@ async def reset_chat():
 
 
 @app.post("/query/text")
-async def text_query(query: str = Form(...)):
+def text_query(query: str = Form(...)):
     """
     Handles text-based queries by retrieving relevant contexts and generating a response.
-
-    Args:
-        query (str): The user's query input.
-
-    Returns:
-        JSONResponse: Contains the generated text response and any relevant images.
     """
     try:
         # Process the query
@@ -822,8 +816,8 @@ async def image_query(
         query: Optional[str] = Form(None)
 ):
     try:
-        # Check file size (e.g., 5MB limit)
-        MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+        # Check file size (5MB limit)
+        MAX_FILE_SIZE = 5 * 1024 * 1024
         contents = await image.read()
         if len(contents) > MAX_FILE_SIZE:
             raise HTTPException(
@@ -845,29 +839,79 @@ async def image_query(
                 detail="Invalid image file"
             )
 
-        # Process the image query with retries
+        # Convert image to base64
+        buffered = BytesIO()
+        img.save(buffered, format="JPEG")
+        img_str = base64.b64encode(buffered.getvalue()).decode()
+
+        # Initialize prompt builder
+        prompt_builder = PromptBuilder()
+
+        # Get the appropriate prompt from templates
+        if not query:
+            prompt_text = prompt_builder.loader.get_template('image_query').format(
+                query_text="Please analyze this technical image."
+            )
+        else:
+            prompt_text = prompt_builder.loader.get_template('image_query_with_context').format(
+                query_text=query,
+                image_context="Please analyze this image in context of the query."
+            )
+
+        # Create messages with the correct format for vision model
+        messages = [
+            {
+                "role": "system",
+                "content": prompt_builder.loader.get_system_prompt('vision_assistant')
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": prompt_text
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{img_str}"
+                        }
+                    }
+                ]
+            }
+        ]
+
+        # Process with retries
         MAX_RETRIES = 3
         for attempt in range(MAX_RETRIES):
             try:
-                response = await server.process_image_query(contents, query)
-                break
+                if not query:
+                    # Use await here
+                    response = await openai_post_request(
+                        messages=messages,
+                        model_name=CONFIG.GPT_VISION_MODEL,
+                        api_key=CONFIG.OPENAI_API_KEY,
+                        max_tokens=CONFIG.VISION_MAX_TOKENS
+                    )
+                    return {"response": response["choices"][0]["message"]["content"]}
+                else:
+                    # First get image description
+                    image_context = await openai_post_request(
+                        messages=[...],  # Vision messages for image description
+                        model_name=CONFIG.GPT_VISION_MODEL,
+                        api_key=CONFIG.OPENAI_API_KEY
+                    )
+
+                    # Then use it with the specific query
+                    query_with_context = f"Image context: {image_context['choices'][0]['message']['content']}\nQuery: {query}"
+                    response = await chat_manager.process_text_query(query_with_context)
+                    return {"response": response}
+
             except Exception as e:
                 if attempt == MAX_RETRIES - 1:
                     raise
                 logging.warning(f"Retry {attempt + 1} after error: {str(e)}")
                 await asyncio.sleep(1)
-
-        if query:
-            # Get the initial image context
-            image_context = response
-
-            # Use the image context along with the text query to get enhanced response
-            enhanced_response = server.process_text_query(
-                f"Context about the image: {image_context}\n\nUser query: {query}"
-            )
-            return {"response": enhanced_response.text_response}
-
-        return {"response": response}
 
     except HTTPException:
         raise

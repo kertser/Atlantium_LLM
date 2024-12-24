@@ -1232,8 +1232,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function handleSend() {
-        const message = input.value.trim();
-        if (message || currentAttachedImage) {
+        let message = input.value.trim();
+
+        if (currentAttachedImage) {
+            // If there's an image but no message, use default text
+            if (!message) {
+                message = "Please analyze this image and provide a detailed description.";
+            }
+
             const messageContent = {
                 text: message,
                 image: currentAttachedImage
@@ -1249,7 +1255,7 @@ document.addEventListener('DOMContentLoaded', () => {
             input.value = '';
             input.style.height = 'auto';
 
-            // Add user message
+            // Add user message with the actual message (default or user-provided)
             addMessage(messageContent, true);
 
             // Add loading message
@@ -1271,6 +1277,39 @@ document.addEventListener('DOMContentLoaded', () => {
                     addMessage(response);
                 }
 
+            } catch (error) {
+                if (loadingMessage && loadingMessage.parentNode) {
+                    loadingMessage.remove();
+                }
+                addMessage({
+                    text_response: 'Sorry, there was an error processing your request.',
+                    images: []
+                });
+            }
+        } else if (message) {
+            // Handle text-only messages as before
+            const messageContent = { text: message };
+
+            // Clear input
+            input.value = '';
+            input.style.height = 'auto';
+
+            // Add user message
+            addMessage(messageContent, true);
+
+            // Add loading message
+            const loadingMessage = addLoadingMessage();
+
+            try {
+                const response = await sendMessageWithImage(message);
+                if (loadingMessage && loadingMessage.parentNode) {
+                    loadingMessage.remove();
+                }
+                if (typeof response === 'string') {
+                    addMessage({ text_response: response, images: [] });
+                } else {
+                    addMessage(response);
+                }
             } catch (error) {
                 if (loadingMessage && loadingMessage.parentNode) {
                     loadingMessage.remove();

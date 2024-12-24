@@ -1,12 +1,15 @@
 import torch
+import asyncio
 from fastapi import HTTPException
 from transformers import CLIPProcessor, CLIPModel
 import logging
 import time
 from openai import OpenAI
+from typing import List, Dict, Any
 
 
-def openai_post_request(messages, model_name, max_tokens, temperature, api_key):
+def openai_post_request(messages: list, model_name: str, api_key: str, max_tokens: int = None,
+                        temperature: float = None) -> Dict[str, Any]:
     """Send request using OpenAI client library with rate limit handling"""
     client = OpenAI(api_key=api_key)
     max_retries = 5
@@ -20,7 +23,15 @@ def openai_post_request(messages, model_name, max_tokens, temperature, api_key):
                 max_tokens=max_tokens,
                 temperature=temperature
             )
-            return {"choices": [{"message": {"content": response.choices[0].message.content}}]}
+
+            # Return formatted response
+            return {
+                'choices': [{
+                    'message': {
+                        'content': response.choices[0].message.content
+                    }
+                }]
+            }
 
         except Exception as e:
             if attempt == max_retries - 1:
@@ -30,8 +41,6 @@ def openai_post_request(messages, model_name, max_tokens, temperature, api_key):
                 )
             logging.error(f"OpenAI API error (attempt {attempt + 1}/{max_retries}): {str(e)}")
             time.sleep(base_delay * (2 ** attempt))
-
-    raise HTTPException(status_code=500, detail="Maximum retries reached for OpenAI API request")
 
 
 def grok_post_request(messages, model_name="grok-beta", max_tokens=128, temperature=0, api_key=""):
