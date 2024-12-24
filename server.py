@@ -836,6 +836,12 @@ async def image_query(
         query: Optional[str] = Form(None)
 ):
     try:
+        # Get OpenAI API key from environment
+        load_dotenv()
+        openai_api_key = os.getenv("OPENAI_API_KEY")
+        if not openai_api_key:
+            raise ValueError("OpenAI API key not found")
+
         # Check file size (5MB limit)
         MAX_FILE_SIZE = 5 * 1024 * 1024
         contents = await image.read()
@@ -867,19 +873,8 @@ async def image_query(
         # Initialize prompt builder
         prompt_builder = PromptBuilder()
 
-        # Get the appropriate prompt from templates
-        if not query:
-            prompt_text = prompt_builder.loader.get_template('image_query').format(
-                query_text="Please analyze this technical image."
-            )
-        else:
-            prompt_text = prompt_builder.loader.get_template('image_query_with_context').format(
-                query_text=query,
-                image_context="Please analyze this image in context of the query."
-            )
-
         # Create messages with the correct format for vision model
-        messages = [
+        description_messages = [
             {
                 "role": "system",
                 "content": prompt_builder.loader.get_system_prompt('vision_assistant')
@@ -889,7 +884,7 @@ async def image_query(
                 "content": [
                     {
                         "type": "text",
-                        "text": prompt_text
+                        "text": "Please provide a technical description of this image."
                     },
                     {
                         "type": "image_url",
@@ -906,32 +901,60 @@ async def image_query(
         for attempt in range(MAX_RETRIES):
             try:
                 if not query:
-                    # Use await here
-                    response = await openai_post_request(
-                        messages=messages,
+                    # If no query, just return the technical description
+                    response = openai_post_request(
+                        messages=description_messages,
                         model_name=CONFIG.GPT_VISION_MODEL,
-                        api_key=CONFIG.OPENAI_API_KEY,
+                        api_key=openai_api_key,
                         max_tokens=CONFIG.VISION_MAX_TOKENS
                     )
                     return {"response": response["choices"][0]["message"]["content"]}
                 else:
                     # First get image description
-                    image_context = await openai_post_request(
-                        messages=[...],  # Vision messages for image description
+                    description_response = openai_post_request(
+                        messages=description_messages,
                         model_name=CONFIG.GPT_VISION_MODEL,
-                        api_key=CONFIG.OPENAI_API_KEY
+                        api_key=openai_api_key,
+                        max_tokens=CONFIG.VISION_MAX_TOKENS
                     )
 
-                    # Then use it with the specific query
-                    query_with_context = f"Image context: {image_context['choices'][0]['message']['content']}\nQuery: {query}"
-                    response = await chat_manager.process_text_query(query_with_context)
-                    return {"response": response}
+                    # Then use description with the specific query
+                    query_messages = [
+                        {
+                            "role": "system",
+                            "content": prompt_builder.loader.get_system_prompt('vision_assistant')
+                        },
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": f"Image Context: {description_response['choices'][0]['message']['content']}\n\nQuery: {query}"
+                                },
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:image/jpeg;base64,{img_str}"
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+
+                    # Get final response
+                    response = openai_post_request(
+                        messages=query_messages,
+                        model_name=CONFIG.GPT_VISION_MODEL,
+                        api_key=openai_api_key,
+                        max_tokens=CONFIG.VISION_MAX_TOKENS
+                    )
+                    return {"response": response["choices"][0]["message"]["content"]}
 
             except Exception as e:
                 if attempt == MAX_RETRIES - 1:
                     raise
                 logging.warning(f"Retry {attempt + 1} after error: {str(e)}")
-                await asyncio.sleep(1)
+                await asyncio.sleep(1)  # We can still use async sleep for the retry delay
 
     except HTTPException:
         raise

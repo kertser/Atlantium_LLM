@@ -63,6 +63,22 @@ async function createAuthModal() {
     });
 }
 
+function initializeChatImageHandlers(chatImageInput, attachImageButton) {
+    // Store event listener references for cleanup
+    const imageChangeHandler = (event) => handleImageAttachment(event);
+    const attachClickHandler = () => chatImageInput.click();
+
+    // Add event listeners
+    chatImageInput.addEventListener('change', imageChangeHandler);
+    attachImageButton.addEventListener('click', attachClickHandler);
+
+    // Return cleanup function
+    return () => {
+        chatImageInput.removeEventListener('change', imageChangeHandler);
+        attachImageButton.removeEventListener('click', attachClickHandler);
+    };
+}
+
 // Helper functions (defined outside DOMContentLoaded to be available globally)
 function escapeHtml(unsafe) {
     return unsafe
@@ -71,6 +87,12 @@ function escapeHtml(unsafe) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+}
+
+function cleanupImageURL(element) {
+    if (element.src && element.src.startsWith('blob:')) {
+        URL.revokeObjectURL(element.src);
+    }
 }
 
 function createContextMenu(e, fileName, filePath) {
@@ -1210,32 +1232,52 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Clear existing preview and create new preview image
+        previewContainer.innerHTML = '';
         const previewImage = document.createElement('img');
-        previewImage.src = URL.createObjectURL(file);
 
+        // Create object URL for preview
+        const objectUrl = URL.createObjectURL(file);
+        previewImage.src = objectUrl;
+
+        // Create remove button
         const removeButton = document.createElement('button');
         removeButton.className = 'remove-image-button';
         removeButton.innerHTML = '×';
         removeButton.onclick = () => {
+            // Clean up the object URL when removing the preview
+            URL.revokeObjectURL(objectUrl);
             previewContainer.style.display = 'none';
             previewContainer.innerHTML = '';
             currentAttachedImage = null;
-            chatImageInput.value = '';
+            chatImageInput.value = ''; // Clear the file input
         };
 
-        previewContainer.innerHTML = '';
         previewContainer.appendChild(previewImage);
         previewContainer.appendChild(removeButton);
         previewContainer.style.display = 'block';
 
+        // Update current attached image
         currentAttachedImage = file;
+
+        // Clean up old preview URL when image changes
+        if (previewImage.onload) {
+            previewImage.onload();
+        }
+        previewImage.onload = () => {
+            // Store the current URL for cleanup
+            const oldUrl = previewImage.dataset.objectUrl;
+            if (oldUrl) {
+                URL.revokeObjectURL(oldUrl);
+            }
+            previewImage.dataset.objectUrl = objectUrl;
+        };
     }
 
     async function handleSend() {
         let message = input.value.trim();
 
         if (currentAttachedImage) {
-            // If there's an image but no message, use default text
             if (!message) {
                 message = "Please analyze this image and provide a detailed description.";
             }
@@ -1245,32 +1287,35 @@ document.addEventListener('DOMContentLoaded', () => {
                 image: currentAttachedImage
             };
 
-            // Clear input and preview first
+            // Clear input and preview
             const previewContainer = document.querySelector('.attached-image-preview');
             if (previewContainer) {
+                // Clean up any object URLs
+                const previewImage = previewContainer.querySelector('img');
+                if (previewImage && previewImage.dataset.objectUrl) {
+                    URL.revokeObjectURL(previewImage.dataset.objectUrl);
+                }
                 previewContainer.style.display = 'none';
                 previewContainer.innerHTML = '';
             }
+
+            // Reset all image-related state
+            chatImageInput.value = '';
             currentAttachedImage = null;
             input.value = '';
             input.style.height = 'auto';
 
-            // Add user message with the actual message (default or user-provided)
+            // Add user message
             addMessage(messageContent, true);
 
-            // Add loading message
             const loadingMessage = addLoadingMessage();
 
             try {
-                // Get response from server
-                const response = await sendMessageWithImage(message, currentAttachedImage);
-
-                // Remove loading message
+                const response = await sendMessageWithImage(message, messageContent.image);
                 if (loadingMessage && loadingMessage.parentNode) {
                     loadingMessage.remove();
                 }
 
-                // Add response message
                 if (typeof response === 'string') {
                     addMessage({ text_response: response, images: [] });
                 } else {
@@ -1327,13 +1372,38 @@ document.addEventListener('DOMContentLoaded', () => {
             await fetch('/chat/reset', { method: 'POST' });
             chatLog.innerHTML = '';
             input.value = '';
+
+            // Clear image preview and current image
             const previewContainer = document.querySelector('.attached-image-preview');
             if (previewContainer) {
+                // Clean up any object URLs
+                const previewImage = previewContainer.querySelector('img');
+                if (previewImage && previewImage.dataset.objectUrl) {
+                    URL.revokeObjectURL(previewImage.dataset.objectUrl);
+                }
                 previewContainer.style.display = 'none';
                 previewContainer.innerHTML = '';
             }
+
+            // Clear file input and current image explicitly
             currentAttachedImage = null;
             chatImageInput.value = '';
+
+            // Reset input height
+            input.style.height = 'auto';
+
+            // Re-initialize image handlers
+            if (window.cleanupChatImageHandlers) {
+                window.cleanupChatImageHandlers();
+            }
+            window.cleanupChatImageHandlers = initializeChatImageHandlers(chatImageInput, attachImageButton);
+
+            window.addEventListener('unload', () => {
+                if (window.cleanupChatImageHandlers) {
+                    window.cleanupChatImageHandlers();
+                }
+            });
+
         } catch (error) {
             console.error('Error resetting chat:', error);
         }

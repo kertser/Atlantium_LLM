@@ -256,38 +256,31 @@ templates:
     {maintenance_notes}
 
   image_query: |
-    Please analyze this technical image following the framework:
-    1. Identify visible components and systems
-    2. Match with known technical documentation
-    3. Provide relevant technical specifications
-    4. Note any visible issues or maintenance considerations
-    5. Reference applicable manuals or guides
+    Please analyze this technical image:
     
-    Query Focus: {query_text}
-    Document References: {doc_references}  # Add this
-    Similar Images Found: {similar_images} # Add this
+    Query: {query_text}
+    
+    Provide a detailed analysis including:
+    1. Key components and features visible
+    2. Technical specifications (if visible)
+    3. Purpose and function
+    4. Any notable observations
+    5. Potential technical considerations
     
     Use available context to provide accurate technical guidance.
 
   image_query_with_context: |
-    Technical Analysis Request:
+    Please analyze this image based on the following query:
     
-    Image Context:
-    - System Identification: {system_id}
-    - Component Category: {component_category}
-    - Related Documentation: {doc_references}
-    - Installation Context: {installation_context}
+    Query: {query_text}
+    Context: {image_context}
     
-    User Query: {query_text}
-    
-    Additional Technical Context:
-    {image_context}
-    
-    Please provide:
-    1. Direct answer to the query
-    2. Relevant technical specifications
-    3. Reference to applicable documentation
-    4. Maintenance or troubleshooting guidance if relevant
+    Provide a detailed analysis focusing on:
+    1. Aspects relevant to the query
+    2. Technical details and specifications
+    3. Key observations and findings
+    4. Any important technical considerations
+    5. Relationship to the provided context
 
   no_answer_prompt: |
     I apologize, but the available documentation does not contain sufficient information to answer your query about: {query}
