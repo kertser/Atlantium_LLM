@@ -7,11 +7,11 @@ verify_directory() {
     if [ ! -d "$dir" ]; then
         echo "ERROR: Required directory missing: $dir"
         return 1
-    }
+    fi
     if [ "$(stat -c '%u:%g' "$dir")" != "$(id -u appuser):$(id -g appuser)" ]; then
         echo "ERROR: Wrong ownership on: $dir"
         return 1
-    }
+    fi
     echo "Verified directory: $dir"
     return 0
 }
