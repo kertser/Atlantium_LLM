@@ -277,6 +277,82 @@ class EnhancedResponseFormatter:
 
         return '\n\n'.join(sections)
 
+class ImageBasedRAG:
+    def __init__(self, model, processor, device, image_store):
+        self.model = model
+        self.processor = processor
+        self.device = device
+        self.image_store = image_store
+        self.labels = ["a technical image", "a non-technical image"]
+
+    def process_image_and_context(self, image_result: Dict, query_text: str,
+                                similarity: float) -> Tuple[Dict, float]:
+        """Process a single image and get its context"""
+        metadata = image_result['metadata']
+        image_id = (metadata.get('image', {}).get('id') or
+                   metadata.get('content', {}).get('image_id'))
+
+        if not image_id:
+            return None, 0.0
+
+        try:
+            image, img_metadata = self.image_store.get_image(image_id)
+            if not image:
+                return None, 0.0
+
+            # Check if it's a technical image
+            predicted_label, confidence = zero_shot_classification(
+                image=image,
+                labels=self.labels,
+                model=self.model,
+                processor=self.processor,
+                device=self.device
+            )
+
+            if predicted_label != "a technical image" or confidence <= CONFIG.TECHNICAL_CONFIDENCE_THRESHOLD:
+                return None, 0.0
+
+            # Get content similarity
+            image_input = self.processor(images=image, return_tensors="pt").to(self.device)
+            image_embedding = self.model.get_image_features(**image_input)
+            image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
+
+            # Get query embedding
+            query_input = self.processor(
+                text=[query_text],
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=77
+            )
+            query_input = {k: v.to(self.device) for k, v in query_input.items()}
+            query_embedding = self.model.get_text_features(**query_input)
+            query_embedding = query_embedding / query_embedding.norm(dim=-1, keepdim=True)
+
+            content_similarity = (query_embedding @ image_embedding.T).item()
+
+            if content_similarity <= CONFIG.IMAGE_SIMILARITY_THRESHOLD:
+                return None, 0.0
+
+            base64_image = self.image_store.get_base64_image(image_id)
+            if not base64_image:
+                return None, 0.0
+
+            image_data = {
+                'image': base64_image,
+                'image_id': image_id,
+                'caption': metadata.get('image', {}).get('caption', ''),
+                'context': metadata.get('image', {}).get('context', ''),
+                'source': str(metadata.get('path', '')),
+                'similarity': content_similarity,
+                'technical_confidence': confidence
+            }
+            return image_data, content_similarity
+
+        except Exception as e:
+            logging.error(f"Error processing image {image_id}: {e}")
+            return None, 0.0
+
 class RAGQueryServer:
     """
     Serves as the main backend for processing RAG-based queries, managing the index,
@@ -344,34 +420,26 @@ class RAGQueryServer:
                      f"IMAGE_SIMILARITY={CONFIG.IMAGE_SIMILARITY_THRESHOLD}, "
                      f"TECHNICAL_CONFIDENCE={CONFIG.TECHNICAL_CONFIDENCE_THRESHOLD}")
 
-        labels = ["a technical image", "a non-technical image"]
-        truncated_query = ' '.join(query_text.split()[:50])
-
         try:
-            # Get CLIP embedding for query
-            query_input = self.processor(
-                text=[truncated_query],
-                return_tensors="pt",
-                padding=True,
-                truncation=True,
-                max_length=77
-            )
-            query_input = {k: v.to(self.device) for k, v in query_input.items()}
-            query_embedding = self.model.get_text_features(**query_input)
-            query_embedding = query_embedding / query_embedding.norm(dim=-1, keepdim=True)
-
             relevant_contexts = []
             relevant_images = []
 
+            # Initialize ImageBasedRAG
+            image_processor = ImageBasedRAG(
+                model=self.model,
+                processor=self.processor,
+                device=self.device,
+                image_store=self.image_store
+            )
+
             for result in results[0]:
                 metadata = result['metadata']
-                # Convert distance to similarity score: similarity = 1 - (distance/2)
                 similarity = 1 - (result['distance'] / 2)
                 logging.info(
-                    f"Processing result type: {metadata.get('type')} with similarity: {similarity:.4f} (raw distance: {result['distance']:.4f})")
+                    f"Processing result type: {metadata.get('type')} with similarity: {similarity:.4f} "
+                    f"(raw distance: {result['distance']:.4f})")
 
                 if metadata.get('type') == 'text-chunk':
-                    # Use similarity score instead of distance
                     if similarity > CONFIG.SIMILARITY_THRESHOLD:
                         if 'get_content' in metadata:
                             chunk_text = metadata['get_content']()
@@ -379,64 +447,16 @@ class RAGQueryServer:
                                 relevant_contexts.append(chunk_text.strip())
                                 logging.info("Added text context")
 
-
                 elif metadata.get('type') == 'image':
-                    # Use similarity score instead of distance
                     if similarity > CONFIG.IMAGE_SIMILARITY_THRESHOLD:
-                        # logging.info(f"Full image metadata: {json.dumps(metadata, indent=2)}")
-
-                        # Try both possible image ID locations
-                        image_id = (metadata.get('image', {}).get('id') or
-                                    metadata.get('content', {}).get('image_id'))
-
-                        # logging.info(f"Found image ID: {image_id}")
-
-                        if image_id:
-                            try:
-                                image, img_metadata = self.image_store.get_image(image_id)
-                                if image:
-                                    logging.info(f"Successfully loaded image {image_id}")
-
-                                    predicted_label, confidence = zero_shot_classification(
-                                        image=image,
-                                        labels=labels,
-                                        model=self.model,
-                                        processor=self.processor,
-                                        device=self.device
-                                    )
-                                    # logging.info(f"Classification result: {predicted_label} (confidence: {confidence})")
-
-                                    if predicted_label == "a technical image" and confidence > CONFIG.TECHNICAL_CONFIDENCE_THRESHOLD:
-                                        image_input = self.processor(images=image, return_tensors="pt").to(self.device)
-                                        image_embedding = self.model.get_image_features(**image_input)
-                                        image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
-
-                                        # This is the refined similarity score for the image content
-                                        content_similarity = (query_embedding @ image_embedding.T).item()
-                                        logging.info(f"Image content similarity score: {content_similarity:.4f}")
-
-                                        if content_similarity > CONFIG.IMAGE_SIMILARITY_THRESHOLD:
-                                            base64_image = self.image_store.get_base64_image(image_id)
-                                            if base64_image:
-                                                image_data = {
-                                                    'image': base64_image,
-                                                    'image_id': image_id,
-                                                    'caption': metadata.get('image', {}).get('caption', ''),
-                                                    'context': metadata.get('image', {}).get('context', ''),
-                                                    'source': str(metadata.get('path', '')),
-                                                    'similarity': content_similarity,  # Use the refined similarity
-                                                    'technical_confidence': confidence
-                                                }
-                                                relevant_images.append(image_data)
-                                                # logging.info(f"Added technical image {image_id}")
-                                    else:
-                                        pass
-                                        # logging.info(f"Image {image_id} not classified as technical")
-                                else:
-                                    logging.warning(f"Could not load image {image_id}")
-                            except Exception as e:
-                                logging.error(f"Error processing image {image_id}: {e}")
-                                continue
+                        image_data, content_similarity = image_processor.process_image_and_context(
+                            image_result=result,
+                            query_text=query_text,
+                            similarity=similarity
+                        )
+                        if image_data:
+                            relevant_images.append(image_data)
+                            logging.info(f"Image content similarity score: {content_similarity:.4f}")
 
             relevant_images.sort(key=lambda x: x['similarity'], reverse=True)
             logging.info(f"Final results: {len(relevant_contexts)} contexts, {len(relevant_images)} images")
