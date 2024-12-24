@@ -8,7 +8,7 @@ if [ "$INITIALIZE_RAG" = "true" ]; then
 fi
 
 # Create required directories if they don't exist
-for dir in "/app/RAG_Data/stored_images" "/app/Raw Documents" /app/logs; do
+for dir in "/app/RAG_Data/stored_images" "/app/RAG_Data/stored_text_chunks" "/app/Raw Documents" "/app/logs"; do
     if [ ! -d "$dir" ]; then
         mkdir -p "$dir"
         echo "Created directory: $dir"
@@ -16,9 +16,16 @@ for dir in "/app/RAG_Data/stored_images" "/app/Raw Documents" /app/logs; do
 done
 
 # Set proper permissions
-chmod -R 755 "/app/RAG_Data" "/app/Raw Documents" /app/logs || {
+chmod -R 755 "/app/RAG_Data" "/app/Raw Documents" "/app/logs" || {
     echo "Error setting permissions on required directories"
     exit 1
 }
+
+# Check and set permissions for specific files
+PROCESSED_FILE="/app/processed_files.json"
+if [ -f "$PROCESSED_FILE" ]; then
+    chmod 644 "$PROCESSED_FILE"
+    echo "Permissions set for $PROCESSED_FILE"
+fi
 
 exec "$@"
