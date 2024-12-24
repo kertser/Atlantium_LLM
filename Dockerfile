@@ -8,13 +8,16 @@ FROM python:3.10-slim AS base
 WORKDIR /app
 
 # Install system dependencies including lspci for GPU detection
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+RUN apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
         build-essential \
         python3-dev \
         netcat-traditional \
-        pciutils \
-    && rm -rf /var/lib/apt/lists/*
+        pciutils && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
