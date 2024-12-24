@@ -25,8 +25,14 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONIOENCODING=utf-8
 
-# Create and switch to non-root user
+# Create non-root user
 RUN useradd -m -u 1000 appuser
+
+# Create all necessary directories with correct structure
+RUN mkdir -p "/app/RAG_Data/stored_images" \
+    "/app/RAG_Data/stored_text_chunks" \
+    "/app/Raw Documents" \
+    /app/logs
 
 # Copy requirements files and installation script
 COPY requirements_cpu.txt requirements_gpu.txt scripts/install_requirements.sh ./
@@ -44,36 +50,21 @@ FROM base AS cpu
 ENV USE_CPU=1
 RUN ./install_requirements.sh
 
-# Final stage - will be selected during build
+# Final stage
 FROM ${BUILD_TYPE:-cpu}
 
-USER root
-# Copy application code and set permissions
+# Copy application code and set all permissions at once
 COPY --chown=appuser:appuser . .
 COPY scripts/docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh
 
-# Create necessary directories with correct permissions
-RUN mkdir -p "/app/RAG_Data/stored_images" "/app/Raw Documents" /app/logs \
-    && chown -R appuser:appuser "/app" \
-    && chmod -R 755 "/app" \
-    && find "/app" -type d -exec chmod 755 {} \;
-
-# Ensure consistent group ownership
-RUN chown -R appuser:appuser /app && \
-    chmod -R u+rw,g+rw /app
-
-# Make sure temp directory is writable
-RUN mkdir -p /tmp/app_temp && \
-    chown -R appuser:appuser /tmp/app_temp && \
-    chmod -R 755 /tmp/app_temp
-
-# Set environment variable for temp directory
-ENV TMPDIR=/tmp/app_temp
+# Set all permissions once
+RUN chmod +x docker-entrypoint.sh && \
+    chown -R appuser:appuser /app && \
+    find /app -type d -exec chmod 775 {} \; && \
+    find /app -type f -exec chmod 664 {} \;
 
 USER appuser
 
-# Expose the port
 EXPOSE 9000
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
