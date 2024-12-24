@@ -948,7 +948,12 @@ async def image_query(
                         api_key=openai_api_key,
                         max_tokens=CONFIG.VISION_MAX_TOKENS
                     )
-                    return {"response": response["choices"][0]["message"]["content"]}
+
+                    # Initialize formatter
+                    formatter = EnhancedResponseFormatter()
+                    formatted_response = formatter.format_response(response["choices"][0]["message"]["content"])
+
+                    return {"response": formatted_response}
 
             except Exception as e:
                 if attempt == MAX_RETRIES - 1:
