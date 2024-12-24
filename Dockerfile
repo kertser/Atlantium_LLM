@@ -50,18 +50,23 @@ FROM base AS cpu
 ENV USE_CPU=1
 RUN ./install_requirements.sh
 
-# Final stage
+# Final stage - will be selected during build
 FROM ${BUILD_TYPE:-cpu}
 
-# Copy application code and set all permissions at once
-COPY --chown=appuser:appuser . .
-COPY scripts/docker-entrypoint.sh ./
+# Copy entrypoint script first and set its permissions
+COPY scripts/docker-entrypoint.sh /app/
+RUN chmod 755 /app/docker-entrypoint.sh && \
+    chown appuser:appuser /app/docker-entrypoint.sh
 
-# Set all permissions once
-RUN chmod +x docker-entrypoint.sh && \
-    chown -R appuser:appuser /app && \
+# Copy application code and set permissions
+COPY --chown=appuser:appuser . .
+
+# Set final permissions
+RUN chown -R appuser:appuser /app && \
     find /app -type d -exec chmod 775 {} \; && \
-    find /app -type f -exec chmod 664 {} \;
+    find /app -type f -exec chmod 664 {} \; && \
+    # Ensure entrypoint remains executable
+    chmod 755 /app/docker-entrypoint.sh
 
 USER appuser
 
