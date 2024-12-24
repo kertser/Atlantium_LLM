@@ -55,8 +55,21 @@ RUN chmod +x docker-entrypoint.sh
 
 # Create necessary directories with correct permissions
 RUN mkdir -p "/app/RAG_Data/stored_images" "/app/Raw Documents" /app/logs \
-    && chown -R appuser:appuser /app \
-    && chmod -R 755 "/app/RAG_Data" "/app/Raw Documents" /app/logs
+    && chown -R appuser:appuser "/app" \
+    && chmod -R 755 "/app" \
+    && find "/app" -type d -exec chmod 755 {} \;
+
+# Ensure consistent group ownership
+RUN chown -R appuser:appuser /app && \
+    chmod -R u+rw,g+rw /app
+
+# Make sure temp directory is writable
+RUN mkdir -p /tmp/app_temp && \
+    chown -R appuser:appuser /tmp/app_temp && \
+    chmod -R 755 /tmp/app_temp
+
+# Set environment variable for temp directory
+ENV TMPDIR=/tmp/app_temp
 
 USER appuser
 

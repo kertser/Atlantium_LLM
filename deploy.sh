@@ -47,6 +47,33 @@ detect_gpu_configuration() {
     return 0
 }
 
+# Function to create and verify required directories
+create_required_directories() {
+    echo "Creating and verifying required directories..."
+
+    # List of required directories
+    DIRS=("Raw Documents" "RAG_Data" "logs")
+
+    for dir in "${DIRS[@]}"; do
+        if [ ! -d "$dir" ]; then
+            echo "Creating directory: $dir"
+            if ! mkdir -p "$dir"; then
+                echo "Error: Failed to create directory: $dir"
+                return 1
+            fi
+        fi
+
+        # Set proper permissions
+        if ! chmod 755 "$dir"; then
+            echo "Error: Failed to set permissions for directory: $dir"
+            return 1
+        fi
+    done
+
+    echo "Directory setup completed successfully."
+    return 0
+}
+
 # Main deployment logic
 main() {
     # Check if initialization is requested
@@ -59,6 +86,12 @@ main() {
     # Clean up any existing containers and volumes
     echo "Cleaning up existing deployment..."
     sudo docker-compose down -v
+
+    # Create required directories
+    if ! create_required_directories; then
+        echo "Error: Failed to create required directories."
+        exit 1
+    fi
 
     # Detect GPU and set configuration
     if detect_gpu_configuration; then
