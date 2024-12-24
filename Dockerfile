@@ -15,7 +15,8 @@ RUN apt-get clean && \
         build-essential \
         python3-dev \
         netcat-traditional \
-        pciutils && \
+        pciutils \
+        sudo && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -25,14 +26,9 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONIOENCODING=utf-8
 
-# Create non-root user
-RUN useradd -m -u 1000 appuser
-
-# Create all necessary directories with correct structure
-RUN mkdir -p "/app/RAG_Data/stored_images" \
-    "/app/RAG_Data/stored_text_chunks" \
-    "/app/Raw Documents" \
-    /app/logs
+# Create non-root user and setup sudo
+RUN useradd -m -u 1000 appuser && \
+    echo "appuser ALL=(ALL) NOPASSWD: /usr/bin/chown" >> /etc/sudoers
 
 # Copy requirements files and installation script
 COPY requirements_cpu.txt requirements_gpu.txt scripts/install_requirements.sh ./
@@ -53,7 +49,7 @@ RUN ./install_requirements.sh
 # Final stage - will be selected during build
 FROM ${BUILD_TYPE:-cpu}
 
-# Switch to root temporarily for permissions
+# Switch to root for setup
 USER root
 
 # Copy entrypoint script first and set its permissions
@@ -63,22 +59,26 @@ RUN chmod 755 /app/docker-entrypoint.sh
 # Copy application code
 COPY . .
 
-# Set all permissions correctly
-RUN chown -R appuser:appuser /app && \
+# Create directories and set permissions in a single layer
+RUN mkdir -p "/app/RAG_Data/stored_images" \
+             "/app/RAG_Data/stored_text_chunks" \
+             "/app/Raw Documents" \
+             /app/logs && \
+    chown -R appuser:appuser /app && \
     find /app -type d -exec chmod 775 {} \; && \
     find /app -type f -exec chmod 664 {} \; && \
     chmod 755 /app/docker-entrypoint.sh && \
-    # Ensure these directories exist with correct ownership
-    mkdir -p "/app/RAG_Data/stored_images" \
-            "/app/RAG_Data/stored_text_chunks" \
-            "/app/Raw Documents" \
-            /app/logs && \
-    chown -R appuser:appuser "/app/RAG_Data" \
-            "/app/Raw Documents" \
-            /app/logs
+    # Verify the ownership
+    ls -la /app/RAG_Data && \
+    ls -la "/app/Raw Documents" && \
+    ls -la /app/logs
 
 # Switch to appuser for runtime
 USER appuser
+
+# Verify setup as appuser
+RUN id && \
+    ls -la /app/RAG_Data
 
 EXPOSE 9000
 
