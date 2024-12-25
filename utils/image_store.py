@@ -1,14 +1,17 @@
-from pathlib import Path
-from PIL import Image
-import json
-import hashlib
 import base64
-from io import BytesIO
-from typing import Tuple, List, Set, Dict, Optional
-from functools import lru_cache
+import hashlib
+import json
 import logging
+from functools import lru_cache
+from io import BytesIO
+from pathlib import Path
+from typing import Tuple, List, Set, Dict, Optional
+
 import imagehash
+from PIL import Image
+
 from config import CONFIG
+
 
 class ImageStore:
     def __init__(self):
@@ -95,7 +98,7 @@ class ImageStore:
             raise
 
     def store_image(self, image: Image.Image, source_doc: str, page_num: int,
-                   caption: Optional[str] = None, context: Optional[str] = None) -> str:
+                    caption: Optional[str] = None, context: Optional[str] = None) -> str:
         """Store an image and return its ID"""
         try:
             image_id = self._generate_image_id(image, source_doc, page_num)

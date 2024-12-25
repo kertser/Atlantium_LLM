@@ -1,11 +1,12 @@
 """Module for initializing/resetting RAG database and related files."""
 
+import logging
 import shutil
 from pathlib import Path
-import logging
 from typing import List, Set, Dict
-import os
+
 from config import CONFIG
+
 
 def setup_logging() -> None:
     """Set up console-only logging configuration."""
@@ -14,6 +15,7 @@ def setup_logging() -> None:
         format='%(asctime)s - %(levelname)s: %(message)s',
         handlers=[logging.StreamHandler()]
     )
+
 
 def create_required_directories() -> Dict[str, bool]:
     """
@@ -67,6 +69,7 @@ def create_required_directories() -> Dict[str, bool]:
 
     return creation_status
 
+
 def initialize_rag_database(
         paths_to_clean: List[Path] = None,
         directories_to_clean: List[Path] = None,
@@ -95,6 +98,10 @@ def initialize_rag_database(
                 CONFIG.STORED_IMAGES_PATH,
                 CONFIG.LOG_PATH
             ]
+
+        # Clean the Raw Documents if requested:
+        if clean_raw_documents:
+            directories_to_clean.append(CONFIG.RAW_DOCUMENTS_PATH)
 
         # Track which paths we've handled
         handled_paths: Set[Path] = set()
@@ -157,6 +164,7 @@ def initialize_rag_database(
     except Exception as e:
         logging.error(f"Critical error during initialization: {e}")
         raise
+
 
 if __name__ == "__main__":
     initialize_rag_database()

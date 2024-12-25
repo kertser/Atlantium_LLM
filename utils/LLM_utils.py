@@ -1,11 +1,11 @@
-import torch
-import asyncio
-from fastapi import HTTPException
-from transformers import CLIPProcessor, CLIPModel
 import logging
 import time
+from typing import Dict, Any
+
+import torch
+from fastapi import HTTPException
 from openai import OpenAI
-from typing import List, Dict, Any
+from transformers import CLIPProcessor, CLIPModel
 
 
 def openai_post_request(messages: list, model_name: str, api_key: str, max_tokens: int = None,
@@ -81,6 +81,7 @@ def grok_post_request(messages, model_name="grok-beta", max_tokens=128, temperat
             time.sleep(base_delay * (2 ** attempt))
 
     raise HTTPException(status_code=500, detail="Maximum retries reached for OpenAI API request")
+
 
 def CLIP_init(model_name="openai/clip-vit-base-patch32"):
     try:

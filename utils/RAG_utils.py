@@ -1,16 +1,19 @@
 # Document parsing and RAG-related functions
 import logging
-import pymupdf  # PyMuPDF for PDFs
-import openpyxl  # for Excel files
-from docx import Document
-from PIL import Image, UnidentifiedImageError
 from io import BytesIO
-from utils.image_store import ImageStore
-from config import CONFIG
 from pathlib import Path
+
+import openpyxl  # for Excel files
+import pymupdf  # PyMuPDF for PDFs
+from PIL import Image, UnidentifiedImageError
+from docx import Document
+
+from config import CONFIG
+from utils.image_store import ImageStore
 
 # Configure logging at module level
 logger = logging.getLogger(__name__)
+
 
 def extract_text_around_image(page, image_bbox, context_range=100):
     """Extract text around an image's location on the page with improved context"""

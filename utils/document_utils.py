@@ -1,9 +1,11 @@
+import json
 import logging
+import shutil
 from pathlib import Path
 from typing import List, Any, Set, Tuple
-import shutil
+
 import faiss
-import json
+
 from config import CONFIG
 from utils.FAISS_utils import load_faiss_index, load_metadata, save_faiss_index, save_metadata
 from utils.image_store import ImageStore
@@ -99,6 +101,7 @@ def compare_and_update_rag(raw_docs_path: Path, processed_files: Set[str], suppo
     removed_files = [Path(p) for p in processed_files - current_docs]
 
     return new_files, removed_files
+
 
 def get_document_count(base_path: Path, supported_extensions: Set[str]) -> int:
     """
@@ -217,6 +220,7 @@ def rescan_documents(config: CONFIG) -> tuple[bool, str]:
         error_msg = f"Error during rescan: {str(e)}"
         logger.error(error_msg, exc_info=True)
         return False, error_msg
+
 
 def remove_document_from_rag(doc_path: Path) -> tuple[bool, str]:
     """

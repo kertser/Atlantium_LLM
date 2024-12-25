@@ -58,8 +58,8 @@ class Config:
         return True
 
     # Token limits for completeness
-    MAX_TOKENS: int = 2000
-    SUMMARY_MAX_TOKENS: int = 100  # Setting for summaries
+    MAX_TOKENS: int = 2000  # General setting
+    SUMMARY_MAX_TOKENS: int = 1000  # Setting for summaries
     DETAIL_MAX_TOKENS: int = 3000  # Setting for detailed responses
 
     # Query Configuration

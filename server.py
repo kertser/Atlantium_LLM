@@ -24,40 +24,41 @@ Classes and methods:
   query handling, and response generation.
 """
 
-import os
-import sys
-from pathlib import Path
 import asyncio
-import logging
-from logging.handlers import RotatingFileHandler
-import json
-from dotenv import load_dotenv
-from PIL import Image
-from typing import Optional, List, Dict, Tuple, Any
-from dataclasses import field
 import base64
-from io import BytesIO
-from openai import OpenAI
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
-from fastapi import Body
-from pydantic import BaseModel
-from contextlib import asynccontextmanager
+import json
+import logging
+import os
+import re
 import shutil
 import subprocess
-import faiss
+import sys
+import hashlib
+from contextlib import asynccontextmanager
+from dataclasses import field
 from datetime import datetime
-import re
+from io import BytesIO
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from typing import Optional, List, Dict, Tuple, Any
+from urllib.parse import unquote
+
+import faiss
+from PIL import Image
+from dotenv import load_dotenv
+from fastapi import Body
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from openai import OpenAI
+from pydantic import BaseModel
+
 from config import CONFIG
-from utils.FAISS_utils import load_faiss_index, load_metadata, query_with_context
-from utils.LLM_utils import CLIP_init, openai_post_request
-from utils.image_store import ImageStore
-from utils.image_utils import deduplicate_images, zero_shot_classification
 from models.prompt_loader import PromptLoader
 from models.prompts import PromptBuilder
-from urllib.parse import unquote
+from utils.FAISS_utils import load_faiss_index, load_metadata, query_with_context
+from utils.LLM_utils import CLIP_init, openai_post_request
 from utils.document_utils import (
     remove_document_from_rag,
     delete_folder_from_rag,
@@ -66,6 +67,8 @@ from utils.document_utils import (
     validate_folder_name,
     rescan_documents,
 )
+from utils.image_store import ImageStore
+from utils.image_utils import deduplicate_images, zero_shot_classification
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
@@ -77,13 +80,14 @@ logging.basicConfig(
     handlers=[
         logging.StreamHandler(sys.stdout),
         RotatingFileHandler(
-            CONFIG.LOG_PATH/"system.log",
+            CONFIG.LOG_PATH / "system.log",
             maxBytes=CONFIG.MAX_LOG_SIZE,
             backupCount=CONFIG.LOG_BACKUP_COUNT,
             encoding='utf-8'
         )
     ]
 )
+
 
 def clean_path(path: str) -> str:
     """
@@ -104,12 +108,13 @@ def clean_path(path: str) -> str:
     normalized = cleaned.replace('\\', os.path.sep).replace('/', os.path.sep)
     return normalized
 
+
 class NoCacheStaticFiles(StaticFiles):
     """
     A subclass of FastAPI's StaticFiles to disable caching for static file responses.
     Ensures that the client always gets the latest version of static files.
     """
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -120,6 +125,7 @@ class NoCacheStaticFiles(StaticFiles):
             response.headers['Pragma'] = 'no-cache'
             response.headers['Expires'] = '0'
         return response
+
 
 # Data models
 class ChatMessage(BaseModel):
@@ -277,6 +283,7 @@ class EnhancedResponseFormatter:
 
         return '\n\n'.join(sections)
 
+
 class ImageBasedRAG:
     def __init__(self, model, processor, device, image_store):
         self.model = model
@@ -286,11 +293,11 @@ class ImageBasedRAG:
         self.labels = ["a technical image", "a non-technical image"]
 
     def process_image_and_context(self, image_result: Dict, query_text: str,
-                                similarity: float) -> Tuple[Dict, float]:
+                                  similarity: float) -> Tuple[Dict, float]:
         """Process a single image and get its context"""
         metadata = image_result['metadata']
         image_id = (metadata.get('image', {}).get('id') or
-                   metadata.get('content', {}).get('image_id'))
+                    metadata.get('content', {}).get('image_id'))
 
         if not image_id:
             return None, 0.0
@@ -353,6 +360,7 @@ class ImageBasedRAG:
             logging.error(f"Error processing image {image_id}: {e}")
             return None, 0.0
 
+
 class RAGQueryServer:
     """
     Serves as the main backend for processing RAG-based queries, managing the index,
@@ -364,7 +372,7 @@ class RAGQueryServer:
         prepare_prompt(query_text, contexts, query_type, images): Constructs a GPT-ready prompt.
         process_text_query(query_text): Processes and retrieves a response for text queries.
     """
-    
+
     def __init__(self):
         """
         Initializes the server by loading environment variables, setting up the
@@ -778,6 +786,7 @@ async def root():
         content = f.read()
     return HTMLResponse(content=content, headers=headers)
 
+
 # Add cache prevention middleware
 @app.middleware("http")
 async def add_cache_control_headers(request: Request, call_next):
@@ -787,6 +796,7 @@ async def add_cache_control_headers(request: Request, call_next):
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
     return response
+
 
 @app.post("/chat/reset")
 async def reset_chat():
@@ -1106,9 +1116,36 @@ def check_processing_status():
 
 @app.post("/process/documents")
 async def process_documents():
+    """
+    Process documents asynchronously while maintaining metadata persistence.
+    Returns a status response indicating success or failure.
+    """
     logger = logging.getLogger(__name__)
     try:
         logger.info("Starting document processing...")
+
+        # Backup existing metadata and index if they exist
+        if CONFIG.METADATA_PATH.exists() and CONFIG.FAISS_INDEX_PATH.exists():
+            try:
+                backup_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+                metadata_backup = CONFIG.RAG_DATA / f"metadata_backup_{backup_time}.json"
+                index_backup = CONFIG.RAG_DATA / f"faiss_backup_{backup_time}.index"
+
+                shutil.copy2(CONFIG.METADATA_PATH, metadata_backup)
+                shutil.copy2(CONFIG.FAISS_INDEX_PATH, index_backup)
+                logger.info("Created backup of existing metadata and index")
+            except Exception as e:
+                logger.warning(f"Failed to create backup: {e}")
+
+        # Load existing metadata before processing
+        existing_metadata = []
+        if CONFIG.METADATA_PATH.exists():
+            try:
+                with open(CONFIG.METADATA_PATH, 'r', encoding='utf-8') as f:
+                    existing_metadata = json.load(f)
+                logger.info(f"Loaded {len(existing_metadata)} existing metadata entries")
+            except Exception as e:
+                logger.warning(f"Could not load existing metadata: {e}")
 
         # Run RAG_processor.py with proper encoding environment variable
         process = subprocess.Popen(
@@ -1116,12 +1153,16 @@ async def process_documents():
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            env={**os.environ, "PYTHONIOENCODING": "utf-8"}
+            env={
+                **os.environ,
+                "PYTHONIOENCODING": "utf-8",
+                "EXISTING_METADATA": json.dumps(existing_metadata)
+            }
         )
 
         stdout, stderr = process.communicate()
 
-        # Log the output properly
+        # Process and log stdout
         if stdout:
             for line in stdout.splitlines():
                 if 'ERROR' in line:
@@ -1129,6 +1170,7 @@ async def process_documents():
                 else:
                     logger.info(line)
 
+        # Process and log stderr
         if stderr:
             for line in stderr.splitlines():
                 if 'ERROR' in line:
@@ -1140,9 +1182,19 @@ async def process_documents():
         if process.returncode != 0:
             error_msg = f"Process failed with code {process.returncode}"
             logger.error(error_msg)
+
+            # Restore from backup if available
+            if 'metadata_backup' in locals() and 'index_backup' in locals():
+                try:
+                    shutil.copy2(metadata_backup, CONFIG.METADATA_PATH)
+                    shutil.copy2(index_backup, CONFIG.FAISS_INDEX_PATH)
+                    logger.info("Restored from backup after processing failure")
+                except Exception as restore_error:
+                    logger.error(f"Failed to restore from backup: {restore_error}")
+
             raise HTTPException(status_code=500, detail=error_msg)
 
-        # Wait a moment to ensure files are written
+        # Wait for file operations to complete
         await asyncio.sleep(1)
 
         # Verify the results
@@ -1151,13 +1203,74 @@ async def process_documents():
             logger.error(f"Processing verification failed: {message}")
             raise HTTPException(status_code=500, detail=message)
 
-        # Reload the server's index and metadata with proper encoding
+        # Merge new metadata with existing metadata
         try:
+            # Load newly processed metadata
+            with open(CONFIG.METADATA_PATH, 'r', encoding='utf-8') as f:
+                new_metadata = json.load(f)
+
+            # Merge metadata while avoiding duplicates
+            merged_metadata = []
+            seen_entries = set()
+
+            # Helper function to generate unique key for metadata entry
+            def get_entry_key(entry):
+                if entry.get('type') == 'image':
+                    return f"image_{entry.get('image', {}).get('id')}"
+                elif entry.get('type') == 'text-chunk':
+                    return f"chunk_{entry.get('path')}_{entry.get('chunk')}"
+                else:
+                    # Fallback to content hash
+                    content_str = json.dumps(entry.get('content', {}), sort_keys=True)
+                    return f"other_{hashlib.md5(content_str.encode()).hexdigest()}"
+
+            # Add existing metadata first
+            for entry in existing_metadata:
+                entry_key = get_entry_key(entry)
+                if entry_key not in seen_entries:
+                    merged_metadata.append(entry)
+                    seen_entries.add(entry_key)
+
+            # Add new metadata
+            for entry in new_metadata:
+                entry_key = get_entry_key(entry)
+                if entry_key not in seen_entries:
+                    merged_metadata.append(entry)
+                    seen_entries.add(entry_key)
+
+            # Save merged metadata
+            with open(CONFIG.METADATA_PATH, 'w', encoding='utf-8') as f:
+                json.dump(merged_metadata, f, ensure_ascii=False, indent=2)
+
+            logger.info(f"Successfully merged metadata: {len(merged_metadata)} total entries")
+
+            # Reload the server's index and metadata
             server.index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
-            server.metadata = load_metadata(CONFIG.METADATA_PATH)
+            server.metadata = merged_metadata
+
+            # Clean up backups if everything succeeded
+            if 'metadata_backup' in locals() and 'index_backup' in locals():
+                try:
+                    os.remove(metadata_backup)
+                    os.remove(index_backup)
+                    logger.info("Removed backup files after successful processing")
+                except Exception as e:
+                    logger.warning(f"Failed to remove backup files: {e}")
+
         except Exception as e:
-            logger.error(f"Error reloading index and metadata: {e}")
-            raise HTTPException(status_code=500, detail="Failed to load processed data")
+            logger.error(f"Error merging metadata: {e}")
+            raise HTTPException(status_code=500, detail="Failed to merge metadata")
+
+        # Verify the final state
+        try:
+            if not server.index or not server.metadata:
+                raise ValueError("Index or metadata is empty after processing")
+
+            logger.info(f"Final verification: {len(server.metadata)} metadata entries, "
+                        f"{server.index.ntotal} vectors in index")
+        except Exception as e:
+            logger.error(f"Final verification failed: {e}")
+            raise HTTPException(status_code=500, detail="Final verification failed")
 
         logger.info("Document processing completed successfully")
         return {"status": "success"}
@@ -1167,6 +1280,53 @@ async def process_documents():
     except Exception as e:
         logger.error(f"Error in process_documents: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def check_processing_status():
+    """Check if all necessary files and data exist after processing"""
+    logger = logging.getLogger(__name__)
+    try:
+        # Check required paths
+        if not CONFIG.METADATA_PATH.exists():
+            logger.error("Metadata file not found")
+            return False, "Metadata file not found"
+
+        if not CONFIG.FAISS_INDEX_PATH.exists():
+            logger.error("FAISS index not found")
+            return False, "FAISS index not found"
+
+        # Check metadata content with explicit UTF-8 encoding
+        try:
+            with open(CONFIG.METADATA_PATH, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+                if not metadata:
+                    logger.error("Empty metadata file")
+                    return False, "Empty metadata file"
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid metadata file: {e}")
+            return False, "Invalid metadata file format"
+        except UnicodeDecodeError as e:
+            logger.error(f"Encoding error in metadata file: {e}")
+            return False, "Encoding error in metadata file"
+
+        # Check index
+        try:
+            index = faiss.read_index(str(CONFIG.FAISS_INDEX_PATH))
+            if index.ntotal == 0:
+                logger.error("Empty FAISS index")
+                return False, "Empty FAISS index"
+        except Exception as e:
+            logger.error(f"Error reading FAISS index: {e}")
+            return False, f"Error reading FAISS index: {str(e)}"
+
+        logger.info(f"All processing checks passed successfully: "
+                    f"{len(metadata)} metadata entries, {index.ntotal} vectors")
+        return True, "Processing completed successfully"
+
+    except Exception as e:
+        logger.error(f"Error checking processing status: {str(e)}")
+        return False, f"Error checking processing status: {str(e)}"
+
 
 @app.get("/get/documents")
 async def get_documents(path: str = ""):
@@ -1270,6 +1430,7 @@ async def list_documents():
         logging.error(f"Error listing documents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/files/{file_path:path}")
 async def serve_file(file_path: str):
     try:
@@ -1288,6 +1449,7 @@ async def serve_file(file_path: str):
     except Exception as e:
         logging.error(f"Error serving file: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/open/document")
 async def open_document(path: str = Body(..., embed=True)):
@@ -1309,6 +1471,7 @@ async def open_document(path: str = Body(..., embed=True)):
     except Exception as e:
         logging.error(f"Error generating file URL: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/download/document")
 async def download_document(path: str):
@@ -1377,10 +1540,11 @@ async def delete_document(path: str):
         logging.error(f"Error deleting document: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/folder/create")
 async def create_new_folder(
-    parent_path: str = Body(..., embed=True),
-    folder_name: str = Body(..., embed=True)
+        parent_path: str = Body(..., embed=True),
+        folder_name: str = Body(..., embed=True)
 ):
     """Create a new folder."""
     try:
@@ -1400,6 +1564,7 @@ async def create_new_folder(
     except Exception as e:
         logging.error(f"Error creating folder: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.delete("/folder/delete")
 async def delete_folder(path: str):
@@ -1435,10 +1600,11 @@ async def delete_folder(path: str):
         logging.error(f"Error deleting folder: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.put("/folder/rename")
 async def rename_folder(
-    path: str = Body(..., embed=True),
-    new_name: str = Body(..., embed=True)
+        path: str = Body(..., embed=True),
+        new_name: str = Body(..., embed=True)
 ):
     """Rename a folder and update RAG references."""
     try:
@@ -1490,6 +1656,7 @@ async def rescan_documents_endpoint():
             status_code=500,
             detail=str(e)
         )
+
 
 @app.get("/chat/history")
 async def get_chat_history():

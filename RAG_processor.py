@@ -15,18 +15,20 @@ additional document types or advanced RAG features as needed.
 
 """
 
-import sys
-import logging
-import json
-from dotenv import load_dotenv
 import glob
-import numpy as np
-from pathlib import Path
-from config import CONFIG
-from typing import Any, Tuple, List
-import faiss
 import hashlib
+import json
+import logging
+import sys
+from pathlib import Path
+from typing import Any, Tuple, List
+
+import faiss
+import numpy as np
+from dotenv import load_dotenv
 from tqdm import tqdm
+
+from config import CONFIG
 from utils.FAISS_utils import (
     initialize_faiss_index,
     add_to_faiss,
@@ -36,7 +38,6 @@ from utils.FAISS_utils import (
     load_metadata,
     optimize_faiss_index,
 )
-from utils.image_utils import zero_shot_classification
 from utils.LLM_utils import CLIP_init, encode_with_clip
 from utils.RAG_utils import (
     extract_text_and_images_from_pdf,
@@ -47,6 +48,7 @@ from utils.RAG_utils import (
 from utils.image_store import (
     ImageStore,
 )
+from utils.image_utils import zero_shot_classification
 
 # Setup logging
 logging.basicConfig(
@@ -54,7 +56,7 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s: %(message)s',
     handlers=[
         # logging.StreamHandler(), # into CLI
-        logging.FileHandler(CONFIG.LOG_PATH/"system.log")
+        logging.FileHandler(CONFIG.LOG_PATH / "system.log")
     ]
 )
 
@@ -200,6 +202,7 @@ def cleanup_metadata(metadata, index):
 
     return cleaned_metadata, index
 
+
 def process_incrementally(docs, batch_size=5):
     """Process documents incrementally and save progress"""
     for i in range(0, len(docs), batch_size):
@@ -214,8 +217,9 @@ def process_incrementally(docs, batch_size=5):
             save_metadata(metadata)
             save_faiss_index(index)
         except Exception as e:
-            logging.error(f"Error processing batch {i//batch_size}: {e}")
+            logging.error(f"Error processing batch {i // batch_size}: {e}")
             continue
+
 
 def process_documents(model, processor, device, index, metadata, image_store, doc_paths=None):
     """
@@ -363,6 +367,7 @@ def process_documents(model, processor, device, index, metadata, image_store, do
         logging.error(f"Error during document processing: {str(e)}")
         raise
 
+
 def get_all_documents(base_path: Path, extensions: List[str]) -> List[Path]:
     """
     Recursively fetch all documents with specified extensions from the base path.
@@ -379,6 +384,7 @@ def get_all_documents(base_path: Path, extensions: List[str]) -> List[Path]:
         # Use rglob for recursive search
         all_docs.extend([p for p in base_path.rglob(f"*{ext}")])
     return all_docs
+
 
 def check_stored_images():
     """
@@ -416,7 +422,7 @@ def check_stored_images():
             image_entries = [
                 m for m in faiss_metadata
                 if m.get('type') == 'image' and isinstance(m.get('content'), dict)
-                and m['content'].get('image_id')
+                   and m['content'].get('image_id')
             ]
             print(f"Found {len(image_entries)} image entries in FAISS metadata")
             # Print details of found images
@@ -451,6 +457,7 @@ def update_processed_files(doc_paths):
         logging.error(f"Error updating processed files list: {e}")
         raise
 
+
 def clean_orphaned_chunks():
     """Clean up orphaned text chunk files not referenced in metadata."""
     try:
@@ -482,8 +489,8 @@ def clean_orphaned_chunks():
         for meta in metadata:
             try:
                 if (isinstance(meta, dict) and
-                    meta.get('type') == 'text-chunk' and
-                    isinstance(meta.get('chunk'), str)):
+                        meta.get('type') == 'text-chunk' and
+                        isinstance(meta.get('chunk'), str)):
                     referenced_chunks.add(Path(meta['chunk']))
             except Exception as e:
                 logging.warning(f"Skipping invalid metadata entry: {e}")
@@ -540,12 +547,13 @@ def clean_orphaned_chunks():
 
         # Log summary
         logging.info(f"Cleanup complete: Removed {removed_count} orphaned chunks "
-                    f"({error_count} errors) and {empty_dirs_removed} empty directories")
+                     f"({error_count} errors) and {empty_dirs_removed} empty directories")
 
     except Exception as e:
         logging.error(f"Error during cleanup process: {e}")
         # Don't raise the exception, just log it
         return
+
 
 def get_unprocessed_documents():
     """
@@ -608,6 +616,7 @@ def validate_metadata_entry(entry):
         return False
 
     return True
+
 
 def validate_metadata_and_index(metadata: list, index: Any, image_store: ImageStore) -> Tuple[list, Any]:
     """

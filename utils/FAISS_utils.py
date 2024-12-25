@@ -1,11 +1,14 @@
-from typing import List, Dict, Union, Any, Set
-from pathlib import Path
-import faiss
-import json
-import numpy as np
-import logging
 import hashlib
+import json
+import logging
+from pathlib import Path
+from typing import List, Dict, Union, Any, Set
+
+import faiss
+import numpy as np
+
 from config import CONFIG
+
 
 # Define GPU functions at module level
 def _get_gpu_resources():
@@ -15,12 +18,14 @@ def _get_gpu_resources():
     except ImportError:
         return None
 
+
 def _cpu_to_gpu(res, dev: int, index):
     try:
         from faiss.swigfaiss import index_cpu_to_gpu as i2g
         return i2g(res, dev, index)
     except ImportError:
         return index
+
 
 def initialize_faiss_index(dimension: int, use_gpu: bool = False) -> faiss.Index:
     """
@@ -48,26 +53,70 @@ def initialize_faiss_index(dimension: int, use_gpu: bool = False) -> faiss.Index
 
 
 def clean_duplicate_entries(metadata: List[Dict]) -> List[Dict]:
-    """Remove duplicate image entries from metadata"""
+    """Remove duplicate entries from metadata with improved deduplication logic"""
+    if not metadata:
+        return []
+
     cleaned_metadata = []
-    seen_image_ids = set()
+    seen_entries = {}  # Using dict for O(1) lookup
 
     for entry in metadata:
-        if entry['type'] == 'image':
-            image_id = entry.get('image', {}).get('id', '')  # Changed from content to image
-            if image_id and image_id not in seen_image_ids:
-                seen_image_ids.add(image_id)
-                cleaned_metadata.append(entry)
+        try:
+            if entry['type'] == 'image':
+                # For images, use image_id as unique identifier
+                key = ('image', entry.get('image', {}).get('id'))
+            elif entry['type'] == 'text-chunk':
+                # For text chunks, use combination of path and chunk number
+                key = ('text', entry.get('path'), entry.get('chunk'))
             else:
-                logging.info(f"Removing duplicate or invalid image entry: {entry}")
-        else:
-            cleaned_metadata.append(entry)
+                # For other types, use content hash
+                content_str = json.dumps(entry.get('content', {}), sort_keys=True)
+                key = ('other', hashlib.md5(content_str.encode()).hexdigest())
 
-    if len(cleaned_metadata) < len(metadata):
-        logging.info(f"Removed {len(metadata) - len(cleaned_metadata)} duplicate/invalid entries")
+            # Keep only the most recent entry for each unique key
+            if key not in seen_entries:
+                seen_entries[key] = entry
+                cleaned_metadata.append(entry)
 
+        except Exception as e:
+            logging.warning(f"Error processing metadata entry during cleanup: {e}")
+            continue
+
+    logging.info(f"Cleaned metadata: removed {len(metadata) - len(cleaned_metadata)} duplicate entries")
     return cleaned_metadata
 
+
+def validate_metadata_integrity(metadata: List[Dict]) -> List[Dict]:
+    """Validate metadata entries and remove invalid ones"""
+    valid_metadata = []
+
+    for entry in metadata:
+        try:
+            # Check required fields
+            if not isinstance(entry, dict):
+                continue
+
+            if 'type' not in entry or 'path' not in entry:
+                continue
+
+            # Type-specific validation
+            if entry['type'] == 'image':
+                if not entry.get('image', {}).get('id'):
+                    continue
+            elif entry['type'] == 'text-chunk':
+                if not entry.get('chunk'):
+                    continue
+
+            valid_metadata.append(entry)
+
+        except Exception as e:
+            logging.warning(f"Invalid metadata entry: {e}")
+            continue
+
+    if len(valid_metadata) < len(metadata):
+        logging.warning(f"Removed {len(metadata) - len(valid_metadata)} invalid metadata entries")
+
+    return valid_metadata
 
 def get_chunk_text(chunk_path: str) -> str:
     """Retrieve text chunk content from file."""
@@ -377,6 +426,7 @@ def optimize_faiss_index(index, metadata):
         logging.error(f"Error optimizing index: {e}")
         return index, metadata
 
+
 def save_faiss_index(index, filepath):
     """Save the FAISS index to a file."""
     filepath_str = str(filepath)
@@ -385,12 +435,49 @@ def save_faiss_index(index, filepath):
 
 
 def save_metadata(metadata: List[Dict[str, Any]], filepath: Union[str, Path]) -> None:
-    """Save metadata to a file with duplicate cleaning"""
+    """Save metadata to a file with proper merging of existing data"""
     filepath_str = str(filepath)
-    cleaned_metadata = clean_duplicate_entries(metadata)
-    with open(filepath_str, 'w', encoding='utf-8') as f:
-        json.dump(cleaned_metadata, f, ensure_ascii=False, indent=2)
-    logging.info(f"Metadata saved to {filepath_str}")  # Changed to logging
+    try:
+        # Load existing metadata if it exists
+        existing_metadata = []
+        if Path(filepath_str).exists():
+            try:
+                with open(filepath_str, 'r', encoding='utf-8') as f:
+                    existing_metadata = json.load(f)
+            except json.JSONDecodeError:
+                logging.warning(f"Could not load existing metadata from {filepath_str}, starting fresh")
+
+        # Create a set of existing entry identifiers
+        existing_ids = {
+            entry.get('image', {}).get('id') if entry.get('type') == 'image'
+            else entry.get('chunk') if entry.get('type') == 'text-chunk'
+            else None
+            for entry in existing_metadata
+        }
+
+        # Add new entries that don't already exist
+        merged_metadata = existing_metadata.copy()
+        for entry in metadata:
+            entry_id = (
+                entry.get('image', {}).get('id') if entry.get('type') == 'image'
+                else entry.get('chunk') if entry.get('type') == 'text-chunk'
+                else None
+            )
+            if entry_id not in existing_ids:
+                merged_metadata.append(entry)
+                existing_ids.add(entry_id)
+
+        # Clean duplicates and save
+        cleaned_metadata = clean_duplicate_entries(merged_metadata)
+        with open(filepath_str, 'w', encoding='utf-8') as f:
+            json.dump(cleaned_metadata, f, ensure_ascii=False, indent=2)
+
+        logging.info(f"Metadata saved to {filepath_str} ({len(cleaned_metadata)} total entries)")
+
+    except Exception as e:
+        logging.error(f"Error saving metadata to {filepath_str}: {e}")
+        raise
+
 
 def load_faiss_index(filepath):
     """

@@ -56,16 +56,16 @@ header h1 {
     overflow-y: auto;
     border: 1px solid rgba(0, 0, 0, 0.1);
     overflow-x: hidden;
-    display: flex;      /* Added */
-    flex-direction: column;  /* Added */
+    display: flex; /* Added */
+    flex-direction: column; /* Added */
 }
 
 #chat-log {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
-    flex-grow: 1;     /* Added */
-    min-height: min-content;  /* Added */
+    flex-grow: 1; /* Added */
+    min-height: min-content; /* Added */
 }
 
 .message {
@@ -173,14 +173,14 @@ header h1 {
 }
 
 .attached-image-preview {
-    width: 150px;  /* Fixed width */
-    min-width: 150px;  /* Prevent shrinking */
+    width: 150px; /* Fixed width */
+    min-width: 150px; /* Prevent shrinking */
     height: 150px;
     background-color: var(--surface-color);
     border-radius: var(--border-radius);
     padding: 0.5rem;
     position: relative;
-    display: none;  /* Hidden by default */
+    display: none; /* Hidden by default */
 }
 
 .attached-image-preview img {
@@ -193,12 +193,12 @@ header h1 {
 #input-container {
     display: flex;
     gap: 1rem;
-    align-items: flex-start;  /* Align items at the top */
+    align-items: flex-start; /* Align items at the top */
 }
 
 .input-wrapper {
     display: flex;
-    gap: 1rem;  /* Space between preview and textarea */
+    gap: 1rem; /* Space between preview and textarea */
     flex-grow: 1;
     flex-direction: row;
     align-items: flex-start;
@@ -365,17 +365,17 @@ button:hover {
 }
 
 #document-upload {
-   margin: 1rem auto;
+    margin: 1rem auto;
 }
 
 .upload-box {
-   border: 2px dashed var(--primary-color);
-   border-radius: var(--border-radius);
-   text-align: center;
-   cursor: pointer;
-   transition: all 0.3s ease;
-   padding: 0.5rem;
-   min-height: 80px;
+    border: 2px dashed var(--primary-color);
+    border-radius: var(--border-radius);
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    padding: 0.5rem;
+    min-height: 80px;
 }
 
 .upload-box:hover, .upload-box.dragover {
@@ -384,15 +384,15 @@ button:hover {
 }
 
 .upload-icon {
-   color: var(--primary-color);
-   margin: 0.5rem auto;
-   display: block;
-   width: 24px;
-   height: 24px;
+    color: var(--primary-color);
+    margin: 0.5rem auto;
+    display: block;
+    width: 24px;
+    height: 24px;
 }
 
 .supported-formats {
-   margin-top: 0.25rem;
+    margin-top: 0.25rem;
 }
 
 #upload-list {
@@ -673,7 +673,7 @@ td .select-checkbox {
     background: white;
     border: 1px solid #ddd;
     border-radius: 4px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
     padding: 4px 0;
     min-width: 150px;
 }
@@ -745,7 +745,7 @@ td .select-checkbox {
     background: white;
     border: 1px solid #ddd;
     border-radius: 4px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
     padding: 4px 0;
     min-width: 150px;
 }
@@ -792,11 +792,11 @@ td .select-checkbox {
     display: inline-block;
     width: 16px;
     height: 16px;
-    border: 2px solid rgba(255,255,255,0.3);
+    border: 2px solid rgba(255, 255, 255, 0.3);
     border-radius: 50%;
     border-top-color: white;
     animation: spin 1s ease-in-out infinite;
-    transform-origin: center;  /* Add this */
+    transform-origin: center; /* Add this */
 }
 
 .doc-link {
@@ -837,11 +837,21 @@ td .select-checkbox {
 }
 
 @keyframes loading {
-    0% { content: ''; }
-    25% { content: '.'; }
-    50% { content: '..'; }
-    75% { content: '...'; }
-    100% { content: ''; }
+    0% {
+        content: '';
+    }
+    25% {
+        content: '.';
+    }
+    50% {
+        content: '..';
+    }
+    75% {
+        content: '...';
+    }
+    100% {
+        content: '';
+    }
 }
 
 .process-btn.processing {

@@ -3,105 +3,108 @@
 <head>
     <!-- MathJax Configuration -->
     <script>
-    window.MathJax = {
-      tex: {
-        inlineMath: [['$', '$'], ['\\(', '\\)']],
-        displayMath: [['$$', '$$'], ['\\[', '\\]']]
-      },
-      options: {
-        skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre']
-      },
-    };
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']]
+            },
+            options: {
+                skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre']
+            },
+        };
     </script>
     <!-- Load MathJax -->
     <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js"></script>
     <meta charset="UTF-8">
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
+    <meta content="no-cache, no-store, must-revalidate" http-equiv="Cache-Control">
+    <meta content="no-cache" http-equiv="Pragma">
+    <meta content="0" http-equiv="Expires">
 
     <title>Atlantium Technical Documentation Assistant</title>
-    <link rel="stylesheet" href="/static/styles.css?v=1.0.0">
-    <link rel="icon" href="/favicon.png?v=1.0.0" type="image/png">
+    <link href="/static/styles.css?v=1.0.0" rel="stylesheet">
+    <link href="/favicon.png?v=1.0.0" rel="icon" type="image/png">
 
 
 </head>
 <body>
-    <div class="app-container">
-        <div class="image-container">
-            <img src="/static/logo_long.jpg" alt="Top Image" style="width: 100%; height: auto;">
-        </div>
+<div class="app-container">
+    <div class="image-container">
+        <img alt="Top Image" src="/static/logo_long.jpg" style="width: 100%; height: auto;">
+    </div>
 
-        <div id="chat-container">
-            <div id="chat-log"></div>
-        </div>
+    <div id="chat-container">
+        <div id="chat-log"></div>
+    </div>
 
-        <div id="input-container">
-            <div class="input-wrapper">
-                <div class="attached-image-preview" style="display: none;"></div>
-                <textarea placeholder="Type your message..."></textarea>
-            </div>
-            <div class="button-group">
-                <button id="send-button">Send</button>
-                <button id="send-image">Attach Image</button>
-                <button id="reset-button">Reset</button>
-            </div>
+    <div id="input-container">
+        <div class="input-wrapper">
+            <div class="attached-image-preview" style="display: none;"></div>
+            <textarea placeholder="Type your message..."></textarea>
         </div>
-
-        <div id="document-upload" class="upload-container">
-            <h2>Upload Documents to Retrieval System</h2>
-            <div id="drop-zone" class="upload-box">
-                <input type="file" id="file-input" multiple accept=".pdf,.docx,.xlsx" maxlength="10" style="display: none;">
-                <div class="upload-content">
-                    <svg class="upload-icon" viewBox="0 0 24 24" width="24" height="24">
-                        <path fill="currentColor" d="M11 15h2V6h3l-4-4-4 4h3v9zm0 4h2v-2h-2v2zm8-2v2H5v-2H3v4h18v-4h-2z"/>
-                    </svg>
-                    <p>Drag and drop files or click to upload</p>
-                    <p class="supported-formats">Supported formats: PDF, DOCX, XLSX</p>
-                </div>
-            </div>
-            <button id="process-documents" class="process-btn" style="display: none;">Process Documents</button>
-            <div id="upload-list"></div>
-        </div>
-
-        <div id="documents-list" class="documents-container">
-            <div class="documents-header">
-                <div class="documents-title">
-                    <h2>Indexed Reference Documents</h2>
-                </div>
-                <div class="document-stats-actions">
-                    <div class="document-stats" id="doc-count">Total: 0</div>
-                    <div class="document-actions">
-                        <!-- Batch actions div -->
-                        <div class="batch-actions">
-                            <button id="batch-delete-button" class="icon-button" title="Delete selected items">
-                                <svg viewBox="0 0 24 24" width="16" height="16">
-                                    <path fill="currentColor" d="M7 4V2h10v2h5v2h-2v15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6H2V4h5zM6 6v14h12V6H6z"/>
-                                </svg>
-                                Delete Selected (<span class="selected-count">0</span>)
-                            </button>
-                        </div>
-                        <!-- Regular action buttons -->
-                        <button id="rescan-button" class="icon-button" title="Rescan for new documents">
-                            <svg viewBox="0 0 24 24" width="16" height="16">
-                                <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                            </svg>
-                            Rescan
-                        </button>
-                        <button id="new-folder-button" class="icon-button" title="Create new folder">
-                            <svg viewBox="0 0 24 24" width="16" height="16">
-                                <path fill="currentColor" d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-1 8h-3v3h-2v-3h-3v-2h3V9h2v3h3v2z" />
-                            </svg>
-                            New Folder
-                        </button>
-                    </div>
-                </div>
-            </div>
-            <div class="documents-table-wrapper">
-                <!-- Everything will be populated by JavaScript -->
-            </div>
+        <div class="button-group">
+            <button id="send-button">Send</button>
+            <button id="send-image">Attach Image</button>
+            <button id="reset-button">Reset</button>
         </div>
     </div>
+
+    <div class="upload-container" id="document-upload">
+        <h2>Upload Documents to Retrieval System</h2>
+        <div class="upload-box" id="drop-zone">
+            <input accept=".pdf,.docx,.xlsx" id="file-input" maxlength="10" multiple style="display: none;" type="file">
+            <div class="upload-content">
+                <svg class="upload-icon" height="24" viewBox="0 0 24 24" width="24">
+                    <path d="M11 15h2V6h3l-4-4-4 4h3v9zm0 4h2v-2h-2v2zm8-2v2H5v-2H3v4h18v-4h-2z" fill="currentColor"/>
+                </svg>
+                <p>Drag and drop files or click to upload</p>
+                <p class="supported-formats">Supported formats: PDF, DOCX, XLSX</p>
+            </div>
+        </div>
+        <button class="process-btn" id="process-documents" style="display: none;">Process Documents</button>
+        <div id="upload-list"></div>
+    </div>
+
+    <div class="documents-container" id="documents-list">
+        <div class="documents-header">
+            <div class="documents-title">
+                <h2>Indexed Reference Documents</h2>
+            </div>
+            <div class="document-stats-actions">
+                <div class="document-stats" id="doc-count">Total: 0</div>
+                <div class="document-actions">
+                    <!-- Batch actions div -->
+                    <div class="batch-actions">
+                        <button class="icon-button" id="batch-delete-button" title="Delete selected items">
+                            <svg height="16" viewBox="0 0 24 24" width="16">
+                                <path d="M7 4V2h10v2h5v2h-2v15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6H2V4h5zM6 6v14h12V6H6z"
+                                      fill="currentColor"/>
+                            </svg>
+                            Delete Selected (<span class="selected-count">0</span>)
+                        </button>
+                    </div>
+                    <!-- Regular action buttons -->
+                    <button class="icon-button" id="rescan-button" title="Rescan for new documents">
+                        <svg height="16" viewBox="0 0 24 24" width="16">
+                            <path d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                  fill="currentColor"/>
+                        </svg>
+                        Rescan
+                    </button>
+                    <button class="icon-button" id="new-folder-button" title="Create new folder">
+                        <svg height="16" viewBox="0 0 24 24" width="16">
+                            <path d="M20 6h-8l-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-1 8h-3v3h-2v-3h-3v-2h3V9h2v3h3v2z"
+                                  fill="currentColor"/>
+                        </svg>
+                        New Folder
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="documents-table-wrapper">
+            <!-- Everything will be populated by JavaScript -->
+        </div>
+    </div>
+</div>
 <!-- Modal template -->
 <div id="modal-template" style="display: none;">
     <div class="modal-overlay">
@@ -118,6 +121,6 @@
         </div>
     </div>
 </div>
-    <script src="/static/scripts.js?v=1.0.0"></script>
+<script src="/static/scripts.js?v=1.0.0"></script>
 </body>
 </html>

@@ -1,4 +1,5 @@
 from typing import List, Dict
+
 from config import CONFIG
 from .prompt_loader import PromptLoader
 
@@ -8,12 +9,12 @@ class PromptBuilder:
         self.loader = PromptLoader()
 
     def build_chat_prompt(
-        self,
-        query_text: str,
-        contexts: List[str],
-        images: List[Dict],
-        chat_history: List[Dict],
-        is_technical: bool = False
+            self,
+            query_text: str,
+            contexts: List[str],
+            images: List[Dict],
+            chat_history: List[Dict],
+            is_technical: bool = False
     ) -> str:
         """Build a complete prompt for the chat interaction."""
         # Process context information

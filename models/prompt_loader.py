@@ -1,7 +1,9 @@
+import logging
 from pathlib import Path
 from typing import List
-import logging
+
 import yaml
+
 
 class PromptLoader:
     _instance = None
