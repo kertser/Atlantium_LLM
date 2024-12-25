@@ -1,20 +1,3 @@
-"""
-This module implements a document processing pipeline for creating and maintaining a
-retrieval-augmented generation (RAG) system supported by FAISS and CLIP models.
-
-Key Features:
-- Extracts text and images from various document types (PDF, Word, Excel).
-- Generates embeddings for text chunks and images using the CLIP model.
-- Stores embeddings and metadata in a FAISS index for efficient retrieval.
-- Manages stored images and metadata for validation and processing continuity.
-- Supports dynamic addition of new documents to the system.
-- Implements a basic chat interface for querying the system.
-
-The pipeline is designed to be flexible and can be easily extended to support
-additional document types or advanced RAG features as needed.
-
-"""
-
 import glob
 import hashlib
 import json
@@ -45,17 +28,14 @@ from utils.RAG_utils import (
     extract_text_and_images_from_excel,
     chunk_text,
 )
-from utils.image_store import (
-    ImageStore,
-)
-from utils.image_utils import zero_shot_classification
+# Updated import: combine image utilities into one module
+from utils.img_utils import ImageStore, ImageClassifier
 
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s: %(message)s',
     handlers=[
-        # logging.StreamHandler(), # into CLI
         logging.FileHandler(CONFIG.LOG_PATH / "system.log")
     ]
 )
@@ -82,6 +62,7 @@ def filter_technical_images(images_data, model, processor, device, source_doc):
         List of filtered image data containing only technical images
     """
     filtered_images = []
+    classifier = ImageClassifier(model=model, processor=processor, device=device)
 
     # Define classification labels
     labels = ["a technical image", "a non-technical image"]
@@ -90,19 +71,15 @@ def filter_technical_images(images_data, model, processor, device, source_doc):
         try:
             image = img_data['image']
 
-            # Perform zero-shot classification
-            predicted_label, confidence = zero_shot_classification(
+            # Perform classification using ImageClassifier class
+            predicted_label, confidence = classifier.classify(
                 image=image,
-                labels=labels,
-                model=model,
-                processor=processor,
-                device=device
+                labels=labels
             )
 
             # Convert confidence to similarity score (0-1 range)
             similarity = confidence if predicted_label == "a technical image" else 1 - confidence
 
-            # Log the similarity score
             logging.info(f"Image from {source_doc}: {predicted_label} (similarity: {similarity:.4f})")
 
             # Use similarity threshold for filtering
@@ -179,11 +156,9 @@ def cleanup_metadata(metadata, index):
 
     for idx, entry in enumerate(metadata):
         try:
-            # Validate entry structure
             if not isinstance(entry, dict) or 'content' not in entry:
                 continue
 
-            # Create hash of content
             content = entry.get('content', {})
             if isinstance(content, dict):
                 content_str = json.dumps(content, sort_keys=True, default=str)
@@ -406,7 +381,6 @@ def get_all_documents(base_path: Path, extensions: List[str]) -> List[Path]:
     """
     all_docs = []
     for ext in extensions:
-        # Use rglob for recursive search
         all_docs.extend([p for p in base_path.rglob(f"*{ext}")])
     return all_docs
 
@@ -420,7 +394,6 @@ def check_stored_images():
     - Corresponding metadata entries in the image metadata JSON file.
     - Presence of image entries in the FAISS metadata file.
     """
-    # Check physical image files
     images_path = CONFIG.STORED_IMAGES_PATH / "images"
     if not images_path.exists():
         print(f"Images directory not found at {images_path}")
@@ -450,7 +423,6 @@ def check_stored_images():
                    and m['content'].get('image_id')
             ]
             print(f"Found {len(image_entries)} image entries in FAISS metadata")
-            # Print details of found images
             for entry in image_entries:
                 content = entry['content']
                 print(f"FAISS Image {content['image_id']}: {content['source_doc']}")
@@ -493,15 +465,11 @@ def get_unprocessed_documents():
         List of paths to unprocessed documents.
     """
     try:
-        # Get all documents in the raw documents directory
         all_docs = []
         for ext in CONFIG.SUPPORTED_EXTENSIONS:
             all_docs.extend(glob.glob(str(CONFIG.RAW_DOCUMENTS_PATH / f"*{ext}")))
 
-        # Get list of processed files
         processed_files = get_processed_files()
-
-        # Filter out processed files
         unprocessed = [doc for doc in all_docs
                        if str(Path(doc).absolute()) not in processed_files]
 
@@ -510,8 +478,6 @@ def get_unprocessed_documents():
         logging.error(f"Error getting unprocessed documents: {e}")
         return []
 
-
-# In RAG_processor.py, update the main function
 
 def get_processed_files():
     """
@@ -563,7 +529,6 @@ def validate_metadata_and_index(metadata: list, index: Any, image_store: ImageSt
     valid_metadata = []
     valid_indices = []
     image_ids_processed = set()
-    current_idx = 0
 
     for idx, entry in enumerate(metadata):
         is_valid = False
@@ -639,7 +604,6 @@ def main():
                 init_pbar.update(1)
 
                 try:
-                    # Ensure RAG_DATA directory exists
                     CONFIG.RAG_DATA.mkdir(parents=True, exist_ok=True)
 
                     # Load or create FAISS index
@@ -681,7 +645,6 @@ def main():
                     batch_pbar.set_postfix({"Batch": f"{(i // batch_size) + 1}/{num_batches}"}, refresh=True)
 
                     try:
-                        # Process current batch
                         updated_index, new_metadata = process_documents(
                             model=clip_model,
                             processor=clip_processor,
@@ -700,7 +663,6 @@ def main():
                             ]
 
                             if valid_new_metadata:
-                                # Update index and metadata
                                 index = updated_index
                                 metadata.extend(valid_new_metadata)
 
@@ -722,7 +684,6 @@ def main():
                                 except Exception as e:
                                     logging.error(f"Error saving progress: {e}")
 
-                        # Force garbage collection after each batch
                         import gc
                         gc.collect()
 
@@ -740,7 +701,6 @@ def main():
             return 1
 
         finally:
-            # Cleanup resources
             if clip_model is not None and hasattr(clip_model, 'cpu'):
                 try:
                     clip_model.cpu()

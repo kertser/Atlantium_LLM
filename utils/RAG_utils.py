@@ -1,4 +1,3 @@
-# Document parsing and RAG-related functions
 import logging
 from io import BytesIO
 from pathlib import Path
@@ -9,14 +8,16 @@ from PIL import Image, UnidentifiedImageError
 from docx import Document
 
 from config import CONFIG
-from utils.image_store import ImageStore
+# Updated import: combine image utilities into one module
+from utils.img_utils import ImageStore
 
-# Configure logging at module level
 logger = logging.getLogger(__name__)
 
 
 def extract_text_around_image(page, image_bbox, context_range=100):
-    """Extract text around an image's location on the page with improved context"""
+    """
+    Extract text around an image's location on the page with improved context.
+    """
     try:
         blocks = page.get_text("blocks")
         image_center_y = (image_bbox[1] + image_bbox[3]) / 2
@@ -28,7 +29,7 @@ def extract_text_around_image(page, image_bbox, context_range=100):
             block_center_x = (block[0] + block[2]) / 2
 
             if abs(block_center_y - image_center_y) < context_range and \
-                    abs(block_center_x - image_center_x) < context_range * 2:
+               abs(block_center_x - image_center_x) < context_range * 2:
                 text = block[4].strip()
                 if text:
                     nearby_text.append(text)
@@ -40,7 +41,18 @@ def extract_text_around_image(page, image_bbox, context_range=100):
 
 
 def get_relevant_images(query_context: str, image_store: ImageStore, threshold: float = 0.3):
-    """Get images relevant to the query with improved matching"""
+    """
+    Get images relevant to the query with improved matching.
+
+    Args:
+        query_context: A string containing the query or context to match.
+        image_store: An ImageStore instance for getting images and metadata.
+        threshold: Minimum overlap-to-query-terms ratio for relevance.
+
+    Returns:
+        A list of dictionaries, each containing image ID, base64 data, caption,
+        context, and similarity score.
+    """
     relevant_images = []
     query_terms = set(query_context.lower().split())
 
@@ -50,22 +62,19 @@ def get_relevant_images(query_context: str, image_store: ImageStore, threshold: 
 
     for img_id, metadata in image_store.metadata.items():
         try:
-            # Get all text associated with the image
             context = metadata.get("context", "").lower()
             caption = metadata.get("caption", "").lower()
             source = metadata.get("source_document", "").lower()
 
-            # Split text into terms
             context_terms = set(context.split())
             caption_terms = set(caption.split())
             source_terms = set(source.split())
 
-            # Calculate term overlap
             term_overlap = len(query_terms & (context_terms | caption_terms | source_terms))
             if term_overlap > 0:
                 score = term_overlap / len(query_terms)
                 if score >= threshold:
-                    base64_img = image_store.get_base64_image(img_id)
+                    base64_img = image_store.get_base64(img_id)
                     if base64_img:
                         relevant_images.append({
                             "id": img_id,
@@ -79,11 +88,13 @@ def get_relevant_images(query_context: str, image_store: ImageStore, threshold: 
             continue
 
     relevant_images.sort(key=lambda x: x['similarity'], reverse=True)
-    return relevant_images[:5]  # 5 most relevant
+    return relevant_images[:5]  # Return up to 5 most relevant images
 
 
 def extract_text_and_images_from_pdf(pdf_path):
-    """Extracts text and images with their context from a PDF file."""
+    """
+    Extracts text and images with their context from a PDF file.
+    """
     text = ""
     image_data = []
     min_size = 50
@@ -101,7 +112,6 @@ def extract_text_and_images_from_pdf(pdf_path):
                 if page_text:
                     text += page_text + "\n"
 
-                # Get images and their locations
                 image_list = page.get_images(full=True)
                 logger.info(f"Found {len(image_list)} images on page {page_num + 1}")
 
@@ -109,11 +119,9 @@ def extract_text_and_images_from_pdf(pdf_path):
                     try:
                         xref = img[0]
                         base_image = pdf_document.extract_image(xref)
-
                         if not base_image or "image" not in base_image:
                             continue
 
-                        # Get image location on page
                         for img_bbox in page.get_image_rects(xref):
                             context = extract_text_around_image(page, img_bbox)
 
@@ -122,7 +130,8 @@ def extract_text_and_images_from_pdf(pdf_path):
 
                             if image.width < min_size or image.height < min_size:
                                 logger.info(
-                                    f"Skipping small image ({image.width}x{image.height}) on page {page_num + 1}")
+                                    f"Skipping small image ({image.width}x{image.height}) on page {page_num + 1}"
+                                )
                                 continue
 
                             # Convert to RGB if needed
@@ -177,7 +186,7 @@ def extract_text_and_images_from_word(doc_path):
         tuple: (extracted_text, list of image_data dictionaries)
         Each image_data dictionary contains:
             - image: PIL Image object
-            - context: Text context around the image
+            - context: Text context around the image (currently empty)
             - page_num: Page number (always 1 for Word docs)
             - caption: Image caption
     """
@@ -188,7 +197,6 @@ def extract_text_and_images_from_word(doc_path):
         doc_name = Path(doc_path).name
         logger.info(f"Processing Word document: {doc_name}")
 
-        # Extract all text from paragraphs
         text = "\n".join([para.text for para in doc.paragraphs])
         images_data = []
 
@@ -196,13 +204,10 @@ def extract_text_and_images_from_word(doc_path):
         for rel in doc.part.rels.values():
             if "image" in rel.target_ref:
                 try:
-                    # Extract image data
                     image_data = rel.target_part.blob
                     image = Image.open(BytesIO(image_data))
 
-                    # Handle image mode conversion
                     if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
-                        # Create white background for transparent images
                         background = Image.new('RGB', image.size, (255, 255, 255))
                         if image.mode == 'P':
                             image = image.convert('RGBA')
@@ -211,25 +216,21 @@ def extract_text_and_images_from_word(doc_path):
                     elif image.mode != 'RGB':
                         image = image.convert('RGB')
 
-                    # Verify image dimensions and quality
                     if image.width < min_size or image.height < min_size:
                         logger.info(f"Skipping small image ({image.width}x{image.height}) in {doc_name}")
                         continue
 
-                    # Try to find text near the image (could be enhanced based on document structure)
+                    # Currently, surrounding_text is empty.
                     surrounding_text = ""
-
-                    # Create image data dictionary with enhanced metadata
                     img_data = {
                         'image': image,
                         'context': surrounding_text,
-                        'page_num': 1,  # Word docs don't have native page numbers
+                        'page_num': 1,
                         'caption': f"Image from {doc_name}",
                         'dimensions': f"{image.width}x{image.height}",
                         'format': image.format,
-                        'mode': 'RGB'  # We ensure all images are in RGB mode
+                        'mode': 'RGB'
                     }
-
                     images_data.append(img_data)
                     logger.info(f"Processed image ({img_data['dimensions']}) from {doc_name}")
 
@@ -249,7 +250,9 @@ def extract_text_and_images_from_word(doc_path):
 
 
 def extract_text_and_images_from_excel(excel_path):
-    """Extract text and images from an Excel file."""
+    """
+    Extract text and images from an Excel file.
+    """
     try:
         workbook = openpyxl.load_workbook(excel_path)
         doc_name = Path(excel_path).name
@@ -259,7 +262,7 @@ def extract_text_and_images_from_excel(excel_path):
         images = []
 
         for sheet in workbook.worksheets:
-            # Extract text
+            # Extract text from cells
             for row in sheet.iter_rows(values_only=True):
                 text += " ".join([str(cell) if cell is not None else "" for cell in row]) + "\n"
 
@@ -269,8 +272,6 @@ def extract_text_and_images_from_excel(excel_path):
                     if hasattr(image, '_data'):
                         img_data = image._data()
                         img = Image.open(BytesIO(img_data))
-
-                        # Convert to RGB if needed
                         if img.mode != 'RGB':
                             img = img.convert('RGB')
 
@@ -294,7 +295,9 @@ def extract_text_and_images_from_excel(excel_path):
 
 
 def chunk_text(text: str, source_path: str, chunk_size=CONFIG.CHUNK_SIZE, overlap=CONFIG.CHUNK_OVERLAP):
-    """Split text into chunks with overlap and enhanced metadata."""
+    """
+    Split text into chunks with overlap and enhanced metadata.
+    """
     if not text or chunk_size < CONFIG.MIN_CHUNK_SIZE:
         return []
 
@@ -304,12 +307,8 @@ def chunk_text(text: str, source_path: str, chunk_size=CONFIG.CHUNK_SIZE, overla
     chunk_number = 0
 
     while start_idx < len(words):
-        # Calculate end index for current chunk
         end_idx = start_idx + chunk_size
-
-        # If we're not at the end of the text, try to find a good breakpoint
         if end_idx < len(words):
-            # Look for the last period or newline in the overlap region
             breakpoint = end_idx
             for i in range(max(start_idx + chunk_size - overlap, start_idx), end_idx):
                 if words[i].endswith('.') or words[i].endswith('\n'):
@@ -317,7 +316,6 @@ def chunk_text(text: str, source_path: str, chunk_size=CONFIG.CHUNK_SIZE, overla
                     break
             end_idx = breakpoint
 
-        # Create chunk with metadata
         chunk = {
             'text': ' '.join(words[start_idx:end_idx]),
             'metadata': {
@@ -330,8 +328,6 @@ def chunk_text(text: str, source_path: str, chunk_size=CONFIG.CHUNK_SIZE, overla
         }
         chunks.append(chunk)
         chunk_number += 1
-
-        # Move start index, accounting for overlap
         start_idx = end_idx - overlap if end_idx < len(words) else end_idx
 
     return chunks

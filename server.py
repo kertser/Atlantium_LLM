@@ -67,8 +67,8 @@ from utils.document_utils import (
     validate_folder_name,
     rescan_documents,
 )
-from utils.image_store import ImageStore
-from utils.image_utils import deduplicate_images, zero_shot_classification
+
+from utils.img_utils import ImageStore, ImageClassifier
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
@@ -285,15 +285,16 @@ class EnhancedResponseFormatter:
 
 
 class ImageBasedRAG:
-    def __init__(self, model, processor, device, image_store):
+    def __init__(self, model, processor, device, image_store, image_classifier):
         self.model = model
         self.processor = processor
         self.device = device
         self.image_store = image_store
+        self.image_classifier = image_classifier
         self.labels = ["a technical image", "a non-technical image"]
 
     def process_image_and_context(self, image_result: Dict, query_text: str,
-                                  similarity: float) -> Tuple[Dict, float]:
+                                  similarity: float) -> tuple[None, float] | tuple[dict[str, str | Any], Any]:
         """Process a single image and get its context"""
         metadata = image_result['metadata']
         image_id = (metadata.get('image', {}).get('id') or
@@ -308,12 +309,9 @@ class ImageBasedRAG:
                 return None, 0.0
 
             # Check if it's a technical image
-            predicted_label, confidence = zero_shot_classification(
+            predicted_label, confidence = self.image_classifier.classify(
                 image=image,
                 labels=self.labels,
-                model=self.model,
-                processor=self.processor,
-                device=self.device
             )
 
             if predicted_label != "a technical image" or confidence <= CONFIG.TECHNICAL_CONFIDENCE_THRESHOLD:
@@ -341,7 +339,7 @@ class ImageBasedRAG:
             if content_similarity <= CONFIG.IMAGE_SIMILARITY_THRESHOLD:
                 return None, 0.0
 
-            base64_image = self.image_store.get_base64_image(image_id)
+            base64_image = self.image_store.get_base64(image_id)
             if not base64_image:
                 return None, 0.0
 
@@ -401,6 +399,7 @@ class RAGQueryServer:
             save_metadata(self.metadata, CONFIG.METADATA_PATH)
 
         self.image_store = ImageStore()
+        self.image_classifier = ImageClassifier(model=self.model, processor=self.processor, device=self.device)
         self.similarity_threshold = CONFIG.SIMILARITY_THRESHOLD
         self.formatter = EnhancedResponseFormatter()
         self.reset_chat()
@@ -437,7 +436,8 @@ class RAGQueryServer:
                 model=self.model,
                 processor=self.processor,
                 device=self.device,
-                image_store=self.image_store
+                image_store=self.image_store,
+                image_classifier=self.image_classifier
             )
 
             for result in results[0]:
@@ -478,7 +478,7 @@ class RAGQueryServer:
         """Get image data with improved logging"""
         try:
             logging.info(f"Retrieving image data for ID: {image_id}")
-            base64_image = self.image_store.get_base64_image(image_id)
+            base64_image = self.image_store.get_base64(image_id)
             if not base64_image:
                 logging.warning(f"Failed to get base64 image for ID: {image_id}")
                 return None
@@ -509,7 +509,9 @@ class RAGQueryServer:
             logging.error(f"Error getting image data for {image_id}: {e}")
             return None
 
-    def prepare_prompt(self, query_text: str, contexts: List[str], query_type: QueryType, images: List[Dict]) -> str:
+    def prepare_prompt(self, query_text: str, contexts: List[str], query_type: QueryType, images: List[Dict]) -> list[
+                                                                                                                     dict[
+                                                                                                                         str, str]] | str:
         if not contexts and not images:
             # Use no-answer template if no relevant information
             return self.formatter.prompt_builder.build_no_answer_message(query_text)
@@ -564,7 +566,7 @@ class RAGQueryServer:
                     if doc_ref in clean_source:
                         if image_id not in processed_ids:
                             try:
-                                base64_image = self.image_store.get_base64_image(image_id)
+                                base64_image = self.image_store.get_base64(image_id)
                                 if base64_image:
                                     image_info = {
                                         'image': base64_image,
@@ -652,12 +654,11 @@ class RAGQueryServer:
             # Get images from documents referenced in the response
             images = self.get_images_from_referenced_documents(text_response)
 
+            # Deduplicate images:
+            images = self.image_classifier.deduplicate(images, CONFIG.DEDUPLICATION_THRESHOLD)
+
             # Format the response
             text_response = self.formatter.format_response(text_response)
-
-            if images:
-                images = deduplicate_images(images)
-                logging.info(f"After deduplication: {len(images)} unique images")
 
             # Update chat history
             self.chat_history.append({"role": "user", "content": query_text})

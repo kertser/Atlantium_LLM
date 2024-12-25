@@ -9,7 +9,8 @@ import numpy as np
 
 from config import CONFIG
 from utils.FAISS_utils import load_faiss_index, load_metadata, save_faiss_index, save_metadata
-from utils.image_store import ImageStore
+# Updated import: now use the consolidated img_utils module
+from utils.img_utils import ImageStore
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +165,7 @@ def rescan_documents(config: CONFIG) -> tuple[bool, str]:
                 # Initialize required components
                 from utils.LLM_utils import CLIP_init
                 from utils.FAISS_utils import initialize_faiss_index, load_faiss_index, load_metadata
-                from utils.image_store import ImageStore
+                from utils.img_utils import ImageStore
                 from RAG_processor import process_documents
 
                 # Load or initialize CLIP model
@@ -288,8 +289,10 @@ def remove_document_from_rag(doc_path: Path) -> Tuple[bool, str]:
                     entry_paths.add(str(content_data.get('source_doc', '')))
 
             # Check if any entry path matches any of our path variations
-            if any(ep in path_variations or any(pv in ep for pv in path_variations)
-                   for ep in entry_paths if ep):
+            if any(
+                ep in path_variations or any(pv in ep for pv in path_variations)
+                for ep in entry_paths if ep
+            ):
                 should_remove = True
 
             if should_remove:
@@ -300,6 +303,7 @@ def remove_document_from_rag(doc_path: Path) -> Tuple[bool, str]:
                     image_id = (entry.get('image', {}).get('id') or
                                 entry.get('content', {}).get('image_id'))
                     if image_id and image_id not in processed_entries:
+                        # Ensure your consolidated ImageStore class defines delete_image()
                         image_store.delete_image(image_id)
                         processed_entries.add(image_id)
                         logger.info(f"Deleted image {image_id}")
@@ -360,8 +364,10 @@ def remove_document_from_rag(doc_path: Path) -> Tuple[bool, str]:
                 with open(processed_files_path, 'r', encoding='utf-8') as f:
                     processed_files = set(json.load(f))
                 # Remove all variations of the path
-                processed_files = {pf for pf in processed_files
-                                   if not any(pv in pf for pv in path_variations)}
+                processed_files = {
+                    pf for pf in processed_files
+                    if not any(pv in pf for pv in path_variations)
+                }
                 with open(processed_files_path, 'w', encoding='utf-8') as f:
                     json.dump(list(processed_files), f, indent=2)
                 logger.info("Updated processed files list")
@@ -395,11 +401,6 @@ def cleanup_orphaned_chunks() -> Tuple[bool, str]:
         Tuple[bool, str]: (success_status, detailed_message)
         - success_status: True if cleanup completed successfully, False otherwise
         - detailed_message: Description of actions taken and any errors encountered
-
-    Example:
-        success, msg = cleanup_orphaned_chunks()
-        if not success:
-            logger.warning(f"Chunk cleanup warning: {msg}")
     """
     try:
         # Load metadata
@@ -574,6 +575,17 @@ def rename_folder_in_rag(old_path: Path, new_path: Path) -> tuple[bool, str]:
         # Track updates
         updated_count = 0
 
+        # Helper function to compare old vs. new data
+        def count_differences(old_obj, new_obj):
+            if isinstance(old_obj, dict) and isinstance(new_obj, dict):
+                return sum(count_differences(old_obj.get(k), new_obj.get(k))
+                           for k in set(old_obj) | set(new_obj))
+            elif isinstance(old_obj, list) and isinstance(new_obj, list):
+                return sum(count_differences(o, n) for o, n in zip(old_obj, new_obj))
+            elif isinstance(old_obj, str) and isinstance(new_obj, str):
+                return 1 if old_obj != new_obj else 0
+            return 0
+
         # Update FAISS metadata
         try:
             with open(faiss_metadata_path, 'r', encoding='utf-8') as f:
@@ -581,18 +593,6 @@ def rename_folder_in_rag(old_path: Path, new_path: Path) -> tuple[bool, str]:
 
             # Update the metadata recursively
             updated_faiss_metadata = update_recursively(faiss_metadata)
-
-            # Count updates
-            def count_differences(old_obj, new_obj):
-                if isinstance(old_obj, dict) and isinstance(new_obj, dict):
-                    return sum(count_differences(old_obj.get(k), new_obj.get(k))
-                               for k in set(old_obj) | set(new_obj))
-                elif isinstance(old_obj, list) and isinstance(new_obj, list):
-                    return sum(count_differences(o, n) for o, n in zip(old_obj, new_obj))
-                elif isinstance(old_obj, str) and isinstance(new_obj, str):
-                    return 1 if old_obj != new_obj else 0
-                return 0
-
             updated_count += count_differences(faiss_metadata, updated_faiss_metadata)
 
             # Save updated metadata
@@ -677,9 +677,11 @@ def validate_folder_name(name: str) -> tuple[bool, str]:
         return False, f"Folder name contains invalid characters: {', '.join(found_chars)}"
 
     # Check for reserved names (Windows)
-    reserved_names = {'CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'COM3', 'COM4',
-                      'COM5', 'COM6', 'COM7', 'COM8', 'COM9', 'LPT1', 'LPT2', 'LPT3',
-                      'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'}
+    reserved_names = {
+        'CON', 'PRN', 'AUX', 'NUL',
+        'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+        'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
+    }
     if name.upper() in reserved_names:
         return False, "This name is reserved by the system"
 
