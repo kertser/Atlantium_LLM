@@ -1115,6 +1115,7 @@ def check_processing_status():
 
 
 @app.post("/process/documents")
+@app.post("/process/documents")
 async def process_documents():
     """
     Process documents asynchronously while maintaining metadata persistence.
@@ -1123,19 +1124,6 @@ async def process_documents():
     logger = logging.getLogger(__name__)
     try:
         logger.info("Starting document processing...")
-
-        # Backup existing metadata and index if they exist
-        if CONFIG.METADATA_PATH.exists() and CONFIG.FAISS_INDEX_PATH.exists():
-            try:
-                backup_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-                metadata_backup = CONFIG.RAG_DATA / f"metadata_backup_{backup_time}.json"
-                index_backup = CONFIG.RAG_DATA / f"faiss_backup_{backup_time}.index"
-
-                shutil.copy2(CONFIG.METADATA_PATH, metadata_backup)
-                shutil.copy2(CONFIG.FAISS_INDEX_PATH, index_backup)
-                logger.info("Created backup of existing metadata and index")
-            except Exception as e:
-                logger.warning(f"Failed to create backup: {e}")
 
         # Load existing metadata before processing
         existing_metadata = []
@@ -1155,8 +1143,7 @@ async def process_documents():
             text=True,
             env={
                 **os.environ,
-                "PYTHONIOENCODING": "utf-8",
-                "EXISTING_METADATA": json.dumps(existing_metadata)
+                "PYTHONIOENCODING": "utf-8"
             }
         )
 
@@ -1182,20 +1169,7 @@ async def process_documents():
         if process.returncode != 0:
             error_msg = f"Process failed with code {process.returncode}"
             logger.error(error_msg)
-
-            # Restore from backup if available
-            if 'metadata_backup' in locals() and 'index_backup' in locals():
-                try:
-                    shutil.copy2(metadata_backup, CONFIG.METADATA_PATH)
-                    shutil.copy2(index_backup, CONFIG.FAISS_INDEX_PATH)
-                    logger.info("Restored from backup after processing failure")
-                except Exception as restore_error:
-                    logger.error(f"Failed to restore from backup: {restore_error}")
-
             raise HTTPException(status_code=500, detail=error_msg)
-
-        # Wait for file operations to complete
-        await asyncio.sleep(1)
 
         # Verify the results
         success, message = check_processing_status()
@@ -1209,10 +1183,6 @@ async def process_documents():
             with open(CONFIG.METADATA_PATH, 'r', encoding='utf-8') as f:
                 new_metadata = json.load(f)
 
-            # Merge metadata while avoiding duplicates
-            merged_metadata = []
-            seen_entries = set()
-
             # Helper function to generate unique key for metadata entry
             def get_entry_key(entry):
                 if entry.get('type') == 'image':
@@ -1220,42 +1190,35 @@ async def process_documents():
                 elif entry.get('type') == 'text-chunk':
                     return f"chunk_{entry.get('path')}_{entry.get('chunk')}"
                 else:
-                    # Fallback to content hash
                     content_str = json.dumps(entry.get('content', {}), sort_keys=True)
                     return f"other_{hashlib.md5(content_str.encode()).hexdigest()}"
+
+            # Use dictionary for O(1) lookups
+            merged_metadata = {}
 
             # Add existing metadata first
             for entry in existing_metadata:
                 entry_key = get_entry_key(entry)
-                if entry_key not in seen_entries:
-                    merged_metadata.append(entry)
-                    seen_entries.add(entry_key)
+                merged_metadata[entry_key] = entry
 
             # Add new metadata
             for entry in new_metadata:
                 entry_key = get_entry_key(entry)
-                if entry_key not in seen_entries:
-                    merged_metadata.append(entry)
-                    seen_entries.add(entry_key)
+                if entry_key not in merged_metadata:
+                    merged_metadata[entry_key] = entry
+
+            # Convert back to list
+            final_metadata = list(merged_metadata.values())
 
             # Save merged metadata
             with open(CONFIG.METADATA_PATH, 'w', encoding='utf-8') as f:
-                json.dump(merged_metadata, f, ensure_ascii=False, indent=2)
+                json.dump(final_metadata, f, ensure_ascii=False, indent=2)
 
-            logger.info(f"Successfully merged metadata: {len(merged_metadata)} total entries")
+            logger.info(f"Successfully merged metadata: {len(final_metadata)} total entries")
 
             # Reload the server's index and metadata
             server.index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
-            server.metadata = merged_metadata
-
-            # Clean up backups if everything succeeded
-            if 'metadata_backup' in locals() and 'index_backup' in locals():
-                try:
-                    os.remove(metadata_backup)
-                    os.remove(index_backup)
-                    logger.info("Removed backup files after successful processing")
-                except Exception as e:
-                    logger.warning(f"Failed to remove backup files: {e}")
+            server.metadata = final_metadata
 
         except Exception as e:
             logger.error(f"Error merging metadata: {e}")
@@ -1267,7 +1230,7 @@ async def process_documents():
                 raise ValueError("Index or metadata is empty after processing")
 
             logger.info(f"Final verification: {len(server.metadata)} metadata entries, "
-                        f"{server.index.ntotal} vectors in index")
+                       f"{server.index.ntotal} vectors in index")
         except Exception as e:
             logger.error(f"Final verification failed: {e}")
             raise HTTPException(status_code=500, detail="Final verification failed")

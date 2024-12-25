@@ -19,7 +19,7 @@ import glob
 import hashlib
 import json
 import logging
-import sys
+import sys, os
 from pathlib import Path
 from typing import Any, Tuple, List
 
@@ -232,6 +232,16 @@ def process_documents(model, processor, device, index, metadata, image_store, do
         embeddings_added = False
         chunks_processed = set()
 
+        # Load existing metadata if metadata list is empty
+        if not metadata and CONFIG.METADATA_PATH.exists():
+            try:
+                with open(CONFIG.METADATA_PATH, 'r', encoding='utf-8') as f:
+                    metadata = json.load(f)
+                logging.info(f"Loaded {len(metadata)} existing metadata entries")
+            except Exception as e:
+                logging.warning(f"Could not load existing metadata: {e}")
+                metadata = []
+
         if doc_paths is None:
             doc_paths = []
             for ext in CONFIG.SUPPORTED_EXTENSIONS:
@@ -269,7 +279,17 @@ def process_documents(model, processor, device, index, metadata, image_store, do
                             for chunk_idx, embedding in enumerate(text_embeddings):
                                 if embedding is not None:
                                     chunk_hash = hashlib.md5(chunk_texts[chunk_idx].encode()).hexdigest()
-                                    if chunk_hash not in chunks_processed:
+
+                                    # Check if chunk already exists in metadata
+                                    chunk_exists = False
+                                    for entry in metadata:
+                                        if (entry.get('type') == 'text-chunk' and
+                                                entry.get('chunk_hash') == chunk_hash and
+                                                entry.get('path') == str(doc_path)):
+                                            chunk_exists = True
+                                            break
+
+                                    if not chunk_exists and chunk_hash not in chunks_processed:
                                         chunks_processed.add(chunk_hash)
                                         add_to_faiss(
                                             embedding=np.array(embedding),
@@ -277,7 +297,8 @@ def process_documents(model, processor, device, index, metadata, image_store, do
                                             content_type="text-chunk",
                                             content={
                                                 'text': chunk_texts[chunk_idx],
-                                                'metadata': text_chunks[chunk_idx].get('metadata', {})
+                                                'metadata': text_chunks[chunk_idx].get('metadata', {}),
+                                                'chunk_hash': chunk_hash  # Add hash to content
                                             },
                                             index=index,
                                             metadata=metadata
@@ -355,10 +376,6 @@ def process_documents(model, processor, device, index, metadata, image_store, do
             save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
             save_metadata(metadata, CONFIG.METADATA_PATH)
             logging.info(f"Saved updated FAISS index with {len(metadata)} entries")
-            try:
-                clean_orphaned_chunks()
-            except Exception as e:
-                logging.error(f"Warning: Cleanup error (processing will continue): {str(e)}")
 
         update_processed_files(doc_paths)
         return index, metadata

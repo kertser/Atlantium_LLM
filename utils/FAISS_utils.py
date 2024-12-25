@@ -158,98 +158,132 @@ def add_to_faiss(embedding, source_file_name, content_type, content, index, meta
         if embedding.ndim == 1:
             embedding = embedding.reshape(1, -1)
 
-        if len(metadata) >= CONFIG.MAX_METADATA_SIZE:
-            raise ValueError("Metadata size limit exceeded")
-
         if embedding.ndim != 2 or embedding.shape[1] != index.d:
             raise ValueError(f"Embedding shape mismatch. Expected shape: [1, {index.d}]")
-
-        # Add embedding to index first to ensure it's valid
-        initial_total = index.ntotal
-        index.add(embedding)
-
-        # Verify addition
-        if index.ntotal != initial_total + 1:
-            raise ValueError(f"Failed to add {content_type} to FAISS index")
 
         # Process paths
         source_path = Path(source_file_name)
         if source_path.is_absolute():
             try:
-                # Get path relative to RAW_DOCUMENTS_PATH
                 relative_path = source_path.relative_to(CONFIG.RAW_DOCUMENTS_PATH)
             except ValueError:
-                # If path is not relative to RAW_DOCUMENTS_PATH, use the filename only
                 relative_path = source_path.name
         else:
-            # Already a relative path, ensure it's clean
             relative_path = Path(str(source_path).replace('Raw Documents\\Raw Documents', 'Raw Documents'))
 
-        meta_entry = {
-            "path": str(relative_path),
-            "type": content_type
-        }
-
-        # Handle images
-        if content_type == "image":
-            image_id = content.get("image_id")
-            if not image_id:
-                logging.error("Missing image_id in content")
-                return
-
-            if processed_ids is not None:
-                if image_id in processed_ids:
-                    logging.info(f"Skipping duplicate image {image_id}")
-                    return
-                processed_ids.add(image_id)
-
-            # Ensure source_doc uses clean relative path
-            clean_source_doc = str(relative_path)
-            meta_entry["image"] = {
-                "id": image_id,
-                "page": content.get("page", 1),
-                "context": content.get("context", ""),
-                "caption": content.get("caption", ""),
-                "source_doc": clean_source_doc
-            }
-
-            logging.info(f"Adding image metadata: {meta_entry}")
-
         # Handle text chunks
-        elif content_type == "text-chunk":
+        if content_type == "text-chunk":
             if not isinstance(content, dict) or 'text' not in content:
                 raise ValueError("Text chunk content must be a dictionary with 'text' field")
+
+            # Generate a hash of the chunk content
+            chunk_hash = hashlib.md5(content['text'].encode()).hexdigest()
+
+            # Check if this chunk already exists in metadata
+            chunk_exists = False
+            for entry in metadata:
+                if (entry.get('type') == 'text-chunk' and
+                        entry.get('chunk_hash') == chunk_hash and
+                        entry.get('path') == str(relative_path)):
+                    chunk_exists = True
+                    break
+
+            if chunk_exists:
+                logging.info(f"Skipping duplicate chunk for {relative_path}")
+                return False
 
             # Create directory for document chunks
             doc_chunks_dir = CONFIG.STORED_TEXT_CHUNKS_PATH / relative_path.stem
             doc_chunks_dir.mkdir(parents=True, exist_ok=True)
 
-            # Generate unique chunk filename
-            chunk_number = len(list(doc_chunks_dir.glob('chunk_*.txt')))
+            # Find the next available chunk number by checking existing files
+            existing_chunks = list(doc_chunks_dir.glob('chunk_*.txt'))
+            existing_numbers = {
+                int(chunk_file.stem.split('_')[1])
+                for chunk_file in existing_chunks
+                if chunk_file.stem.split('_')[1].isdigit()
+            }
+
+            # Find the first available number
+            chunk_number = 0
+            while chunk_number in existing_numbers:
+                chunk_number += 1
+
             chunk_filename = f"chunk_{chunk_number:03d}.txt"
             chunk_path = doc_chunks_dir / chunk_filename
 
-            # Write chunk to file
-            with open(chunk_path, 'w', encoding='utf-8') as f:
-                f.write(content['text'])
+            # Add embedding to index first (before writing file)
+            initial_total = index.ntotal
+            index.add(embedding)
 
-            # Store path relative to STORED_TEXT_CHUNKS_PATH
-            meta_entry["chunk"] = str(Path(relative_path.stem) / chunk_filename)
+            # Verify addition
+            if index.ntotal != initial_total + 1:
+                raise ValueError("Failed to add embedding to FAISS index")
 
-            # Store additional metadata if present
+            # Write chunk to file only after successful embedding addition
+            try:
+                with open(chunk_path, 'w', encoding='utf-8') as f:
+                    f.write(content['text'])
+            except Exception as e:
+                # If file write fails, we should ideally remove the embedding we just added
+                # However, FAISS doesn't provide a direct way to remove the last added embedding
+                # So we'll at least log the error
+                logging.error(f"Failed to write chunk file {chunk_path}: {e}")
+                raise
+
+            # Create metadata entry
+            meta_entry = {
+                "path": str(relative_path),
+                "type": content_type,
+                "chunk": str(Path(relative_path.stem) / chunk_filename),
+                "chunk_hash": chunk_hash
+            }
+
             if content.get('metadata'):
                 meta_entry["meta"] = content['metadata']
 
-        # Add metadata entry
-        metadata.append(meta_entry)
+            metadata.append(meta_entry)
+            logging.info(f"Added text chunk {chunk_number} from {relative_path}")
+            return True
 
-        # Log successful addition with type-specific details
-        if content_type == "image":
-            logging.info(f"Successfully added image {image_id} to FAISS index (metadata entry {len(metadata) - 1})")
-        else:
-            logging.info(f"Successfully added {content_type} from {relative_path} to FAISS index")
+        # Handle images
+        elif content_type == "image":
+            image_id = content.get("image_id")
+            if not image_id:
+                logging.error("Missing image_id in content")
+                return False
 
-        return True
+            if processed_ids is not None and image_id in processed_ids:
+                logging.info(f"Skipping duplicate image {image_id}")
+                return False
+
+            # Add embedding to index
+            initial_total = index.ntotal
+            index.add(embedding)
+
+            if index.ntotal != initial_total + 1:
+                raise ValueError("Failed to add image embedding to FAISS index")
+
+            meta_entry = {
+                "path": str(relative_path),
+                "type": content_type,
+                "image": {
+                    "id": image_id,
+                    "page": content.get("page", 1),
+                    "context": content.get("context", ""),
+                    "caption": content.get("caption", ""),
+                    "source_doc": str(relative_path)
+                }
+            }
+
+            if processed_ids is not None:
+                processed_ids.add(image_id)
+
+            metadata.append(meta_entry)
+            logging.info(f"Added image {image_id} to FAISS index")
+            return True
+
+        return False
 
     except Exception as e:
         logging.error(f"Error adding {content_type} to FAISS: {e}")
@@ -435,45 +469,14 @@ def save_faiss_index(index, filepath):
 
 
 def save_metadata(metadata: List[Dict[str, Any]], filepath: Union[str, Path]) -> None:
-    """Save metadata to a file with proper merging of existing data"""
+    """Save metadata to a file"""
     filepath_str = str(filepath)
     try:
-        # Load existing metadata if it exists
-        existing_metadata = []
-        if Path(filepath_str).exists():
-            try:
-                with open(filepath_str, 'r', encoding='utf-8') as f:
-                    existing_metadata = json.load(f)
-            except json.JSONDecodeError:
-                logging.warning(f"Could not load existing metadata from {filepath_str}, starting fresh")
-
-        # Create a set of existing entry identifiers
-        existing_ids = {
-            entry.get('image', {}).get('id') if entry.get('type') == 'image'
-            else entry.get('chunk') if entry.get('type') == 'text-chunk'
-            else None
-            for entry in existing_metadata
-        }
-
-        # Add new entries that don't already exist
-        merged_metadata = existing_metadata.copy()
-        for entry in metadata:
-            entry_id = (
-                entry.get('image', {}).get('id') if entry.get('type') == 'image'
-                else entry.get('chunk') if entry.get('type') == 'text-chunk'
-                else None
-            )
-            if entry_id not in existing_ids:
-                merged_metadata.append(entry)
-                existing_ids.add(entry_id)
-
-        # Clean duplicates and save
-        cleaned_metadata = clean_duplicate_entries(merged_metadata)
+        # Write the metadata directly to file
         with open(filepath_str, 'w', encoding='utf-8') as f:
-            json.dump(cleaned_metadata, f, ensure_ascii=False, indent=2)
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
 
-        logging.info(f"Metadata saved to {filepath_str} ({len(cleaned_metadata)} total entries)")
-
+        logging.info(f"Metadata saved to {filepath_str} ({len(metadata)} entries)")
     except Exception as e:
         logging.error(f"Error saving metadata to {filepath_str}: {e}")
         raise

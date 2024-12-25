@@ -3,6 +3,7 @@ import logging
 import shutil
 from pathlib import Path
 from typing import List, Any, Set, Tuple
+import numpy as np
 
 import faiss
 
@@ -211,8 +212,14 @@ def rescan_documents(config: CONFIG) -> tuple[bool, str]:
             if failed_removals:
                 return False, f"Failed to remove some documents: {'; '.join(failed_removals)}"
 
+        cleanup_success, cleanup_msg = cleanup_orphaned_chunks()
+        if not cleanup_success:
+            logger.warning(f"Chunk cleanup warning: {cleanup_msg}")
+
         total_changes = len(new_files) + len(removed_files)
         success_msg = f"Rescan completed: {len(new_files)} new documents processed, {len(removed_files)} documents removed"
+        if cleanup_success:
+            success_msg += f". {cleanup_msg}"
         logger.info(success_msg)
         return True, success_msg
 
@@ -222,10 +229,9 @@ def rescan_documents(config: CONFIG) -> tuple[bool, str]:
         return False, error_msg
 
 
-def remove_document_from_rag(doc_path: Path) -> tuple[bool, str]:
+def remove_document_from_rag(doc_path: Path) -> Tuple[bool, str]:
     """
     Removes a document and its associated data from the RAG system.
-    Uses direct vector copying instead of reconstruction.
     """
     try:
         logger.info(f"Starting removal of document: {doc_path}")
@@ -233,93 +239,229 @@ def remove_document_from_rag(doc_path: Path) -> tuple[bool, str]:
         # Load current data
         original_index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
         metadata = load_metadata(CONFIG.METADATA_PATH)
-        image_store = ImageStore()  # Changed this line - no parameter needed
-        logger.info(f"Successfully loaded index with {len(metadata)} entries")
+        image_store = ImageStore()
 
-        # Get relative path for comparison
+        logger.info(f"Loaded index with {len(metadata)} entries")
+
+        # Prepare path variations for matching
+        doc_path = Path(doc_path)
         try:
             relative_path = doc_path.relative_to(CONFIG.RAW_DOCUMENTS_PATH)
         except ValueError:
             relative_path = doc_path
-        logger.info(f"Using relative path: {relative_path}")
 
-        # Identify entries to remove and filter metadata
+        path_variations = {
+            str(doc_path),
+            str(doc_path.absolute()),
+            str(relative_path),
+            str(relative_path).replace('\\', '/'),
+            str(relative_path).replace('/', '\\'),
+            doc_path.name,
+            str(Path('Raw Documents') / relative_path)
+        }
+
+        logger.info(f"Checking path variations: {path_variations}")
+
+        # Track entries to remove
         indices_to_remove = set()
         new_metadata = []
+        processed_entries = set()
 
         for idx, entry in enumerate(metadata):
-            entry_path = Path(entry.get('path', ''))
-            if entry_path == relative_path or entry_path.name == doc_path.name:
-                indices_to_remove.add(idx)
-                logger.info(f"Found matching entry at index {idx}: {entry_path}")
+            should_remove = False
 
-                # Handle file removal
+            # Check various path fields
+            entry_paths = {
+                str(entry.get('path', '')),
+                str(entry.get('source_file_name', '')),
+                entry.get('source_doc', ''),
+                str(Path(entry.get('path', '')).name)
+            }
+
+            # For image entries, also check content and image fields
+            if entry.get('type') == 'image':
+                image_data = entry.get('image', {})
+                if image_data:
+                    entry_paths.add(str(image_data.get('source_doc', '')))
+                content_data = entry.get('content', {})
+                if content_data:
+                    entry_paths.add(str(content_data.get('source_doc', '')))
+
+            # Check if any entry path matches any of our path variations
+            if any(ep in path_variations or any(pv in ep for pv in path_variations)
+                   for ep in entry_paths if ep):
+                should_remove = True
+
+            if should_remove:
+                indices_to_remove.add(idx)
+
+                # Handle file removal based on entry type
                 if entry.get('type') == 'image':
-                    image_id = entry.get('image', {}).get('id')
-                    if image_id:
+                    image_id = (entry.get('image', {}).get('id') or
+                                entry.get('content', {}).get('image_id'))
+                    if image_id and image_id not in processed_entries:
                         image_store.delete_image(image_id)
+                        processed_entries.add(image_id)
                         logger.info(f"Deleted image {image_id}")
                 elif entry.get('type') == 'text-chunk':
                     chunk_path = entry.get('chunk')
-                    if chunk_path:
+                    if chunk_path and chunk_path not in processed_entries:
                         try:
                             chunk_file = CONFIG.STORED_TEXT_CHUNKS_PATH / chunk_path
                             if chunk_file.exists():
                                 chunk_file.unlink()
+                                processed_entries.add(chunk_path)
                                 logger.info(f"Deleted chunk file: {chunk_path}")
                         except Exception as e:
-                            logger.error(f"Error deleting chunk file: {str(e)}")
+                            logger.error(f"Error deleting chunk file: {e}")
             else:
                 new_metadata.append(entry)
 
         if not indices_to_remove:
-            logger.info(f"Document {doc_path.name} not found in RAG system")
+            logger.info(f"No entries found for document {doc_path.name}")
             return True, "Document not found in RAG system"
 
+        logger.info(f"Found {len(indices_to_remove)} entries to remove")
+
         # Remove chunk directory
-        chunk_dir = CONFIG.STORED_TEXT_CHUNKS_PATH / Path(relative_path).stem
+        chunk_dir = CONFIG.STORED_TEXT_CHUNKS_PATH / doc_path.stem
         if chunk_dir.exists():
-            shutil.rmtree(chunk_dir)
-            logger.info(f"Removed chunk directory: {chunk_dir}")
+            try:
+                shutil.rmtree(chunk_dir)
+                logger.info(f"Removed chunk directory: {chunk_dir}")
+            except Exception as e:
+                logger.error(f"Error removing chunk directory: {e}")
 
-        # Save updated metadata
+        # Save updated metadata (this will now properly clean and save)
         save_metadata(new_metadata, CONFIG.METADATA_PATH)
-        logger.info(f"Saved updated metadata with {len(new_metadata)} entries")
 
-        # Create new index and copy vectors
+        # Create new index without removed vectors
         new_index = faiss.IndexFlatL2(original_index.d)
-        batch_size = 1000  # Process vectors in batches
+        valid_vectors = []
 
-        for start_idx in range(0, original_index.ntotal, batch_size):
-            end_idx = min(start_idx + batch_size, original_index.ntotal)
-            batch_indices = range(start_idx, end_idx)
-
-            # Filter out indices to remove from this batch
-            valid_indices = [idx for idx in batch_indices if idx not in indices_to_remove]
-
-            if valid_indices:
+        for idx in range(original_index.ntotal):
+            if idx not in indices_to_remove:
                 try:
-                    # Get vectors directly from the original index
-                    vectors = original_index.reconstruct_batch(valid_indices)
-                    new_index.add(vectors)
+                    vector = original_index.reconstruct(idx)
+                    valid_vectors.append(vector)
                 except Exception as e:
-                    logger.error(f"Error processing batch {start_idx}-{end_idx}: {str(e)}")
+                    logger.error(f"Error reconstructing vector {idx}: {e}")
+
+        if valid_vectors:
+            new_index.add(np.stack(valid_vectors))
 
         # Save updated index
         save_faiss_index(new_index, CONFIG.FAISS_INDEX_PATH)
-        logger.info(f"Saved updated index with {new_index.ntotal} vectors")
 
         # Update processed files list
-        update_processed_files_list(doc_path, remove=True)
-        logger.info("Updated processed files list")
+        try:
+            processed_files_path = Path("processed_files.json")
+            if processed_files_path.exists():
+                with open(processed_files_path, 'r', encoding='utf-8') as f:
+                    processed_files = set(json.load(f))
+                # Remove all variations of the path
+                processed_files = {pf for pf in processed_files
+                                   if not any(pv in pf for pv in path_variations)}
+                with open(processed_files_path, 'w', encoding='utf-8') as f:
+                    json.dump(list(processed_files), f, indent=2)
+                logger.info("Updated processed files list")
+        except Exception as e:
+            logger.error(f"Error updating processed files list: {e}")
 
-        return True, f"Successfully removed document with {len(indices_to_remove)} entries"
+        return True, f"Successfully removed document and {len(indices_to_remove)} related entries"
 
     except Exception as e:
-        error_msg = f"Failed to remove document: {str(e)}"
-        logger.error(error_msg, exc_info=True)
-        return False, error_msg
+        logger.error(f"Error removing document from RAG: {str(e)}")
+        return False, f"Error removing document: {str(e)}"
 
+
+def cleanup_orphaned_chunks() -> Tuple[bool, str]:
+    """
+    Clean up orphaned chunk files that are no longer referenced in metadata.
+
+    This function should be called:
+    1. After document removal operations
+    2. During document rescanning
+    3. When inconsistencies are detected between metadata and stored chunks
+
+    The function:
+    - Loads the current metadata from FAISS
+    - Identifies chunk files that are not referenced in metadata
+    - Removes orphaned chunk files
+    - Removes empty chunk directories
+    - Provides detailed cleanup reporting
+
+    Returns:
+        Tuple[bool, str]: (success_status, detailed_message)
+        - success_status: True if cleanup completed successfully, False otherwise
+        - detailed_message: Description of actions taken and any errors encountered
+
+    Example:
+        success, msg = cleanup_orphaned_chunks()
+        if not success:
+            logger.warning(f"Chunk cleanup warning: {msg}")
+    """
+    try:
+        # Load metadata
+        try:
+            with open(CONFIG.METADATA_PATH, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+        except Exception as e:
+            logger.error(f"Error loading metadata during cleanup: {e}")
+            return False, "Failed to load metadata"
+
+        # Get all referenced chunk paths
+        referenced_chunks = {
+            Path(entry['chunk']) for entry in metadata
+            if entry.get('type') == 'text-chunk' and 'chunk' in entry
+        }
+
+        chunks_removed = 0
+        dirs_removed = 0
+        errors = []
+
+        # Check all chunk files
+        try:
+            for doc_dir in CONFIG.STORED_TEXT_CHUNKS_PATH.iterdir():
+                if doc_dir.is_dir():
+                    for chunk_file in doc_dir.glob('chunk_*.txt'):
+                        try:
+                            relative_chunk = chunk_file.relative_to(CONFIG.STORED_TEXT_CHUNKS_PATH)
+                            if relative_chunk not in referenced_chunks:
+                                chunk_file.unlink()
+                                chunks_removed += 1
+                                logger.info(f"Removed orphaned chunk: {relative_chunk}")
+                        except Exception as e:
+                            errors.append(f"Error processing chunk {chunk_file}: {e}")
+
+                    # Remove empty directories
+                    try:
+                        remaining_files = list(doc_dir.glob('*'))
+                        if not remaining_files:  # Directory is empty
+                            doc_dir.rmdir()
+                            dirs_removed += 1
+                            logger.info(f"Removed empty chunk directory: {doc_dir}")
+                    except Exception as e:
+                        errors.append(f"Error removing directory {doc_dir}: {e}")
+
+        except Exception as e:
+            logger.error(f"Error scanning chunk directories: {e}")
+            return False, f"Failed to scan chunk directories: {e}"
+
+        # Log summary
+        summary = f"Cleanup completed: Removed {chunks_removed} orphaned chunks and {dirs_removed} empty directories"
+        if errors:
+            summary += f" with {len(errors)} errors"
+            for error in errors:
+                logger.error(error)
+
+        logger.info(summary)
+        return True, summary
+
+    except Exception as e:
+        error_msg = f"Error during chunk cleanup: {e}"
+        logger.error(error_msg)
+        return False, error_msg
 
 def update_processed_files_list(file_path: Path, remove: bool = False) -> None:
     """Updates the processed_files.json list."""

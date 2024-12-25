@@ -16,6 +16,7 @@
 * Search the image and faiss metadata to retrieve the context from the documents, containing the images, similar to the attached.
 * Click on banner - Go to atlantium.com
 * Add Credentials
+* Compress Metadata in RAG processor - strange error
 
 # TBDs for development:
 * Switch to MongoDB instead of metadata in files
