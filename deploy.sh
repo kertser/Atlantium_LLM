@@ -1,5 +1,20 @@
 #!/bin/bash
 
+#
+# This script is used to deploy the application to the server.
+# It checks the GPU configuration, creates required directories, and performs the deployment.
+# It also handles the initialization of the application.
+#
+
+# Preliminary, pre-deploy actions on git:
+# sudo docker-compose down # (from the relevant folder)
+# docker system prune --all --volumes --force # (on initialization)
+# git stash
+# git pull # Make sure that .env file with the openai-key is present
+# chmod +x deploy.sh
+# sudo ./deploy.sh --init
+
+
 ## First-time deployment:
 # chmod +x deploy.sh
 # ./deploy.sh --init

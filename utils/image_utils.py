@@ -148,7 +148,7 @@ def are_images_similar(hash1: str, hash2: str, threshold: float = CONFIG.DEDUPLI
 
         # Calculate weighted average (giving more weight to perceptual hash)
         similarity = (
-                    0.2 * avg_similarity + 0.3 * dhash_similarity + 0.5 * phash_similarity)  # phash is best for structural similarity
+                0.2 * avg_similarity + 0.3 * dhash_similarity + 0.5 * phash_similarity)  # phash is best for structural similarity
 
         # logging.info(f"Image similarity score: {similarity:.4f}")
         return similarity >= threshold

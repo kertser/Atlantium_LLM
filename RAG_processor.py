@@ -151,7 +151,7 @@ def compress_metadata(metadata: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if isinstance(content, dict):
             if entry.get('type') == 'text-chunk':
                 minimal_entry['content'] = {
-                    'text': content.get('text', '')[:500],  # Limit text size
+                    'text': content.get('text', '')[:CONFIG.METADATA_TEXT_LIMIT],  # Limit text size
                     'metadata': content.get('metadata', {})
                 }
             elif entry.get('type') == 'image':

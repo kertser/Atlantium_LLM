@@ -26,6 +26,7 @@ Classes and methods:
 
 import asyncio
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -33,7 +34,6 @@ import re
 import shutil
 import subprocess
 import sys
-import hashlib
 from contextlib import asynccontextmanager
 from dataclasses import field
 from datetime import datetime
@@ -1230,7 +1230,7 @@ async def process_documents():
                 raise ValueError("Index or metadata is empty after processing")
 
             logger.info(f"Final verification: {len(server.metadata)} metadata entries, "
-                       f"{server.index.ntotal} vectors in index")
+                        f"{server.index.ntotal} vectors in index")
         except Exception as e:
             logger.error(f"Final verification failed: {e}")
             raise HTTPException(status_code=500, detail="Final verification failed")

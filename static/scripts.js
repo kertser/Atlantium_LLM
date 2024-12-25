@@ -89,12 +89,6 @@ function escapeHtml(unsafe) {
         .replace(/'/g, "&#039;");
 }
 
-function cleanupImageURL(element) {
-    if (element.src && element.src.startsWith('blob:')) {
-        URL.revokeObjectURL(element.src);
-    }
-}
-
 function createContextMenu(e, fileName, filePath) {
     e.preventDefault();
     removeContextMenu();
@@ -119,7 +113,7 @@ function createContextMenu(e, fileName, filePath) {
                         headers: {
                             'Content-Type': 'application/json',
                         },
-                        body: JSON.stringify({ path: filePath })
+                        body: JSON.stringify({path: filePath})
                     });
 
                     if (!response.ok) {
@@ -460,84 +454,6 @@ function updateFolderContextMenuHandlers() {
     });
 }
 
-// Update the document context menu to include the system open functionality
-function updateDocumentContextMenu() {
-    const menuItems = [
-        {
-            label: 'Open',
-            icon: `
-                <svg viewBox="0 0 24 24" width="16" height="16">
-                    <path fill="currentColor" d="M14 3v2H4v13.385L5.763 17H20v-7h2v8a1 1 0 0 1-1 1H5.105L2 22.5V4a1 1 0 0 1 1-1h11zm5 0V0h2v3h3v2h-3v3h-2V5h-3V3h3z"/>
-                </svg>
-            `,
-            action: async (filePath) => {
-                try {
-                    const response = await fetch('/open/document', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({ path: filePath })
-                    });
-
-                    if (!response.ok) {
-                        const error = await response.json();
-                        throw new Error(error.detail);
-                    }
-                } catch (error) {
-                    console.error('Open file error:', error);
-                    alert(error.message || 'Failed to open file');
-                }
-            }
-        },
-        {
-            label: 'Download',
-            icon: `
-                <svg viewBox="0 0 24 24" width="16" height="16">
-                    <path fill="currentColor" d="M3 19h18v2H3v-2zm10-5.828L19.071 7.1l1.414 1.414L12 17 3.515 8.515 4.929 7.1 11 13.17V2h2v11.172z"/>
-                </svg>
-            `,
-            action: async (filePath) => {
-                try {
-                    window.location.href = `/download/document?path=${encodeURIComponent(filePath)}`;
-                } catch (error) {
-                    console.error('Download file error:', error);
-                    alert('Failed to download file');
-                }
-            }
-        },
-        {
-            label: 'Delete',
-            icon: `
-                <svg viewBox="0 0 24 24" width="16" height="16">
-                    <path fill="currentColor" d="M7 4V2h10v2h5v2h-2v15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6H2V4h5z"/>
-                </svg>
-            `,
-            action: async (filePath) => {
-                if (confirm('Are you sure you want to delete this file?')) {
-                    try {
-                        const response = await fetch(`/delete/document?path=${encodeURIComponent(filePath)}`, {
-                            method: 'DELETE'
-                        });
-
-                        if (!response.ok) {
-                            const error = await response.json();
-                            throw new Error(error.detail);
-                        }
-
-                        await loadDocuments(currentFolderPath);
-                    } catch (error) {
-                        console.error('Delete file error:', error);
-                        alert(error.message || 'Failed to delete file');
-                    }
-                }
-            }
-        }
-    ];
-
-    return menuItems;
-}
-
 async function openDocument(path) {
     try {
         const response = await fetch('/open/document', {
@@ -545,7 +461,7 @@ async function openDocument(path) {
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ path: path })
+            body: JSON.stringify({path: path})
         });
 
         if (!response.ok) {
@@ -564,24 +480,6 @@ async function openDocument(path) {
         console.error('Open file error:', error);
         alert(error.message || 'Failed to open file');
     }
-}
-
-async function uploadDocument(file) {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('folder', currentFolderPath); // Add current folder path
-
-    const response = await fetch('/upload/document', {
-        method: 'POST',
-        body: formData
-    });
-
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || `Failed to upload ${file.name}`);
-    }
-
-    return response.json();
 }
 
 function initializeMultiSelect() {
@@ -710,33 +608,6 @@ function initializeMultiSelect() {
     }
 }
 
-function modifyTableRowsForSelection() {
-    const rows = document.querySelectorAll('.documents-table tbody tr');
-    rows.forEach(row => {
-        // Skip parent folder row (..)
-        if (row.querySelector('.folder-name')?.textContent.trim() === '..') {
-            const emptyCell = document.createElement('td');
-            emptyCell.style.width = '30px';
-            row.insertBefore(emptyCell, row.firstChild);
-            return;
-        }
-
-        // Add checkbox for both files and folders
-        const checkbox = document.createElement('td');
-        checkbox.style.width = '30px';
-        checkbox.innerHTML = '<input type="checkbox" class="document-checkbox">';
-        row.insertBefore(checkbox, row.firstChild);
-
-        // Add path data attribute for deletion
-        const docName = row.querySelector('.document-name');
-        const folderName = row.querySelector('.folder-name');
-        if (docName) {
-            row.dataset.path = docName.dataset.path;
-        } else if (folderName) {
-            row.dataset.path = row.dataset.path; // Already set in the folder row
-        }
-    });
-}
 
 async function loadDocuments(currentPath = '') {
     currentFolderPath = currentPath;
@@ -782,8 +653,8 @@ async function loadDocuments(currentPath = '') {
         const tbody = document.createElement('tbody');
 
         // Add "up" navigation if not in root
-            if (currentPath) {
-                tbody.innerHTML += `
+        if (currentPath) {
+            tbody.innerHTML += `
                     <tr class="folder-row" data-path="${encodeURIComponent(getParentPath(currentPath))}">
                         <td style="width: 30px;"></td>
                         <td>
@@ -800,11 +671,11 @@ async function loadDocuments(currentPath = '') {
                         <td>-</td>
                     </tr>
                 `;
-            }
+        }
 
-            // Add folders
-            data.folders.forEach(folder => {
-                tbody.innerHTML += `
+        // Add folders
+        data.folders.forEach(folder => {
+            tbody.innerHTML += `
                     <tr class="folder-row" data-path="${encodeURIComponent(folder.path)}">
                         <td style="width: 30px;">
                             <input type="checkbox" class="select-checkbox document-checkbox">
@@ -822,7 +693,7 @@ async function loadDocuments(currentPath = '') {
                         <td>${formatDate(folder.modified)}</td>
                     </tr>
                 `;
-            });
+        });
 
         // Add files
         data.files.forEach(file => {
@@ -1317,7 +1188,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 if (typeof response === 'string') {
-                    addMessage({ text_response: response, images: [] });
+                    addMessage({text_response: response, images: []});
                 } else {
                     addMessage(response);
                 }
@@ -1333,7 +1204,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } else if (message) {
             // Handle text-only messages as before
-            const messageContent = { text: message };
+            const messageContent = {text: message};
 
             // Clear input
             input.value = '';
@@ -1351,7 +1222,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     loadingMessage.remove();
                 }
                 if (typeof response === 'string') {
-                    addMessage({ text_response: response, images: [] });
+                    addMessage({text_response: response, images: []});
                 } else {
                     addMessage(response);
                 }
@@ -1369,7 +1240,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function handleReset() {
         try {
-            await fetch('/chat/reset', { method: 'POST' });
+            await fetch('/chat/reset', {method: 'POST'});
             chatLog.innerHTML = '';
             input.value = '';
 
@@ -1573,7 +1444,7 @@ document.addEventListener('DOMContentLoaded', () => {
             rescanButton.innerHTML = `<div class="spinner"></div>Rescanning...`;
 
             try {
-                const response = await fetch('/rescan', { method: 'POST' });
+                const response = await fetch('/rescan', {method: 'POST'});
                 if (!response.ok) throw new Error('Rescan failed');
 
                 await loadDocuments(currentFolderPath);

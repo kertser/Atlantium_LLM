@@ -3,9 +3,9 @@ import logging
 import shutil
 from pathlib import Path
 from typing import List, Any, Set, Tuple
-import numpy as np
 
 import faiss
+import numpy as np
 
 from config import CONFIG
 from utils.FAISS_utils import load_faiss_index, load_metadata, save_faiss_index, save_metadata
@@ -462,6 +462,7 @@ def cleanup_orphaned_chunks() -> Tuple[bool, str]:
         error_msg = f"Error during chunk cleanup: {e}"
         logger.error(error_msg)
         return False, error_msg
+
 
 def update_processed_files_list(file_path: Path, remove: bool = False) -> None:
     """Updates the processed_files.json list."""

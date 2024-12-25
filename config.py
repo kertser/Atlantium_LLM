@@ -1,10 +1,11 @@
 import os
 from dataclasses import dataclass
-from typing import List
 from pathlib import Path
+from typing import List
 
 # Get base directory from environment variable or use current directory for local development
 BASE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
+
 
 @dataclass
 class Config:
@@ -38,16 +39,17 @@ class Config:
     SIMILARITY_THRESHOLD: float = 0.75  # Text similarity
     IMAGE_SIMILARITY_THRESHOLD: float = 0.25  # Image similarity
     TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.75  # Technical confidence
-    DEDUPLICATION_THRESHOLD = 0.70 # Threshold for image deduplication
+    DEDUPLICATION_THRESHOLD = 0.70  # Threshold for image deduplication
 
     # Document Processing
     BATCH_SIZE: int = 5  # Document processing in batches. For limited RAM it is 2-5. For GPU 8-16GB it is 8-16
     CHUNK_OVERLAP: int = 100  # set to 200
     MIN_CHUNK_SIZE: int = 100
-    CHUNK_SIZE: int = 1000  #  set to 800 - Optimal for larger content. Smaller chunks are more selective, but harder to compare
+    CHUNK_SIZE: int = 1000  # set to 800 - Optimal for larger content. Smaller chunks are more selective, but harder to compare
     SUPPORTED_EXTENSIONS: List[str] = None
     MAX_TEXT_LENGTH: int = 10000  # Maximum length of stored text chunks
     MAX_METADATA_SIZE: int = 1000000  # Maximum size in bytes
+    METADATA_TEXT_LIMIT:  int = 1500  # Maximum text length in metadata entries
     COMPRESSION_ENABLED = True
     CLEANUP_FREQUENCY = 10  # Cleanup every N batches
 

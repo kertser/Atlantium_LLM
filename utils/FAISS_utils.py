@@ -118,6 +118,7 @@ def validate_metadata_integrity(metadata: List[Dict]) -> List[Dict]:
 
     return valid_metadata
 
+
 def get_chunk_text(chunk_path: str) -> str:
     """Retrieve text chunk content from file."""
     try:
