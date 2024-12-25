@@ -69,7 +69,7 @@ class Config:
 
     # Vision model settings
     GPT_VISION_MODEL: str = "gpt-4o"
-    VISION_MAX_TOKENS: int = 500
+    VISION_MAX_TOKENS: int = 4096
     VISION_QUALITY: str = "auto"
 
     # Response formatting

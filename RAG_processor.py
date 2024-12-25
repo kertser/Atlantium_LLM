@@ -21,7 +21,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Tuple, List
+from typing import Any, Tuple, List, Dict
 
 import faiss
 import numpy as np
@@ -123,16 +123,24 @@ def filter_technical_images(images_data, model, processor, device, source_doc):
     return filtered_images
 
 
-def compress_metadata(metadata):
-    """Remove unnecessary fields and compress metadata"""
-    compressed = []
+def compress_metadata(metadata: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Remove unnecessary fields and compress metadata.
+
+    Args:
+        metadata: List of metadata dictionaries to compress
+
+    Returns:
+        List of compressed metadata dictionaries
+    """
+    compressed: List[Dict[str, Any]] = []
     for entry in metadata:
         if not isinstance(entry, dict):
             logging.warning(f"Skipping invalid metadata entry: {entry}")
             continue
 
         # Keep only essential fields
-        minimal_entry = {
+        minimal_entry: Dict[str, Any] = {
             'type': entry.get('type', 'unknown'),
             'source_file_name': entry.get('source_file_name', ''),
             'id': entry.get('id', '')

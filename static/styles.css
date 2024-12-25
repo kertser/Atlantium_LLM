@@ -873,6 +873,24 @@ td .select-checkbox {
     transform-origin: center;
 }
 
+.developer-credits {
+    margin-top: 2rem;
+    font-size: 0.9rem;
+}
+
+.developer-label {
+    font-style: italic;
+}
+
+.developer-name {
+    font-weight: bold;
+    margin: 0 0.3rem;
+}
+
+.developer-year {
+    color: #666;
+}
+
 /* Modal styles */
 .modal-overlay {
     position: fixed;
