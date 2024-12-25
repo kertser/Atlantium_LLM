@@ -290,8 +290,8 @@ def remove_document_from_rag(doc_path: Path) -> Tuple[bool, str]:
 
             # Check if any entry path matches any of our path variations
             if any(
-                ep in path_variations or any(pv in ep for pv in path_variations)
-                for ep in entry_paths if ep
+                    ep in path_variations or any(pv in ep for pv in path_variations)
+                    for ep in entry_paths if ep
             ):
                 should_remove = True
 

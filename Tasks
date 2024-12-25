@@ -14,8 +14,6 @@
 * Visualize the document processing with progress bar - over the "processing" button
 * Search the image and faiss metadata to retrieve the context from the documents, containing the images, similar to the attached.
 * Update methods of content treatment and chat history (including prompt templates). If the query is irrelevant to the history, do not take the history into account
-* Combine functionality of prompt_loader.py and prompts.py into a single file -> prompt_management.py
-  image_store and image_utils into a single library -> image_utils.py, keeping the functionality.
 
 
 # TBDs for development:

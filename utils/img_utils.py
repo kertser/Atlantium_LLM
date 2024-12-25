@@ -57,9 +57,9 @@ class ImageProcessor:
 
     @staticmethod
     def compare_hashes(
-        hash1: str,
-        hash2: str,
-        threshold: float = CONFIG.DEDUPLICATION_THRESHOLD
+            hash1: str,
+            hash2: str,
+            threshold: float = CONFIG.DEDUPLICATION_THRESHOLD
     ) -> bool:
         """Compare image hashes using weighted similarity."""
         try:
@@ -166,12 +166,12 @@ class ImageStore(ImageProcessor):
             raise
 
     def store_image(
-        self,
-        image: Image.Image,
-        source_doc: str,
-        page_num: int,
-        caption: Optional[str] = None,
-        context: Optional[str] = None
+            self,
+            image: Image.Image,
+            source_doc: str,
+            page_num: int,
+            caption: Optional[str] = None,
+            context: Optional[str] = None
     ) -> str:
         """Store an image and return its ID."""
         try:
@@ -216,7 +216,6 @@ class ImageStore(ImageProcessor):
         except Exception as e:
             logging.error(f"Error retrieving image {image_id}: {e}")
             return None, None
-
 
     @lru_cache(maxsize=100)
     def get_base64(self, image_id: str) -> Optional[str]:
@@ -322,9 +321,9 @@ class ImageClassifier(ImageProcessor):
             self.model = self.model.to(device)
 
     def classify(
-        self,
-        image: Union[Image.Image, str],
-        labels: List[str],
+            self,
+            image: Union[Image.Image, str],
+            labels: List[str],
     ) -> Tuple[str, float]:
         """Perform zero-shot classification."""
         if not self.model or not self.processor:

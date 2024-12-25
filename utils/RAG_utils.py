@@ -29,7 +29,7 @@ def extract_text_around_image(page, image_bbox, context_range=100):
             block_center_x = (block[0] + block[2]) / 2
 
             if abs(block_center_y - image_center_y) < context_range and \
-               abs(block_center_x - image_center_x) < context_range * 2:
+                    abs(block_center_x - image_center_x) < context_range * 2:
                 text = block[4].strip()
                 if text:
                     nearby_text.append(text)

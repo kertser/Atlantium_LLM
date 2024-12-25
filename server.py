@@ -55,8 +55,7 @@ from openai import OpenAI
 from pydantic import BaseModel
 
 from config import CONFIG
-from models.prompt_loader import PromptLoader
-from models.prompts import PromptBuilder
+from models.prompt_manager import PromptLoader, PromptBuilder
 from utils.FAISS_utils import load_faiss_index, load_metadata, query_with_context
 from utils.LLM_utils import CLIP_init, openai_post_request
 from utils.document_utils import (
@@ -67,7 +66,6 @@ from utils.document_utils import (
     validate_folder_name,
     rescan_documents,
 )
-
 from utils.img_utils import ImageStore, ImageClassifier
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
