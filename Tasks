@@ -12,8 +12,10 @@
   Then adding flags in the query processing to control whether to include this content and weight different content types differently in relevance scoring
   It will provide more data in format_response function
 * Visualize the document processing with progress bar - over the "processing" button
-* If the query is irrelevant to the history, do not take the history into account
 * Search the image and faiss metadata to retrieve the context from the documents, containing the images, similar to the attached.
+* Update methods of content treatment and chat history (including prompt templates). If the query is irrelevant to the history, do not take the history into account
+* Combine functionality of prompt_loader.py and prompts.py into a single file -> prompt_management.py
+  image_store and image_utils into a single library -> image_utils.py, keeping the functionality.
 
 
 # TBDs for development:
@@ -22,6 +24,7 @@
 * Offline and fine-tuned LLMs (TBD)
 * Multimodal Input - Connect audio model (TBD)
 
-# Add to documents:
+# Documentation:
 - manual deploy without updates (docker and with no docker)
 - manual deploy with updates (docker and no docker)
+- update documentation
