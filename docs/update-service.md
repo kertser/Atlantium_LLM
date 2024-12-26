@@ -81,27 +81,9 @@ Example: `v1.2.3`
 2. **Quick Setup**:
 ```bash
 cd ~/Projects/Atlantium_LLM
-sudo ./scripts/update_service/install.sh
+sudo chmod +x deploy.sh
+sudo ./deploy.sh
 ```
-
-3. **Custom Installation**:
-```bash
-sudo APP_DIR=/your/custom/path ./scripts/update_service/install.sh
-```
-
-### Directory Structure
-```
-~/Projects/Atlantium_LLM/
-├── logs/
-│   └── updates/        # Update logs
-├── backups/           # Code backups
-├── scripts/
-│   └── update_service/ # Update scripts
-├── RAG_Data/         # Persisted data (Docker volume)
-└── Raw Documents/    # Persisted documents (Docker volume)
-```
-
-For more about the frontend components, see our [Frontend Documentation](frontend.md).
 
 ### Service Management
 

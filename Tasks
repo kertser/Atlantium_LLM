@@ -1,10 +1,4 @@
-# General Tasks:
-* Test docker-compose with updates
-* Add prompt template for Interactive troubleshooting mode (analyze step by step)
-* Add option for "chat with live operator" (A button with contacts or whatsapp)
-* Calculator API - connect as agent
-
-# Urgent Tasks / Errors:
+# Ongoing Tasks / Errors:
 * Play with similarity scores to have more precise answers.
 * Continue playing with prompts, top_K and chunking to reduce hallucinations. (May be achieved with more data)
 * Need to treat headers and footers of pdf/doc files form chinking/indexing - it is a garbage data. Similarly - prefaces, tables of content
@@ -14,6 +8,9 @@
 * Visualize the document processing with progress bar - over the "processing" button
 * Search the image and faiss metadata to retrieve the context from the documents, containing the images, similar to the attached.
 * Update methods of content treatment and chat history (including prompt templates). If the query is irrelevant to the history, do not take the history into account
+* Add prompt template for Interactive troubleshooting mode (analyze step by step)
+* Add option for "chat with live operator" (A button with contacts or whatsapp)
+* Calculator API - connect as agent
 
 
 # TBDs for development:

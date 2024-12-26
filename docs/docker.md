@@ -62,9 +62,9 @@ web-app-cpu:
 
 ```yaml
 volumes:
-    - raw_docs:/app/Raw Documents    # Document storage
-    - rag_data:/app/RAG_Data         # Index and embeddings
-    - logs:/app/logs                 # System logs
+    - raw_docs:/app/data/raw_docs    # Document storage
+    - rag_data:/app/data/rag_data    # Index and embeddings
+    - logs:/app/data/logs            # System logs
     - /var/run/docker.sock:/var/run/docker.sock
     - ${HOME}/.docker/config.json:/root/.docker/config.json:ro
 ```
@@ -127,9 +127,9 @@ RUN useradd -m -u 1000 appuser \
     && chown -R appuser:appuser /app
 
 # Set permissions
-RUN mkdir -p "RAG_Data/stored_images" "Raw Documents" logs \
-    && chown -R appuser:appuser "RAG_Data" "Raw Documents" logs \
-    && chmod -R 755 "RAG_Data" "Raw Documents" logs
+RUN mkdir -p "/app/data/rag_data/stored_images" "/app/data/raw_docs" "/app/data/logs" \
+    && chown -R appuser:appuser "/app/data/rag_data" "/app/data/raw_docs" "/app/data/logs" \
+    && chmod -R 755 "/app/data/rag_data" "/app/data/raw_docs" "/app/data/logs"
 
 USER appuser
 ```
@@ -173,6 +173,7 @@ CONTAINER_NAME=atlantium_llm-web-app-1
 PYTHONIOENCODING=utf-8
 USE_CPU=0/1
 INITIALIZE_RAG=false
+DATA_DIR=/app/data
 
 # Build configuration
 BUILD_TYPE=gpu/cpu

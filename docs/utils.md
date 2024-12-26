@@ -141,11 +141,7 @@ def CLIP_init(model_name: str = "openai/clip-vit-base-patch32") -> Tuple[Model, 
     """Initialize CLIP model and processor."""
     
 def encode_with_clip(
-    texts: List[str],
-    images: List[Image.Image],
-    model: Any,
-    processor: Any,
-    device: str
+
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Generate embeddings for text and images."""
     

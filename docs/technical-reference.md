@@ -23,37 +23,52 @@ graph TD
 ## Directory Structure
 
 ```plaintext
+Core Directory Structure:
+-------------------------
 Atlantium_LLM/
-├── config.py                   # System configuration
-├── server.py                   # FastAPI server
+├── config.py                  # System configuration
+├── server.py                  # FastAPI server
 ├── RAG_processor.py           # Document processor
 ├── run.py                     # Server runner
 ├── scripts/
 │   ├── update_service/        # Update system components
 │   ├── docker-entrypoint.sh   # Container entry
 │   └── install_requirements.sh # Dependencies
-├── models/                    # AI model components
-│   ├── prompt_loader.py       # Template management
-│   ├── prompts.py            # Prompt construction
+├── models/                    # AI model components:
+│   ├── prompt_manager.py      # Prompt Manager
 │   └── templates/
 │       └── prompts.yaml       # System prompts
 ├── utils/                     # Utility modules
-│   ├── FAISS_utils.py        # Vector operations
-│   ├── image_utils.py        # Image processing
-│   ├── LLM_utils.py          # LLM integration
-│   ├── RAG_utils.py          # Document processing
-│   ├── document_utils.py     # File operations
-│   └── image_store.py        # Image management
-├── static/                   # Frontend assets
-│   ├── index.html            # Web interface
-│   ├── styles.css           # UI styling
-│   └── scripts.js           # Client logic
-└── docs/                    # Documentation
-    ├── installation.md      # Setup guide
-    ├── update-service.md    # Update system
-    ├── frontend.md         # UI documentation
-    ├── models.md           # AI model details
-    └── utils.md            # Utilities guide
+│   ├── FAISS_utils.py         # Vector operations
+│   ├── LLM_utils.py           # LLM integration
+│   ├── RAG_utils.py           # Document processing
+│   ├── document_utils.py      # File operations
+│   └── img_utils.py           # Image management
+├── static/                    # Frontend assets:
+│   ├── index.html             # Web interface
+│   ├── styles.css             # UI styling
+│   └── scripts.js             # Client logic
+└── docs/                      # Documentation:
+    ├── installation.md        # Setup guide
+    ├── update-service.md      # Update system
+    ├── frontend.md            # UI documentation
+    ├── models.md              # AI model details
+    └── utils.md               # Utilities guide
+
+Additional File Structure:
+--------------------------
+├──deploy.sh                   # Deployment script    
+├──logs/                       # System logs
+├──Raw_Documents/              # Document storage
+├──RAG_Data/                   # Document processing data
+└──scripts/                    # System scripts
+   ├── docker-entrypoint.sh    # Container entry
+   ├── install_requirements.sh # Dependency installer
+   └── update_service/         # Update service components
+      ├── atlantium-update.service  # Update service
+      ├── install.sh                # Service installation script
+      └── release_update.sh         # Update script
+
 ```
 
 ## Core Components
@@ -65,74 +80,17 @@ The FastAPI server ([server.py](../server.py)) manages query processing and resp
 ```python
 class RAGQueryServer:
     def __init__(self):
-        """Initialize with CLIP model, FAISS index, and image store."""
-        self.model, self.processor = CLIP_init(CONFIG.CLIP_MODEL_NAME)
-        self.index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
-        self.image_store = ImageStore(CONFIG.STORED_IMAGES_PATH)
-
-    async def process_text_query(
-        self, 
-        query_text: str,
-        top_k: int = CONFIG.DEFAULT_TOP_K
-    ) -> QueryResponse:
-        """Process text queries with context retrieval."""
-
-    async def process_image_query(
-        self,
-        image_data: bytes,
-        query_text: Optional[str] = None
-    ) -> str:
-        """Process image-based queries."""
+    async def process_text_query()
+    async def process_image_query()
 ```
 
 ### 2. Document Processing
 
 The RAG processor ([RAG_processor.py](../RAG_processor.py)) handles document ingestion and processing. For update procedures, see our [Update Service Guide](update-service.md).
 
-```python
-def process_documents(
-    model, 
-    processor,
-    device,
-    index,
-    metadata,
-    image_store,
-    doc_paths=None
-) -> Tuple[faiss.Index, List[Dict]]:
-    """Process documents and update FAISS index."""
-```
-
-### 3. Model Integration
-
-For detailed information about models and prompts, see our [Models Documentation](models.md).
-
-```python
-# CLIP initialization
-model, processor = CLIP_init(CONFIG.CLIP_MODEL_NAME)
-
-# LLM integration
-response = openai_post_request(
-    messages=messages,
-    model_name=CONFIG.GPT_MODEL,
-    max_tokens=CONFIG.MAX_TOKENS,
-    temperature=CONFIG.TEMPERATURE
-)
-```
-
-### 4. Utility Functions
+### 3. Utility Functions
 
 For comprehensive utilities documentation, see our [Utils Documentation](utils.md).
-
-```python
-# Vector operations
-index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION)
-add_to_faiss(embedding, source_file, content_type, content, index)
-
-# Image processing
-image_class = zero_shot_classification(image, labels, model)
-unique_images = deduplicate_images(images, max_images=8)
-```
-
 ## API Endpoints
 
 ### Document Management
@@ -207,34 +165,6 @@ sequenceDiagram
     L->>S: Return Response
     S->>U: Send Response
 ```
-
-## Performance Optimization
-
-### 1. Resource Management
-- Configure batch sizes in [config.py](../config.py)
-- Monitor memory usage during processing
-- Implement proper GPU cleanup
-
-### 2. Index Optimization
-- Regular maintenance tasks
-- Periodic deduplication
-- Optimal chunk sizing
-
-For deployment configurations, see our [Installation Guide](installation.md).
-
-## Monitoring and Logging
-
-```python
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s: %(message)s',
-    handlers=[
-        logging.FileHandler(CONFIG.LOG_PATH/"system.log"),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-```
-
 ## Troubleshooting Guide
 
 ### Common Issues
