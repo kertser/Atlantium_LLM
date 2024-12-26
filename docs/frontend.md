@@ -1,64 +1,283 @@
 # Frontend Documentation
 
-This document details the web interface implementation for the Atlantium RAG system. For backend details, see our [Technical Reference](technical-reference.md).
-
 ## Overview
 
-The frontend provides an interactive web interface for document management, chat interaction, and system control. The implementation uses vanilla JavaScript for maximum compatibility and performance.
+The frontend implements several key functional pipelines for document management and chat interaction:
 
-## Component Structure
+### Document Processing Pipeline
+1. Document Upload
+   - User uploads files through drag-drop or file selector
+   - Files are validated (type, size, count limits)
+   - Files are uploaded to server via `/upload/document` endpoint
+   - Server processes documents using RAG system
 
-### Static Files
-```plaintext
+2. Document Management
+   - Files are organized in hierarchical folder structure
+   - Each file/folder supports context menu operations
+   - Bulk operations available through multi-select
+   - Real-time document count and status updates
+
+### Chat Interaction Pipeline
+1. Text Queries
+   - User input is processed for special characters and formatting
+   - Queries are sent to server for RAG-enhanced processing
+   - Responses include text and relevant images
+   - Chat history is maintained and can be reset
+
+2. Image Queries
+   - Images can be attached to messages
+   - Preview system shows attached images
+   - Images are processed with optional text queries
+   - Responses include image analysis and relevant documentation
+
+### Authentication Flow
+1. Protected Operations
+   - Document deletion
+   - Folder management
+   - System initialization
+   - Batch operations
+2. Authentication Modal
+   - Password-based verification
+   - Session-based authentication state
+   - Protected operation handling
+
+## Core Components
+
+The frontend provides a web-based interface for document management, chat interaction, and system control, implemented using vanilla JavaScript for maximum compatibility.
+
+## Core Components
+
+### Static Files Structure
+```
 static/
-├── index.html     # Main application page
-├── styles.css     # Application styling
-├── scripts.js     # Client-side functionality
-└── favicon.png    # Application icon
+├── index.html       # Main application page
+├── styles.css       # Application styling
+├── scripts.js       # Client-side functionality
+├── logo_long.jpg    # Application logo
+└── favicon.png      # Application icon
 ```
 
-### Interface Components
+## Component Architecture
 
-```mermaid
-graph TD
-    A[Web Interface] --> B[Document Management]
-    A --> C[Chat Interface]
-    A --> D[System Controls]
-    B --> E[Upload Module]
-    B --> F[Folder Navigation]
-    B --> G[File Operations]
-    C --> H[Message History]
-    C --> I[Image Attachments]
-    C --> J[Markdown Rendering]
+### Document Management
+```javascript
+// File Upload
+const handleFiles = (files) => {
+    if (fileMap.size + files.length > maxfiles) {
+        alert(`Maximum ${maxfiles} files allowed`);
+        return;
+    }
+    // Process files...
+}
+
+// Document List
+const loadDocuments = async (currentPath = '') => {
+    // Load and display documents...
+}
+
+// Document Operations
+const createFolder = async (parentPath, folderName) => {
+    // Create new folder...
+}
+
+const deleteDocument = async (path) => {
+    // Delete document...
+}
 ```
+
+### Chat Interface
+```javascript
+// Message Handling
+const addMessage = (content, isUser = false) => {
+    // Add message to chat...
+}
+
+// Query Processing
+const sendMessageWithImage = async (message, imageFile = null) => {
+    // Process and send message...
+}
+
+// Chat Reset
+const handleReset = async () => {
+    // Reset chat history...
+}
+```
+
+### Image Management
+```javascript
+// Image Preview
+const handleImageAttachment = (event) => {
+    // Handle image preview...
+}
+
+// Image Upload
+const processImageUpload = async (file) => {
+    // Process image upload...
+}
+```
+
+## Event Handlers
+
+### Document Events
+```javascript
+// Drag and Drop
+dropZone.addEventListener('drop', handleDrop);
+dropZone.addEventListener('dragover', preventDefaults);
+
+// File Selection
+fileInput.addEventListener('change', handleFiles);
+
+// Context Menu
+const createContextMenu = (e, fileName, filePath) => {
+    // Create context menu...
+}
+```
+
+### Chat Events
+```javascript
+// Message Input
+input.addEventListener('input', adjustTextareaHeight);
+
+// Send Button
+sendButton.addEventListener('click', handleSend);
+
+// Reset Button
+resetButton.addEventListener('click', handleReset);
+```
+
 ## API Integration
 
 ### Document Endpoints
-- POST `/upload/document` - Upload new document
-- GET `/get/documents` - List documents and folders
-- POST `/process/documents` - Process uploaded documents
-- DELETE `/delete/document` - Remove document
+```javascript
+// Upload Document
+const uploadDocument = async (file, folder = '') => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('folder', folder);
+    
+    const response = await fetch('/upload/document', {
+        method: 'POST',
+        body: formData
+    });
+    // Handle response...
+}
 
-For complete API details, see our [Technical Reference](technical-reference.md#api-endpoints).
+// Process Documents
+const processDocuments = async () => {
+    const response = await fetch('/process/documents', {
+        method: 'POST'
+    });
+    // Handle response...
+}
+```
 
 ### Query Endpoints
-- POST `/query/text` - Process text queries
-- POST `/query/image` - Process image queries
-- POST `/chat/reset` - Reset chat history
-- GET `/chat/history` - Get chat history
+```javascript
+// Text Query
+const sendTextQuery = async (query) => {
+    const formData = new FormData();
+    formData.append('query', query);
+    
+    const response = await fetch('/query/text', {
+        method: 'POST',
+        body: formData
+    });
+    // Handle response...
+}
+
+// Image Query
+const sendImageQuery = async (image, query = null) => {
+    const formData = new FormData();
+    formData.append('image', image);
+    if (query) formData.append('query', query);
+    
+    const response = await fetch('/query/image', {
+        method: 'POST',
+        body: formData
+    });
+    // Handle response...
+}
+```
+
+## UI Components
+
+### Message Display
+```javascript
+const formatMessageText = (text) => {
+    // Format message content...
+}
+
+const createImageElement = (imageData) => {
+    // Create image element...
+}
+```
+
+### Document List
+```javascript
+const updateFileCount = () => {
+    // Update file counter...
+}
+
+const createFileItem = (file) => {
+    // Create file list item...
+}
+```
+
+## Error Handling
+
+### Common Patterns
+1. Network Errors
+2. File Size Limits
+3. Invalid File Types
+4. Authentication Errors
+5. Server Response Errors
+
+### Error Display
+```javascript
+const showError = (message) => {
+    // Display error message...
+}
+
+const handleAPIError = async (response) => {
+    // Handle API errors...
+}
+```
+
+## Authentication
+
+```javascript
+const createAuthModal = async () => {
+    // Create authentication modal...
+}
+
+const checkAuthentication = async () => {
+    // Check authentication status...
+}
+```
+
+## CSS Structure
+
+### Core Components
+```css
+/* Layout */
+.app-container { ... }
+.chat-container { ... }
+.documents-container { ... }
+
+/* Messages */
+.message { ... }
+.user-message { ... }
+.assistant-message { ... }
+
+/* Documents */
+.upload-container { ... }
+.file-item { ... }
+.folder-row { ... }
+```
 
 ## Related Documentation
 
-- [Technical Reference](technical-reference.md) - Backend implementation
-- [Models Documentation](models.md) - AI model integration
-- [Utils Documentation](utils.md) - Utility functions
-- [Installation Guide](installation.md) - Setup instructions
-- [Update Service](update-service.md) - System updates
-
-## Support
-
-For frontend-related issues:
-1. Check browser console for errors
-2. Verify network requests
-3. Ensure proper file permissions
-4. Contact [Mike Kertser](mailto:mikek@atlantium.com)
+- [Technical Reference](../docs/technical-reference.md)
+- [Installation Guide](../docs/installation.md)
+- [Models Documentation](../docs/models.md)
+- [Utils Documentation](../docs/utils.md)

@@ -1,178 +1,187 @@
 # Update Service Guide
 
-This guide explains the automated update system for the Atlantium RAG application. For initial setup, see our [Installation Guide](installation.md).
-
 ## Overview
 
-The update service automatically monitors the GitHub release branch for new versions and updates your installation while preserving all data. It integrates with the [Docker-based deployment](docker.md) and maintains data persistence.
+The update service provides automated system updates by monitoring the GitHub release branch and maintaining data persistence. It integrates with the Docker-based deployment and ensures system stability during updates.
 
-## Branch Structure
+## Core Components
 
-```mermaid
-graph TD
-    A[main] --> B[release]
-    B --> C[development]
-    C --> D[feature branches]
-```
-
-- `development`: Active development - new features start here
-- `release`: Staging and testing
-- `main`: Production code
-
-## For Developers
-
-### Development Workflow
-
-1. **Start New Feature**:
+### Update Service Script (`release_update.sh`)
+Main update script with the following functions:
 ```bash
-# Update development branch
-git checkout development
-git pull origin development
-
-# Create feature branch
-git checkout -b feature/your-feature
+# Core Functions
+log() # Logging with timestamp
+error_exit() # Error handling and cleanup
+cleanup() # Cleanup temporary files
+setup_temp() # Set up temporary directory
+setup_directories() # Create required directories
+check_docker() # Verify Docker status
+verify_installation() # Check installation integrity
+create_backup() # Create system backup
+detect_gpu_configuration() # Check GPU availability
+update_code() # Update from repository
+update_docker() # Update Docker containers
+verify_update() # Verify update success
 ```
 
-2. **Implement Changes**:
+### Service Configuration (`atlantium-update.service`)
+```ini
+[Unit]
+Description=Atlantium RAG Update Service
+After=network.target
+
+[Service]
+Type=simple
+User=your_user
+WorkingDirectory=/path/to/Atlantium_LLM
+ExecStart=/path/to/Atlantium_LLM/scripts/update_service/release_update.sh
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.net
+```
+
+### Installation Script (`install.sh`)
 ```bash
-# Make changes
-git add .
-git commit -m "Description of changes"
-
-# Push to GitHub
-git push origin feature/your-feature
+# Core Functions
+validate_environment() # Check system requirements
+fix_directory_permissions() # Set correct permissions
+setup_logging() # Configure log rotation
+install_service() # Install systemd service
+configure_selinux() # Set SELinux context if enabled
 ```
 
-3. **Create Release**:
-```bash
-# Update development
-git checkout development
-git pull origin development
+## Update Process
 
-# Update release branch
-git checkout release
-git pull origin release
-git merge development
+### Initialization
+1. Environment validation
+2. Directory structure verification
+3. Docker status check
+4. GPU configuration detection
 
-# Create and push tag
-git tag v1.0.1
-git push origin release
-git push origin v1.0.1
-```
+### Backup Process
+1. Create timestamped backup
+2. Store in configured backup location
+3. Maintain backup rotation (keep last 5)
+4. Verify backup integrity
 
-### Version Tagging
-Use semantic versioning: `vMAJOR.MINOR.PATCH`
-- MAJOR: Breaking changes
-- MINOR: New features (backward compatible)
-- PATCH: Bug fixes (backward compatible)
+### Update Sequence
+1. Check for new releases
+2. Create system backup
+3. Update code from repository
+4. Rebuild Docker containers
+5. Verify system integrity
+6. Update configuration if needed
 
-Example: `v1.2.3`
+### Verification Steps
+1. Container status check
+2. Service response verification
+3. Log inspection
+4. GPU status verification (if applicable)
 
-## For Users
+## Service Management
 
 ### Installation
-
-1. **Prerequisites** (see [Installation Guide](installation.md) for details):
-- Ubuntu 22.04+
-- Docker and Docker Compose V2
-- Git
-- Systemd
-
-2. **Quick Setup**:
 ```bash
+# Install service
 cd ~/Projects/Atlantium_LLM
-sudo chmod +x deploy.sh
-sudo ./deploy.sh
+sudo chmod +x scripts/update_service/install.sh
+sudo ./scripts/update_service/install.sh
 ```
 
-### Service Management
-
+### Control Commands
 ```bash
-# Check service status
-systemctl status atlantium-update
+# Start service
+sudo systemctl start atlantium-update
 
-# View update logs
-tail -f ~/Projects/Atlantium_LLM/logs/updates/update.log
+# Stop service
+sudo systemctl stop atlantium-update
 
-# View container logs
-docker logs -f atlantium_llm-web-app-1
+# Check status
+sudo systemctl status atlantium-update
 
-# Manual update check
+# Enable at boot
+sudo systemctl enable atlantium-update
+
+# View logs
+journalctl -u atlantium-update -f
+```
+
+## Data Persistence
+
+### Protected Data
+- RAG database (embeddings, indexes)
+- Uploaded documents
+- System configurations
+- User preferences
+- Log files
+
+### Backup Strategy
+```bash
+# Backup locations
+RAG_Data/          # Vector database
+Raw Documents/     # User documents
+logs/              # System logs
+.env               # Configuration
+```
+
+## Error Handling
+
+### Common Issues
+1. Network Connection Failures
+2. Docker Service Issues
+3. Permission Problems
+4. GPU Configuration Errors
+5. Backup Failures
+
+### Recovery Procedures
+```bash
+# Restore from backup
+cd ~/Projects/Atlantium_LLM/backups
+tar -xzf backup_YYYYMMDD.tar.gz -C /path/to/restore
+
+# Fix permissions
+sudo chown -R your_user:your_group /path/to/Atlantium_LLM
+
+# Restart service
 sudo systemctl restart atlantium-update
 ```
 
-### Data Persistence
+## Security Considerations
 
-The service preserves:
-- RAG database (embeddings, indexes)
-- Uploaded documents
-- System logs
-- Configuration
+### Authentication
+- Service runs with limited privileges
+- Uses separate service account
+- Protected access to Docker daemon
 
-## Troubleshooting
+### File Permissions
+- Strict directory permissions
+- Controlled access to sensitive files
+- SELinux context management
 
-### Common Issues
+## Monitoring
 
-1. **Docker Permissions**:
+### Log Files
 ```bash
-# Add user to docker group
-sudo usermod -aG docker $USER
-newgrp docker
+# System logs
+/var/log/atlantium-update.log
+
+# Application logs
+~/Projects/Atlantium_LLM/logs/system.log
+
+# Docker logs
+docker logs -f atlantium_llm-web-app-1
 ```
 
-2. **GPU Detection**:
-```bash
-# Check NVIDIA setup
-nvidia-smi
-nvidia-container-cli info
-```
-
-3. **Volume Issues**:
-```bash
-# Check volumes
-docker volume ls
-docker volume inspect raw_docs
-```
-
-4. **Service Problems**:
-```bash
-# Check service logs
-journalctl -u atlantium-update -f
-systemctl cat atlantium-update
-```
-
-### Uninstallation
-
-```bash
-# Stop service
-sudo systemctl stop atlantium-update
-sudo systemctl disable atlantium-update
-
-# Remove service
-sudo rm /etc/systemd/system/atlantium-update.service
-sudo systemctl daemon-reload
-
-# Optional: Remove volumes (CAUTION!)
-docker-compose down -v
-```
+### Health Checks
+1. Container status monitoring
+2. Service response verification
+3. Resource usage tracking
+4. Update status monitoring
 
 ## Related Documentation
 
-- [Installation Guide](installation.md) - Complete setup instructions
-- [Technical Reference](technical-reference.md) - System architecture
-- [Frontend Documentation](frontend.md) - Web interface
-- [Models Documentation](models.md) - AI components
-- [Utils Documentation](utils.md) - Utility functions
-
-## Support
-
-If you encounter issues:
-1. Check all logs (service, Docker, application)
-2. Verify Docker and GPU configuration
-3. Ensure volumes are properly mounted
-4. Create a GitHub issue with:
-   - Full error logs
-   - System information
-   - Docker and NVIDIA information
-
-For technical support, contact [Mike Kertser](mailto:mikek@atlantium.com).
+- [Installation Guide](../docs/installation.md)
+- [Technical Reference](../docs/technical-reference.md)
+- [Frontend Documentation](../docs/frontend.md)
+- [Models Documentation](../docs/models.md)

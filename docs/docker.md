@@ -1,101 +1,25 @@
 # Docker Configuration
 
-This document details the Docker configuration for the Atlantium RAG system. For installation instructions, see our [Installation Guide](installation.md).
-
 ## Overview
 
 The system uses Docker Compose with dual profile configuration (CPU/GPU) and persistent volume management. The deployment process automatically detects hardware capabilities and selects the appropriate profile.
-
-## Container Architecture
-
-```mermaid
-graph TD
-    A[Docker Compose] --> B[Web App Container]
-    B --> C[CPU Profile]
-    B --> D[GPU Profile]
-    B --> E[Persistent Volumes]
-    E --> F[RAG Data]
-    E --> G[Raw Documents]
-    E --> H[Logs]
-```
-
-## Container Profiles
-
-### GPU Profile
-```yaml
-web-app-gpu:
-    container_name: atlantium_llm-web-app-1
-    environment:
-        - PYTHONIOENCODING=utf-8
-        - USE_CPU=0
-        - INITIALIZE_RAG=false
-    build:
-        context: .
-        dockerfile: Dockerfile
-        args:
-            - BUILD_TYPE=gpu
-    deploy:
-        resources:
-            reservations:
-                devices:
-                    - driver: nvidia
-                      count: all
-                      capabilities: [gpu]
-```
-
-### CPU Profile
-```yaml
-web-app-cpu:
-    container_name: atlantium_llm-web-app-1
-    environment:
-        - PYTHONIOENCODING=utf-8
-        - USE_CPU=1
-        - INITIALIZE_RAG=false
-    build:
-        context: .
-        dockerfile: Dockerfile
-        args:
-            - BUILD_TYPE=cpu
-```
-
-## Volume Configuration
-
-```yaml
-volumes:
-    - raw_docs:/app/data/raw_docs    # Document storage
-    - rag_data:/app/data/rag_data    # Index and embeddings
-    - logs:/app/data/logs            # System logs
-    - /var/run/docker.sock:/var/run/docker.sock
-    - ${HOME}/.docker/config.json:/root/.docker/config.json:ro
-```
-
-All volumes use the `local` driver for persistence:
-```yaml
-volumes:
-    raw_docs:
-        driver: local
-    rag_data:
-        driver: local
-    logs:
-        driver: local
-```
 
 ## Dockerfile Structure
 
 ### Base Image
 ```dockerfile
-FROM python:3.10-slim AS base
+ARG BUILD_TYPE
 
+FROM python:3.10-slim AS base
 WORKDIR /app
 
 # System dependencies
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        build-essential \
-        python3-dev \
-        netcat-traditional \
-        pciutils \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get install -y --no-install-recommends \
+    build-essential \
+    python3-dev \
+    netcat-traditional \
+    pciutils \
+    sudo
 
 # Environment setup
 ENV PYTHONUNBUFFERED=1 \
@@ -123,48 +47,93 @@ FROM ${BUILD_TYPE:-cpu}
 ### Security Configuration
 ```dockerfile
 # Create non-root user
-RUN useradd -m -u 1000 appuser \
-    && chown -R appuser:appuser /app
+RUN useradd -m -u 1000 appuser && \
+    echo "appuser ALL=(ALL) NOPASSWD: /usr/bin/chown" >> /etc/sudoers
 
 # Set permissions
-RUN mkdir -p "/app/data/rag_data/stored_images" "/app/data/raw_docs" "/app/data/logs" \
-    && chown -R appuser:appuser "/app/data/rag_data" "/app/data/raw_docs" "/app/data/logs" \
-    && chmod -R 755 "/app/data/rag_data" "/app/data/raw_docs" "/app/data/logs"
-
-USER appuser
+RUN mkdir -p "/app/RAG_Data/stored_images" \
+             "/app/RAG_Data/stored_text_chunks" \
+             "/app/Raw Documents" \
+             /app/logs && \
+    chown -R appuser:appuser /app && \
+    find /app -type d -exec chmod 775 {} \; && \
+    find /app -type f -exec chmod 664 {} \;
 ```
 
-## Deployment Process
+## Docker Compose Configuration
 
-### Hardware Detection
+### GPU Profile
+```yaml
+web-app-gpu:
+    container_name: atlantium_llm-web-app-1
+    environment:
+        - PYTHONIOENCODING=utf-8
+        - USE_CPU=0
+    build:
+        context: .
+        dockerfile: Dockerfile
+        args:
+            - BUILD_TYPE=gpu
+    deploy:
+        resources:
+            reservations:
+                devices:
+                    - driver: nvidia
+                      count: all
+                      capabilities: [gpu]
+```
+
+### CPU Profile
+```yaml
+web-app-cpu:
+    container_name: atlantium_llm-web-app-1
+    environment:
+        - PYTHONIOENCODING=utf-8
+        - USE_CPU=1
+    build:
+        context: .
+        dockerfile: Dockerfile
+        args:
+            - BUILD_TYPE=cpu
+```
+
+### Volume Configuration
+```yaml
+volumes:
+    - type: bind
+      source: ./Raw Documents
+      target: /app/Raw Documents
+    - type: bind
+      source: ./RAG_Data
+      target: /app/RAG_Data
+    - type: bind
+      source: ./logs
+      target: /app/logs
+    - /var/run/docker.sock:/var/run/docker.sock
+    - ${HOME}/.docker/config.json:/root/.docker/config.json:ro
+```
+
+## Entry Point Script
+
+### Main Functions
 ```bash
-# Check NVIDIA drivers
-if [ -f "/proc/driver/nvidia/version" ] && nvidia-smi &> /dev/null; then
-    # GPU configuration
-    export BUILD_TYPE=gpu
-    export USE_CPU=0
-    PROFILE="gpu"
-else
-    # CPU fallback
-    export BUILD_TYPE=cpu
-    export USE_CPU=1
-    PROFILE="cpu"
-fi
+# Directory setup and permissions
+fix_directory_permissions() {
+    # Set correct permissions for directories
+}
+
+# Initialize RAG database
+initialize_rag() {
+    # Initialize if INITIALIZE_RAG=true
+}
+
+# Handle processed_files.json
+setup_processed_files() {
+    # Create and configure processed_files.json
+}
 ```
 
-### Build Options
-```bash
-# Enable BuildKit
-export DOCKER_BUILDKIT=1
-
-# Build with no cache
-docker-compose build --no-cache
-
-# Start with profile
-docker-compose --profile ${PROFILE} up -d
-```
-
-## Environment Configuration
+## Environment Variables
 
 ### Required Variables
 ```bash
@@ -173,7 +142,6 @@ CONTAINER_NAME=atlantium_llm-web-app-1
 PYTHONIOENCODING=utf-8
 USE_CPU=0/1
 INITIALIZE_RAG=false
-DATA_DIR=/app/data
 
 # Build configuration
 BUILD_TYPE=gpu/cpu
@@ -213,37 +181,11 @@ docker stats atlantium_llm-web-app-1
 docker exec atlantium_llm-web-app-1 nvidia-smi
 ```
 
-## Initial Deployment
-
-```bash
-# Clone repository
-git clone https://github.com/kertser/Atlantium_LLM.git
-cd Atlantium_LLM
-
-# Configure environment
-cp .env.example .env
-
-# Set execution permissions
-chmod +x deploy.sh install_requirements.sh
-
-# Deploy with initialization
-./deploy.sh --init
-
-# Access web interface
-http://localhost:9000
-```
-
-## Related Documentation
-
-- [Installation Guide](installation.md) - Setup instructions
-- [Technical Reference](technical-reference.md) - System architecture
-- [Update Service](update-service.md) - Automatic updates
-
 ## Troubleshooting
 
 ### Common Issues
 
-1. **GPU Detection Failures**:
+1. GPU Detection Failures
 ```bash
 # Verify NVIDIA drivers
 nvidia-smi
@@ -252,7 +194,7 @@ nvidia-smi
 nvidia-container-cli info
 ```
 
-2. **Volume Persistence**:
+2. Volume Persistence
 ```bash
 # Check volume permissions
 ls -la /var/lib/docker/volumes/
@@ -261,7 +203,7 @@ ls -la /var/lib/docker/volumes/
 docker inspect atlantium_llm-web-app-1
 ```
 
-3. **Build Failures**:
+3. Build Failures
 ```bash
 # Clean build cache
 docker builder prune
@@ -270,4 +212,8 @@ docker builder prune
 export BUILD_TYPE=cpu && ./deploy.sh
 ```
 
-For additional deployment details, see our [Installation Guide](installation.md).
+## Related Documentation
+
+- [Installation Guide](../docs/installation.md)
+- [Technical Reference](../docs/technical-reference.md)
+- [Update Service](../docs/update-service.md)

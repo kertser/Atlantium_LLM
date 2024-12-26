@@ -14,12 +14,7 @@
 
 
 # TBDs for development:
-* Switch to MongoDB instead of metadata in files
+* Switch to MongoDB instead of metadata in files (TBD)
 * Android mobile app development (TBD)
 * Offline and fine-tuned LLMs (TBD)
 * Multimodal Input - Connect audio model (TBD)
-
-# Documentation:
-- manual deploy without updates (docker and with no docker)
-- manual deploy with updates (docker and no docker)
-- update documentation
