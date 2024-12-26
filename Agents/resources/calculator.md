@@ -3,7 +3,8 @@
 
 ## Overview
 
-This document provides an information about the methods available in the `libred_api.dll` for RED (Reduction Equivalent Dose) calculation. 
+This document provides an information about the methods available in the `libred_api.dll` or `libred_api.so` 
+for <b>RED</b> (Reduction Equivalent Dose) calculation. 
 <br>These methods allow users to interact with various UV systems to perform RED calculations.
 <br>(see the explicit example of usage in main.c)
 
@@ -22,7 +23,8 @@ Here we define the values for
 <br><sup>(One shall set the NLamps to 0 if he wishes to init the number of lamps automatically)</sup>
 
 # Example for C code 
-<sup>Make sure the libred_api.dll is in the same directory as your executable or in a directory included in your system's library path.</sup>:
+<sup>Make sure the libred_api.dll or libred_api.so is in the same directory as your 
+executable or in a directory included in your system's library path.</sup>:
 ```c
 // declare system type
 char systemType[] = "RZM-350-8"; // System Type
@@ -49,48 +51,7 @@ for (uint32_t i = 0; i < NLamps; i++) {
 double D1Log = 18; // [mJ/cm^2]
 ```
 
-# Example for Java (using the dll):
-<sup>Make sure the libred_api.dll is in the same directory as your Java program or in a directory included in your system's library path.</sup>
-```java
-public class RedApi {
-    // Declare the native methods
-    public native int getNLamps(String systemType);
-    public native double calculateRed(
-        String systemType, double flow, double uvt, double uvt215, 
-        double[] power, double[] efficiency, double d1Log, int nLamps
-    );
 
-    static {
-        // Load the DLL
-        System.loadLibrary("libred_api");
-    }
-
-    public static void main(String[] args) {
-        RedApi api = new RedApi();
-        
-        String systemType = "RZM-350-8";
-        double flow = 100; // [m^3/h]
-        double uvt = 95; // [% - 1cm]
-        double uvt215 = -1; // [% - 1cm] or -1 if NaN
-        double power = 100; // [%], defined for every lamp
-        double efficiency = 80; // [%], defined for every lamp
-        double d1Log = 18; // [mJ/cm^2]
-
-        int nLamps = api.getNLamps(systemType);
-        double[] powerArray = new double[nLamps];
-        double[] efficiencyArray = new double[nLamps];
-
-        for (int i = 0; i < nLamps; i++) {
-            powerArray[i] = power;
-            efficiencyArray[i] = efficiency;
-        }
-
-        double result = api.calculateRed(systemType, flow, uvt, uvt215, powerArray, efficiencyArray, d1Log, nLamps);
-        System.out.println("Calculated RED for " + systemType + " = " + result);
-    }
-}
-
-```
 
 ## Methods
 
@@ -169,12 +130,3 @@ The `supported_systems.txt` file lists all supported UV systems:
 - RZMW-350-7
 
 For the full list, refer to the `src/supported_systems.txt` file.
-
-## License
-
-This project is proprietary to Atlantium company. 
-<br>Unauthorized copying, modification, or distribution of this software is strictly prohibited.
-
-## Contact
-
-For any inquiries or support, please contact [mikek@atlantium.com](mailto:mikek@atlantium.com).
