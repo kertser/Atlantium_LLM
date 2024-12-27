@@ -14,6 +14,16 @@ if not openai_api_key:
     raise ValueError("OpenAI API key not found")
 client = OpenAI()
 
+# Temporary constant for config:
+MAX_FLOW = 1000   # Maximum flow rate in m³/h
+MIN_FLOW = 0.1    # Minimum flow rate in m³/h
+MAX_UVT = 99.9    # Maximum UV transmittance in %-1cm
+MIN_UVT = 0.1     # Minimum UV transmittance in %-1cm
+MAX_POWER = 100.0  # Maximum power setting in %
+MIN_POWER = 40.0    # Minimum power setting in %
+MAX_EFFICIENCY = 100.0  # Maximum efficiency setting in %
+MIN_EFFICIENCY = 50.0    # Minimum efficiency setting in %
+
 # Define the function schemas for OpenAI - will be transferred to templates later
 FUNCTIONS = [
     {
@@ -243,8 +253,8 @@ class REDLibrary:
         try:
             # Validate inputs
             if (system_type not in self.supported_systems or
-                    not 0 < flow < 1000 or
-                    not 0 < uvt <= 100):
+                    not MIN_FLOW < flow < MAX_FLOW or
+                    not MIN_UVT < uvt <= MAX_UVT):
                 return None
 
             # Get number of lamps
@@ -283,7 +293,7 @@ class REDLibrary:
                             continue
 
             # Validate all values are within range
-            if not all(0 <= p <= 100 for p in power) or not all(0 <= e <= 100 for e in efficiency):
+            if not all(MIN_POWER <= p <= MAX_POWER for p in power) or not all(MIN_EFFICIENCY <= e <= MAX_EFFICIENCY for e in efficiency):
                 return None
 
             # Convert lists to ctypes arrays
@@ -320,12 +330,9 @@ def main():
 
     # Example queries that include power and efficiency settings
     example_queries = [
-        "Calculate RED for RZM-350-8 with flow 100, UVT 95%, all lamps at 80% power",
+        "Calculate RED for RZ-163-12 with flow 100, UVT 95%, all lamps at 80% power",
         "Calculate RED for RZM-350-8 with flow 100, UVT 95%, lamp 1 at 90% power and lamp 2 at 80% power",
-        "Calculate RED for RZM-350-8 with flow 100, UVT 95%, all lamps 100% power except lamp 3 at 70%",
-        "Calculate RED for RZM-350-8 with flow 100, UVT 95%, all lamps at 90% efficiency",
-        "Calculate RED for RZM-350-8 with flow 100, UVT 95%, lamp 1 efficiency 85% and lamp 2 efficiency 75%",
-        'Calculate RED for RZM-123-45 with flow 0, UVT 95%, all lamps at 90% efficiency except lamp 3 at 70%'
+        "Calculate RED for RZM-350-11 with flow 200, UVT 92%, lamp 1 efficiency 85% and lamp 2 efficiency 75%",
     ]
 
     for query in example_queries:
