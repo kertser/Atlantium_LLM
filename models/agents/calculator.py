@@ -457,17 +457,36 @@ class REDLibrary:
     def process_query(self, query: str) -> Union[Dict, None]:
         """Process a natural language query using OpenAI"""
         if self.lib is None:
-            return None
+            return {"error": "Library not initialized"}
 
         try:
+            # Enhanced system prompt for better parsing
+            system_prompt = """You are a UV system calculation assistant. 
+            When parsing queries about RED calculations:
+            1. For specific lamp settings, use the 'specific_lamps' object
+            2. For all-lamp settings, use the 'all_lamps' value
+            3. When query mentions "all other lamps", use both:
+               - First set 'all_lamps' for the default value
+               - Then use 'specific_lamps' for the exceptions
+            4. Parse both power and efficiency settings carefully
+            5. Numbers in the query should be converted to numeric values
+
+            Example format for "all other lamps" case:
+            {
+                "power_settings": {
+                    "all_lamps": 85,  # First set all lamps to this value
+                    "specific_lamps": {
+                        "1": 90,      # Then override specific lamps
+                        "2": 80
+                    }
+                }
+            }"""
+
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{
                     "role": "system",
-                    "content": """You are a UV system calculation assistant. 
-                    Convert user queries about RED calculations into appropriate function calls.
-                    Return empty if the query cannot be answered with available functions.
-                    Only use the provided functions."""
+                    "content": system_prompt
                 }, {
                     "role": "user",
                     "content": query
@@ -477,16 +496,27 @@ class REDLibrary:
             )
 
             function_call = response.choices[0].message.function_call
-
             if not function_call:
-                return None
+                return {"error": "Could not parse query"}
 
             func_name = function_call.name
             args = json.loads(function_call.arguments)
 
-            # Validate system type if present
-            if "system_type" in args and args["system_type"] not in self.supported_systems:
-                return None
+            # Pre-process power and efficiency settings
+            if "power_settings" in args:
+                if "specific_lamps" in args["power_settings"]:
+                    # Convert string keys to proper format
+                    args["power_settings"]["specific_lamps"] = {
+                        str(k): float(v)
+                        for k, v in args["power_settings"]["specific_lamps"].items()
+                    }
+
+            if "efficiency_settings" in args:
+                if "specific_lamps" in args["efficiency_settings"]:
+                    args["efficiency_settings"]["specific_lamps"] = {
+                        str(k): float(v)
+                        for k, v in args["efficiency_settings"]["specific_lamps"].items()
+                    }
 
             result = None
             if func_name == "get_supported_systems":
@@ -497,7 +527,10 @@ class REDLibrary:
                 result = self._calculate_red(**args)
 
             if result is None:
-                return None
+                return {"error": "Calculation failed"}
+
+            if "error" in result:
+                return result
 
             return {
                 "function": func_name,
@@ -505,8 +538,8 @@ class REDLibrary:
                 "result": result
             }
 
-        except Exception:
-            return None
+        except Exception as e:
+            return {"error": f"Processing error: {str(e)}"}
 
     def _get_supported_systems(self) -> List[str]:
         """Get list of supported UV systems"""
@@ -547,53 +580,92 @@ class REDLibrary:
     def _calculate_red(self, system_type: str, flow: float, uvt: float,
                        uvt215: float = -1, d1_log: float = 18.0,
                        power_settings: dict = None,
-                       efficiency_settings: dict = None) -> Optional[float]:
+                       efficiency_settings: dict = None) -> Optional[Dict]:
         """Calculate RED value with custom power and efficiency settings"""
         try:
+            # Validate system type
+            if system_type not in self.supported_systems:
+                return {
+                    "error": f"System type '{system_type}' not found. Available systems: {', '.join(self.supported_systems)}"
+                }
+
             # Validate inputs
-            if (system_type not in self.supported_systems or
-                    not MIN_FLOW < flow < MAX_FLOW or
-                    not MIN_UVT < uvt <= MAX_UVT):
-                return None
+            if not MIN_FLOW < flow < MAX_FLOW:
+                return {
+                    "error": f"Flow rate must be between {MIN_FLOW} and {MAX_FLOW} m³/h"
+                }
+            if not MIN_UVT < uvt <= MAX_UVT:
+                return {
+                    "error": f"UVT must be between {MIN_UVT} and {MAX_UVT}%"
+                }
 
             # Get number of lamps
             n_lamps = self.get_lamp_count_func(system_type.encode('utf-8'))
             if not n_lamps:
-                return None
+                return {
+                    "error": f"Could not get lamp count for system {system_type}"
+                }
+
+            # Get lamp power
+            lamp_power = self.get_lamp_power_func(system_type.encode('utf-8'))
 
             # Initialize default arrays
-            power = [100.0] * n_lamps  # Default 100% power
-            efficiency = [80.0] * n_lamps  # Default 80% efficiency
+            power = [100.0] * n_lamps
+            efficiency = [80.0] * n_lamps
 
-            # Process power settings
+            # Process power settings with improved handling
             if power_settings:
+                # First apply all_lamps setting if present
                 if 'all_lamps' in power_settings:
                     power = [float(power_settings['all_lamps'])] * n_lamps
+
+                # Then apply specific lamp settings
                 if 'specific_lamps' in power_settings:
-                    for lamp_idx, value in power_settings['specific_lamps'].items():
+                    for lamp_idx_str, value in power_settings['specific_lamps'].items():
                         try:
-                            idx = int(lamp_idx) - 1  # Convert 1-based to 0-based indexing
+                            idx = int(lamp_idx_str) - 1  # Convert 1-based to 0-based indexing
                             if 0 <= idx < n_lamps:
                                 power[idx] = float(value)
+                            else:
+                                return {
+                                    "error": f"Invalid lamp index {lamp_idx_str}. System has {n_lamps} lamps"
+                                }
                         except (ValueError, IndexError):
-                            continue
+                            return {
+                                "error": f"Invalid lamp power setting for lamp {lamp_idx_str}"
+                            }
 
-            # Process efficiency settings
+            # Process efficiency settings with similar improved handling
             if efficiency_settings:
+                # First apply all_lamps setting if present
                 if 'all_lamps' in efficiency_settings:
                     efficiency = [float(efficiency_settings['all_lamps'])] * n_lamps
+
+                # Then apply specific lamp settings
                 if 'specific_lamps' in efficiency_settings:
-                    for lamp_idx, value in efficiency_settings['specific_lamps'].items():
+                    for lamp_idx_str, value in efficiency_settings['specific_lamps'].items():
                         try:
-                            idx = int(lamp_idx) - 1  # Convert 1-based to 0-based indexing
+                            idx = int(lamp_idx_str) - 1
                             if 0 <= idx < n_lamps:
                                 efficiency[idx] = float(value)
+                            else:
+                                return {
+                                    "error": f"Invalid lamp index {lamp_idx_str}. System has {n_lamps} lamps"
+                                }
                         except (ValueError, IndexError):
-                            continue
+                            return {
+                                "error": f"Invalid lamp efficiency setting for lamp {lamp_idx_str}"
+                            }
 
             # Validate all values are within range
-            if not all(MIN_POWER <= p <= MAX_POWER for p in power) or not all(MIN_EFFICIENCY <= e <= MAX_EFFICIENCY for e in efficiency):
-                return None
+            if not all(MIN_POWER <= p <= MAX_POWER for p in power):
+                return {
+                    "error": f"Power settings must be between {MIN_POWER}% and {MAX_POWER}%"
+                }
+            if not all(MIN_EFFICIENCY <= e <= MAX_EFFICIENCY for e in efficiency):
+                return {
+                    "error": f"Efficiency settings must be between {MIN_EFFICIENCY}% and {MAX_EFFICIENCY}%"
+                }
 
             # Convert lists to ctypes arrays
             power_array = (ctypes.c_double * n_lamps)(*power)
@@ -602,7 +674,9 @@ class REDLibrary:
             # Get and call RED calculation function
             red_func = self.get_red_function(system_type.encode('utf-8'))
             if not red_func:
-                return None
+                return {
+                    "error": f"Could not get RED calculation function for system {system_type}"
+                }
 
             result = red_func(
                 ctypes.c_double(flow),
@@ -616,31 +690,60 @@ class REDLibrary:
 
             # Validate result
             if result <= 0:
-                return None
+                return {
+                    "error": "Calculation resulted in invalid RED value"
+                }
 
-            return result
+            # Prepare detailed output
+            return {
+                "result": round(result, 1),
+                "details": {
+                    "system_type": system_type,
+                    "number_of_lamps": n_lamps,
+                    "lamp_power_watts": round(lamp_power, 1),
+                    "parameters": {
+                        "flow": flow,
+                        "uvt": uvt,
+                        "uvt215": uvt215 if uvt215 > 0 else "N/A",
+                        "d1_log": d1_log
+                    },
+                    "lamp_settings": {
+                        "power": [round(p, 1) for p in power],
+                        "efficiency": [round(e, 1) for e in efficiency]
+                    }
+                }
+            }
 
-        except Exception:
-            return None
+        except Exception as e:
+            return {
+                "error": f"Calculation error: {str(e)}"
+            }
 
 # Example usage:
 def main():
     calculator = REDLibrary()
 
-    # Example queries that include power and efficiency settings
+    # Example queries testing various features
     example_queries = [
-        "Calculate RED for RZ-163-12 with flow 100, UVT 95%, all lamps at 80% power",  # This one works
-        "Calculate RED for RZM-350-8 with flow 100, UVT 95%, all lamps at 85% power",  # Try with all lamps first
-        "Calculate RED for RZMW-350-11 with flow 200, UVT 92%, all lamps at 80% power"  # Correct system name
+        # Test specific lamp settings
+        "Calculate RED for RZM-350-8 with flow 100, UVT 95%, lamp 1 at 90% power and lamp 2 at 80% power, all other lamps at 85% power",
+
+        # Test mixed settings
+        "Calculate RED for RZMW-350-11 with flow 200, UVT 92%, lamp 1 efficiency 85% and lamp 2 efficiency 75%, all lamps at 80% power",
+
+        # Test specific efficiency
+        "Calculate RED for RZ-163-12 with flow 100, UVT 95%, lamp 1 efficiency 90%, lamp 2 efficiency 85%"
     ]
 
     for query in example_queries:
         print(f"\nQuery: {query}")
         result = calculator.process_query(query)
-        if result is None:
-            print("Empty reply")
-        else:
+        if result:
             print(json.dumps(result, indent=2))
+        else:
+            print("No response")
+        print("-" * 80)
+
 
 if __name__ == "__main__":
     main()
