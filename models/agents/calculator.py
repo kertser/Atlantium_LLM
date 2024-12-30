@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 import platform
 
-load_dotenv("../.env")
+load_dotenv("../../.env")
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
 if not openai_api_key:
