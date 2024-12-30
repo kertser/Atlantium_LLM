@@ -120,7 +120,7 @@ class REDLibrary:
         """Get the appropriate library path based on OS"""
         try:
             base_dir = Path(__file__).parent
-            resources_dir = base_dir / 'resources'
+            resources_dir = base_dir / 'resources' / platform.system().lower()
 
             lib_name = "libred_api.dll" if platform.system() == 'Windows' else "libred_api.so"
             lib_path = resources_dir / lib_name
