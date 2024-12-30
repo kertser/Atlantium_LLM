@@ -30,6 +30,11 @@ class Config:
     LOG_BACKUP_COUNT: int = 5  # Maximum log backups
     MAX_LOG_SIZE: int = 10000
 
+    # RED Calculator Configuration
+    RED_CALCULATOR_MODEL: str = "gpt-4o-mini"
+    RED_CALCULATOR_TEMPERATURE: float = 0.1
+    RED_CALCULATOR_MAX_TOKENS: int = 2000
+
     # CLIP Configuration
     CLIP_MODEL_NAME: str = "openai/clip-vit-base-patch32"
     EMBEDDING_DIMENSION: int = 512

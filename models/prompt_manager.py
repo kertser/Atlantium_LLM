@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Any
 
 import yaml
 
@@ -39,25 +39,49 @@ class PromptLoader:
         """Get instructions by type."""
         return self._prompts.get('instructions', {}).get(instruction_type, [])
 
-    def get_template(self, key: str) -> str:
-        """Get a template by key."""
-        return self._prompts.get('templates', {}).get(key, '')
+    def get_template(self, key: str) -> Any:
+        """Get a template by key. Supports nested paths using dots."""
+        try:
+            value = self._prompts.get('templates', {})  # Start from templates
+            # For red_calculator, look at root level
+            if key.startswith('red_calculator.'):
+                value = self._prompts
 
-    def get_example(self, example_key: str) -> str:
-        """Get an example by key."""
-        return self._prompts.get('examples', {}).get(example_key, '')
+            for part in key.split('.'):
+                value = value.get(part, {})
+
+            # Special cases handling
+            if key.endswith('.functions'):
+                return value if isinstance(value, list) else []
+
+            # For regular templates
+            if isinstance(value, (dict, list)):
+                return ''
+            return value if value else ''
+
+        except Exception as e:
+            logging.error(f"Error getting template {key}: {e}")
+            return ''
 
     def format_template(self, template_key: str, **kwargs) -> str:
         """Format a template with provided kwargs."""
         template = self.get_template(template_key)
+        if not template:  # Handle empty string case
+            logging.error(f"Template '{template_key}' not found or empty")
+            return ''
+
+        if not isinstance(template, str):
+            logging.error(f"Template '{template_key}' is not a string: {template}")
+            return ''
+
         try:
             return template.format(**kwargs)
         except KeyError as e:
             logging.error(f"Missing required template parameter: {e}")
-            raise
+            return ''  # Return empty string instead of raising
         except Exception as e:
             logging.error(f"Error formatting template: {e}")
-            raise
+            return ''  # Return empty string instead of raising
 
     def get_no_answer_prompt(self) -> str:
         """Get the no-answer prompt."""

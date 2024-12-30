@@ -322,6 +322,84 @@ templates:
     2. Provide any relevant context about your use case
     3. Specify any particular requirements or constraints
 
+red_calculator:
+  system_prompt: |
+    You are a UV system calculation assistant.
+    When parsing queries about RED calculations:
+    1. For specific lamp settings, use the 'specific_lamps' object
+    2. For all-lamp settings, use the 'all_lamps' value
+    3. When query mentions "all other lamps", use both:
+       - First set 'all_lamps' for the default value
+       - Then use 'specific_lamps' for the exceptions
+    4. Parse both power and efficiency settings carefully
+    5. Numbers in the query should be converted to numeric values
+    6. When specific lamp settings are mentioned, ALWAYS use specific_lamps in the settings
+    7. When "all other lamps" is mentioned:
+       - First set the default with all_lamps
+       - Then override specific lamps mentioned
+    8. Parse ALL numerical values carefully, including specific lamp settings
+
+  functions:
+    - name: "get_supported_systems"
+      description: "Get a list of all supported UV systems"
+      parameters:
+        type: "object"
+        properties: {}
+
+    - name: "get_n_lamps"
+      description: "Get the number of lamps for a specific UV system"
+      parameters:
+        type: "object"
+        properties:
+          system_type:
+            type: "string"
+            description: "The type/model of the UV system"
+        required: ["system_type"]
+
+    - name: "calculate_red"
+      description: "Calculate RED (Reduction Equivalent Dose) for a UV system"
+      parameters:
+        type: "object"
+        properties:
+          system_type:
+            type: "string"
+            description: "The type/model of the UV system"
+          flow:
+            type: "number"
+            description: "Flow rate in m³/h"
+          uvt:
+            type: "number"
+            description: "UV transmittance at 254nm in %-1cm"
+          uvt215:
+            type: "number"
+            description: "UV transmittance at 215nm in %-1cm, use -1 if not applicable"
+            default: -1
+          d1_log:
+            type: "number"
+            description: "1-Log inactivation dose in mJ/cm²"
+            default: 18.0
+          power_settings:
+            type: "object"
+            description: "Power settings for each lamp (in %), if not specified defaults to 100%"
+            properties:
+              all_lamps:
+                type: "number"
+              specific_lamps:
+                type: "object"
+                additionalProperties:
+                  type: "number"
+          efficiency_settings:
+            type: "object"
+            description: "Efficiency settings for each lamp (in %), if not specified defaults to 80%"
+            properties:
+              all_lamps:
+                type: "number"
+              specific_lamps:
+                type: "object"
+                additionalProperties:
+                  type: "number"
+        required: ["system_type", "flow", "uvt"]
+
 validation_rules:
   content_validation:
     text:
