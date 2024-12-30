@@ -115,6 +115,23 @@ class REDLibrary:
             logging.error(f"Failed to get library path: {e}")
             return None
 
+    def _get_n_lamps(self, system_type: str) -> Dict[str, Union[int, str]]:
+        """Get the number of lamps for a specific UV system from the DLL"""
+        try:
+            if self.lib is None:
+                return {"error": "Library not initialized"}
+
+            # Call your DLL function to get number of lamps
+            # Example (adjust according to your actual DLL function):
+            n_lamps = self.lib.get_n_lamps(system_type)
+            return {
+                "system_type": system_type,
+                "n_lamps": n_lamps
+            }
+        except Exception as e:
+            logging.error(f"Error in _get_n_lamps: {str(e)}")
+            return {"error": f"Failed to get number of lamps: {str(e)}"}
+
     def _get_supported_systems(self) -> List[str]:
         """Get list of supported UV systems"""
         try:
