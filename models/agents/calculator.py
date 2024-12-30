@@ -267,8 +267,8 @@ class REDLibrary:
             lamp_power = self.get_lamp_power_func(system_type.encode('utf-8'))
 
             # Initialize default arrays
-            power = [100.0] * n_lamps  # Default 100% power
-            efficiency = [80.0] * n_lamps  # Default 80% efficiency
+            power = [CONFIG.RED_CALCULATOR_DEFAULT_DRIVE] * n_lamps
+            efficiency = [CONFIG.RED_CALCULATOR_DEFAULT_EFFICIENCY] * n_lamps
 
             # Process power settings
             if power_settings:
