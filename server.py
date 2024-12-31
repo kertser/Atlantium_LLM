@@ -42,6 +42,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple, Any
 from urllib.parse import unquote
+import random
 
 import faiss
 from PIL import Image
@@ -732,7 +733,7 @@ class RAGQueryServer:
             # Prepare the image context using the PromptBuilder
             prompt_builder = PromptBuilder()
             image_context = prompt_builder.loader.format_template(
-                'image_query',
+                'image_query_with_context',
                 base64_image=f"data:image/jpeg;base64,{base64_image}",
                 query_text=query_text or "What is shown in this image?"
             )
@@ -886,44 +887,50 @@ async def image_query(
 ):
     try:
         # Get OpenAI API key from environment
-        load_dotenv()
-        openai_api_key = os.getenv("OPENAI_API_KEY")
-        if not openai_api_key:
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        if not client.api_key:
             raise ValueError("OpenAI API key not found")
 
-        # Check file size (5MB limit)
-        MAX_FILE_SIZE = 5 * 1024 * 1024
+        # Check file size and process image
         contents = await image.read()
-        if len(contents) > MAX_FILE_SIZE:
-            raise HTTPException(
-                status_code=400,
-                detail="File size too large. Maximum size is 5MB"
-            )
+        if len(contents) > 5 * 1024 * 1024:  # 5MB limit
+            raise HTTPException(status_code=400, detail="File size too large")
 
-        # Verify file type
+        # Process and validate image
         try:
             img = Image.open(BytesIO(contents))
             if img.format.lower() not in ['jpeg', 'jpg', 'png', 'gif']:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Invalid file type. Only JPEG, PNG and GIF are supported"
-                )
+                raise HTTPException(status_code=400, detail="Invalid file type")
+
+            # Convert to RGB if needed
+            if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
+                background = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'P':
+                    img = img.convert('RGBA')
+                background.paste(img, mask=img.split()[-1])
+                img = background
+            elif img.mode != 'RGB':
+                img = img.convert('RGB')
+
+            # Convert to JPEG and base64
+            buffered = BytesIO()
+            img.save(buffered, format="JPEG", quality=95)
+            base64_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
+
         except Exception as e:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid image file"
-            )
+            raise HTTPException(status_code=400, detail=f"Invalid image: {str(e)}")
 
-        # Convert image to base64
-        buffered = BytesIO()
-        img.save(buffered, format="JPEG")
-        img_str = base64.b64encode(buffered.getvalue()).decode()
-
-        # Initialize prompt builder
+        # Initialize prompt builder and get templates
         prompt_builder = PromptBuilder()
 
-        # Create messages with the correct format for vision model
-        description_messages = [
+        # Build message content
+        text_content = prompt_builder.loader.format_template(
+            'image_query_with_context',
+            query_text=query,
+            image_context="It might be a part of UV water treatment system"
+        )
+
+        messages = [
             {
                 "role": "system",
                 "content": prompt_builder.loader.get_system_prompt('vision_assistant')
@@ -931,93 +938,62 @@ async def image_query(
             {
                 "role": "user",
                 "content": [
-                    {
-                        "type": "text",
-                        "text": "Please provide a technical description of this image."
-                    },
+                    {"type": "text", "text": text_content},
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": f"data:image/jpeg;base64,{img_str}"
+                            "url": f"data:image/jpeg;base64,{base64_image}"
                         }
                     }
                 ]
             }
         ]
 
-        # Process with retries
+        # Make API call with retries
         MAX_RETRIES = 3
+        last_error = None
+
         for attempt in range(MAX_RETRIES):
             try:
-                if not query:
-                    # If no query, just return the technical description
-                    response = openai_post_request(
-                        messages=description_messages,
-                        model_name=CONFIG.GPT_VISION_MODEL,
-                        api_key=openai_api_key,
-                        max_tokens=CONFIG.VISION_MAX_TOKENS
-                    )
-                    return {"response": response["choices"][0]["message"]["content"]}
-                else:
-                    # First get image description
-                    description_response = openai_post_request(
-                        messages=description_messages,
-                        model_name=CONFIG.GPT_VISION_MODEL,
-                        api_key=openai_api_key,
-                        max_tokens=CONFIG.VISION_MAX_TOKENS
-                    )
+                response = client.chat.completions.create(
+                    model=CONFIG.GPT_VISION_MODEL,
+                    messages=messages,
+                    max_tokens=CONFIG.VISION_MAX_TOKENS
+                )
 
-                    # Then use description with the specific query
-                    query_messages = [
-                        {
-                            "role": "system",
-                            "content": prompt_builder.loader.get_system_prompt('vision_assistant')
-                        },
-                        {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": f"Image Context: {description_response['choices'][0]['message']['content']}\n\nQuery: {query}"
-                                },
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:image/jpeg;base64,{img_str}"
-                                    }
-                                }
-                            ]
-                        }
-                    ]
+                answer = response.choices[0].message.content
 
-                    # Get final response
-                    response = openai_post_request(
-                        messages=query_messages,
-                        model_name=CONFIG.GPT_VISION_MODEL,
-                        api_key=openai_api_key,
-                        max_tokens=CONFIG.VISION_MAX_TOKENS
-                    )
-
-                    # Initialize formatter
+                # Format response if it's a specific query
+                if query:
                     formatter = EnhancedResponseFormatter()
-                    formatted_response = formatter.format_response(response["choices"][0]["message"]["content"])
+                    answer = formatter.format_response(answer)
 
-                    return {"response": formatted_response}
+                return {"response": answer}
 
             except Exception as e:
-                if attempt == MAX_RETRIES - 1:
-                    raise
-                logging.warning(f"Retry {attempt + 1} after error: {str(e)}")
-                await asyncio.sleep(1)  # We can still use async sleep for the retry delay
+                last_error = e
+                if "429" in str(e) and attempt < MAX_RETRIES - 1:
+                    wait_time = (2 ** attempt) + random.uniform(0, 1)
+                    logging.warning(f"Rate limit hit, waiting {wait_time:.2f}s")
+                    await asyncio.sleep(wait_time)
+                    continue
+                elif attempt < MAX_RETRIES - 1:
+                    await asyncio.sleep(1)
+                    continue
+                else:
+                    break
+
+        # If we get here, all retries failed
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed after {MAX_RETRIES} attempts: {str(last_error)}"
+        )
 
     except HTTPException:
         raise
     except Exception as e:
-        logging.error(f"Error processing image query: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error processing image: {str(e)}"
-        )
+        logging.error(f"Error processing image: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/upload/document")

@@ -255,32 +255,24 @@ templates:
     Installation/Maintenance Notes:
     {maintenance_notes}
 
-  image_query: |
-    Please analyze this technical image:
-    
-    Query: {query_text}
-    
-    Provide a detailed analysis including:
-    1. Key components and features visible
-    2. Technical specifications (if visible)
-    3. Purpose and function
-    4. Any notable observations
-    5. Potential technical considerations
-    
-    Use available context to provide accurate technical guidance.
-
   image_query_with_context: |
-    Please analyze this image based on the following query:
+    Please analyze this technical image from a UV water treatment system perspective.
+    This is a technical image related to water treatment and UV systems.
     
     Query: {query_text}
     Context: {image_context}
     
-    Provide a detailed analysis focusing on:
-    1. Aspects relevant to the query
-    2. Technical details and specifications
-    3. Key observations and findings
-    4. Any important technical considerations
-    5. Relationship to the provided context
+    Analyze the image systematically, focusing on:
+    1. Identify all UV system components and technical elements visible
+    2. Note any measurement devices, sensors, or control interfaces
+    3. Describe specifications and technical parameters if visible
+    4. Point out any safety features or warning indicators
+    5. Highlight system connections and relationships between components
+    6. Note any maintenance-relevant features
+    7. Identify technical markings, labels, or serial numbers
+    
+    Consider both obvious and subtle technical aspects, even if they appear basic.
+    Provide measurements and specifications where possible.
 
   no_answer_prompt: |
     I apologize, but the available documentation does not contain sufficient information to answer your query about: {query}
