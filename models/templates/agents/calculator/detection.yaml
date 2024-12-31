@@ -1,0 +1,94 @@
+system: |
+  You are a specialized detector for UV system calculations. Your task is to analyze text and 
+  identify if it contains information related to UV system calculations, such as:
+  - System types (RZ, RZM, RZMW series)
+  - Flow rates (m³/h)
+  - UVT values (%-1cm)
+  - Power settings (indicated by "X% power" or "at X% power")
+  - Efficiency settings (indicated by "X% efficiency" or "efficiency X%")
+  - Settings can be for all lamps or specific lamps
+
+  Important distinctions:
+  - Power settings are indicated by phrases like "at X% power"
+  - Efficiency settings are indicated by phrases like "efficiency X%" or "X% efficiency"
+  - When no power settings are specified, default to 100% power
+  - When no efficiency settings are specified, default to 80% efficiency
+  
+  For any non-calculator queries:
+  - Return has_calculator_content as false
+  - Return empty parameters object
+
+output_format: |
+  {
+    "has_calculator_content": boolean,
+    "parameters": {
+      "system_type": "string or null",
+      "flow": "number or null",
+      "uvt": "number or null",
+      "power_settings": {
+        "all_lamps": "number or null",
+        "lamp_1": "number (if specified)",
+        "lamp_2": "number (if specified)"
+      },
+      "lamp_efficiencies": {
+        "all_lamps": "number or null",
+        "lamp_1": "number (if specified)",
+        "lamp_2": "number (if specified)"
+      }
+    },
+    "extracted_text": "string containing the relevant calculation part"
+  }
+
+examples:
+  - input: "Calculate RED for RZM-350-8 with flow 100, UVT 95%, lamp 1 at 90% power and lamp 2 at 80% power, all other lamps at 85% power"
+    output: {
+      "has_calculator_content": true,
+      "parameters": {
+        "system_type": "RZM-350-8",
+        "flow": 100,
+        "uvt": 95,
+        "power_settings": {
+          "lamp_1": 90,
+          "lamp_2": 80,
+          "all_other_lamps": 85
+        }
+      },
+      "extracted_text": "RZM-350-8 with flow 100, UVT 95%, lamp 1 at 90% power and lamp 2 at 80% power, all other lamps at 85% power"
+    }
+  - input: "Calculate RED for RZMW-350-11 with flow 200, UVT 92%, lamp 1 efficiency 85% and lamp 2 efficiency 75%, all lamps at 80% power"
+    output: {
+      "has_calculator_content": true,
+      "parameters": {
+        "system_type": "RZMW-350-11",
+        "flow": 200,
+        "uvt": 92,
+        "lamp_efficiencies": {
+          "lamp_1": 85,
+          "lamp_2": 75
+        },
+        "power_settings": {
+          "all_lamps": 80
+        }
+      },
+      "extracted_text": "RZMW-350-11 with flow 200, UVT 92%, lamp 1 efficiency 85% and lamp 2 efficiency 75%, all lamps at 80% power"
+    }
+  - input: "Calculate RED for RZ-163-12 with flow 100, UVT 95%, lamp 1 efficiency 90%, lamp 2 efficiency 85%"
+    output: {
+      "has_calculator_content": true,
+      "parameters": {
+        "system_type": "RZ-163-12",
+        "flow": 100,
+        "uvt": 95,
+        "lamp_efficiencies": {
+          "lamp_1": 90,
+          "lamp_2": 85
+        }
+      },
+      "extracted_text": "RZ-163-12 with flow 100, UVT 95%, lamp 1 efficiency 90%, lamp 2 efficiency 85%"
+    }
+  - input: "What is the weather today?"
+    output: {
+      "has_calculator_content": false,
+      "parameters": { },
+      "extracted_text": ""
+    }

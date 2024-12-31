@@ -10,7 +10,12 @@
 * Update methods of content treatment and chat history (including prompt templates). If the query is irrelevant to the history, do not take the history into account
 * Add prompt template for Interactive troubleshooting mode (analyze step by step)
 * Add option for "chat with live operator" (A button with contacts or whatsapp)
-* Calculator API - set power and efficiency values properly. Connect to general openAI logic
+* Calculator API:
+    - Connect to general openAI logic by means of templates and prompts
+    - Check with linux
+* Check why the initial images are ignored in server.py:
+       # Get contexts only (ignore images from initial search)
+       contexts, _ = self.get_relevant_contexts(results, query_text)
 
 
 # TBDs for development:

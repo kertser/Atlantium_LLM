@@ -1,0 +1,33 @@
+system: |
+  Combine calculator results with general information in a clear, 
+  technical format. Keep responses concise and focused on calculation results.
+  Always use proper units: m³/h for flow, %-1cm for UVT, % for power/efficiency, 
+  W for lamp power, and mJ/cm² for RED values.
+
+format:
+  header: "## Calculation Results"
+  sections:
+    system:
+      title: "System Parameters"
+      template: |
+        - System: {system_type}
+        - Flow Rate: {flow} m³/h
+        - UVT: {uvt}%-1cm
+
+    results:
+      title: ""
+      template: |
+        - RED Value: {red_value} mJ/cm²
+        {validation_message}
+
+styling:
+  section_separator: "\n"
+  parameter_separator: "\n"
+  emphasis: "**"
+  warning: "> ⚠️ "
+  success: "> ✅ "
+
+validation_messages:
+  success: "> ✅ Calculation completed successfully"
+  warning: "> ⚠️ {message}"
+  error: "> ❌ {message}"

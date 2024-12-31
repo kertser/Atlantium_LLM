@@ -30,12 +30,17 @@ class Config:
     LOG_BACKUP_COUNT: int = 5  # Maximum log backups
     MAX_LOG_SIZE: int = 10000
 
+    # Aggegator Configuration
+    AGGREGATOR_MODEL: str = "gpt-4o-mini"
+    AGGREGATOR_TEMPERATURE: float = 0.1
+    AGGREGATOR_MAX_TOKENS: int = 2000
+
     # RED Calculator Configuration
     RED_CALCULATOR_MODEL: str = "gpt-4o-mini"
     RED_CALCULATOR_TEMPERATURE: float = 0.1
     RED_CALCULATOR_MAX_TOKENS: int = 2000
     RED_CALCULATOR_DEFAULT_DRIVE: float = 100
-    RED_CALCULATOR_DEFAULT_EFFICIENCY: float = 100 # May be set to 80% by default.
+    RED_CALCULATOR_DEFAULT_EFFICIENCY: float = 80 # May be set to 100% by default.
 
     # CLIP Configuration
     CLIP_MODEL_NAME: str = "openai/clip-vit-base-patch32"

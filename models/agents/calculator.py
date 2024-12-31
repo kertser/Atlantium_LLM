@@ -366,6 +366,68 @@ class REDLibrary:
                 "error": f"Calculation error: {str(e)}"
             }
 
+    def detect_calculation_content(self, text: str, template: Dict) -> Dict:
+        """Detect if text contains calculator-related content"""
+        try:
+            # Use OpenAI to detect calculator content based on the template
+            messages = [
+                {
+                    "role": "system",
+                    "content": template['system']
+                }
+            ]
+
+            # Add examples if present in template
+            if 'examples' in template:
+                for example in template['examples']:
+                    messages.extend([
+                        {"role": "user", "content": example['input']},
+                        {"role": "assistant", "content": json.dumps(example['output'], ensure_ascii=False)}
+                    ])
+
+            # Add the actual query
+            messages.append({"role": "user", "content": text})
+
+            response = openai_post_request(
+                messages=messages,
+                model_name=CONFIG.GPT_MODEL,
+                temperature=0,  # Use 0 for consistent detection
+                max_tokens=150,
+                api_key=self.api_key
+            )
+
+            if 'choices' not in response:
+                logging.error("No choices in OpenAI response")
+                return {"has_calculator_content": False}
+
+            result_text = response['choices'][0]['message']['content']
+
+            try:
+                result = json.loads(result_text)
+
+                # Validate against template output format
+                if not isinstance(result.get('has_calculator_content'), bool):
+                    logging.error("Invalid response format: missing or invalid has_calculator_content")
+                    return {"has_calculator_content": False}
+
+                # Validate system type if present
+                if result.get('has_calculator_content') and 'parameters' in result:
+                    if result['parameters'].get('system_type'):
+                        if result['parameters']['system_type'] not in self.supported_systems:
+                            logging.warning(f"Unsupported system type: {result['parameters']['system_type']}")
+                            result['has_calculator_content'] = False
+                            result['parameters'] = {}
+
+                return result
+
+            except json.JSONDecodeError as e:
+                logging.error(f"Failed to parse response as JSON: {e}")
+                return {"has_calculator_content": False}
+
+        except Exception as e:
+            logging.error(f"Error in calculator content detection: {e}")
+            return {"has_calculator_content": False}
+
     def process_query(self, query: str) -> Union[Dict, None]:
         """Process a natural language query using OpenAI"""
         if self.lib is None:
@@ -466,14 +528,22 @@ def main():
         example_queries = [
             "Calculate RED for RZM-350-8 with flow 100, UVT 95%, lamp 1 at 90% power and lamp 2 at 80% power, all other lamps at 85% power",
             "Calculate RED for RZMW-350-11 with flow 200, UVT 92%, lamp 1 efficiency 85% and lamp 2 efficiency 75%, all lamps at 80% power",
-            "Calculate RED for RZ-163-12 with flow 100, UVT 95%, lamp 1 efficiency 90%, lamp 2 efficiency 85%"
+            "Calculate RED for RZ-163-12 with flow 100, UVT 95%, lamp 1 efficiency 90%, lamp 2 efficiency 85%",
+            "What day is it today?"
         ]
 
         for query in example_queries:
             logging.info(f"\nQuery: {query}")
             result = calculator.process_query(query)
+            """
             print(json.dumps(result, indent=2))
             print("-" * 80)
+            """
+            # print the result:
+            if 'result' in result:
+                logging.info(f"Result: {result['result']['result']}")
+            else:
+                logging.info(f"Non-related query")
 
     except Exception as e:
         logging.error(f"Error in main: {e}")

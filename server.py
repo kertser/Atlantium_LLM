@@ -67,6 +67,7 @@ from utils.document_utils import (
     rescan_documents,
 )
 from utils.img_utils import ImageStore, ImageClassifier
+from models.agents.agent_manager import AgentManager
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
@@ -402,6 +403,9 @@ class RAGQueryServer:
         self.formatter = EnhancedResponseFormatter()
         self.reset_chat()
 
+        # Initialize AgentManager
+        self.agent_manager = AgentManager(api_key=self.openai_api_key)
+
         logging.info(
             f"Server initialized with {len([m for m in self.metadata if m.get('type') == 'image'])} images in metadata")
 
@@ -590,7 +594,7 @@ class RAGQueryServer:
             logging.error(f"Error getting images from response: {e}")
             return []
 
-    def process_text_query(self, query_text: str, top_k: int = CONFIG.DEFAULT_TOP_K) -> QueryResponse:
+    async def process_text_query(self, query_text: str, top_k: int = CONFIG.DEFAULT_TOP_K) -> QueryResponse:
         try:
             logging.info(f"Processing query: {query_text}")
 
@@ -601,7 +605,32 @@ class RAGQueryServer:
                     images=[]
                 )
 
-            # Get query results
+            # Detect if query requires calculator agent
+            agent_requirements = await self.agent_manager.detect_agent_requirements(query_text)
+
+            # If it's a pure calculator query, handle it directly without RAG
+            if agent_requirements.get('calculator'):
+                try:
+                    calc_results = await self.agent_manager.process_with_agents(
+                        query_text,
+                        agent_requirements
+                    )
+                    if calc_results and 'calculator' in calc_results:
+                        logging.info(f"Calculator results: {calc_results['calculator']}")
+                        text_response = await self.agent_manager.aggregate_responses(
+                            "",  # Empty string since it's a pure calculation
+                            calc_results
+                        )
+                        if text_response:
+                            return QueryResponse(text_response=text_response, images=[])
+                        else:
+                            logging.error("Empty response from calculator aggregation")
+                except Exception as e:
+                    logging.error(f"Error in calculator processing: {e}")
+
+            # If calculator processing failed, continue with RAG as fallback
+
+            # Only proceed with RAG if it's not a pure calculator query
             results = query_with_context(
                 index=self.index,
                 metadata=self.metadata,
@@ -612,31 +641,44 @@ class RAGQueryServer:
                 top_k=top_k
             )
 
-            # Handle empty results
+            # Handle empty RAG results
             if not results:
-                logging.info("No results found")
-                text_response = self.formatter.prompt_builder.build_no_answer_message(query_text)[1]['content']
-                return QueryResponse(text_response=text_response, images=[])
+                logging.info("No relevant documents found")
+                return QueryResponse(
+                    text_response=self.formatter.prompt_builder.build_no_answer_message(query_text)[1]['content'],
+                    images=[]
+                )
 
-            # Get contexts only (ignore images from initial search)
+            # Get contexts
             contexts, _ = self.get_relevant_contexts(results, query_text)
 
-            # Handle conflict scenarios
+            # Handle special cases
             if len(contexts) > 1 and "conflicting" in query_text.lower():
                 logging.info("Detected potential conflict in contexts")
                 conflicting_docs = [{"doc": context} for context in contexts]
-                conflict_response = self.formatter.prompt_builder.build_conflict_resolution_message(conflicting_docs)
-                return QueryResponse(text_response=conflict_response[1]['content'], images=[])
+                return QueryResponse(
+                    text_response=self.formatter.prompt_builder.build_conflict_resolution_message(conflicting_docs)[1][
+                        'content'],
+                    images=[]
+                )
 
-            # Handle ambiguity scenarios
             if "ambiguous" in query_text.lower():
                 logging.info("Detected ambiguous query")
-                ambiguity_response = self.formatter.prompt_builder.build_ambiguity_message(query_text)
-                return QueryResponse(text_response=ambiguity_response[1]['content'], images=[])
+                return QueryResponse(
+                    text_response=self.formatter.prompt_builder.build_ambiguity_message(query_text)[1]['content'],
+                    images=[]
+                )
 
-            # Prepare prompt and get GPT response
+            # Prepare and get response
             query_type = self.determine_query_type(query_text)
             prompt = self.prepare_prompt(query_text, contexts, query_type, [])
+
+            # Add system message for concise responses
+            if agent_requirements.get('calculator'):
+                prompt.append({
+                    "role": "system",
+                    "content": "Provide only essential technical information. Avoid theoretical explanations."
+                })
 
             response = openai_post_request(
                 messages=self.prepare_messages(prompt),
@@ -646,16 +688,14 @@ class RAGQueryServer:
                 api_key=self.openai_api_key
             )
 
-            # Get the response
             text_response = response['choices'][0]['message']['content'].strip()
 
-            # Get images from documents referenced in the response
+            # Get and process images
             images = self.get_images_from_referenced_documents(text_response)
+            if images:
+                images = self.image_classifier.deduplicate(images, CONFIG.DEDUPLICATION_THRESHOLD)
 
-            # Deduplicate images:
-            images = self.image_classifier.deduplicate(images, CONFIG.DEDUPLICATION_THRESHOLD)
-
-            # Format the response
+            # Format response
             text_response = self.formatter.format_response(text_response)
 
             # Update chat history
@@ -803,13 +843,13 @@ async def reset_chat():
 
 
 @app.post("/query/text")
-def text_query(query: str = Form(...)):
+async def text_query(query: str = Form(...)):
     """
     Handles text-based queries by retrieving relevant contexts and generating a response.
     """
     try:
         # Process the query
-        response = server.process_text_query(query)
+        response = await server.process_text_query(query)
 
         # Create proper response structure
         response_data = {
@@ -1243,9 +1283,9 @@ async def process_documents():
         logger.error(f"Error in process_documents: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-
+""" (Duplicated or Redundant code)
 def check_processing_status():
-    """Check if all necessary files and data exist after processing"""
+    #Check if all necessary files and data exist after processing
     logger = logging.getLogger(__name__)
     try:
         # Check required paths
@@ -1289,6 +1329,7 @@ def check_processing_status():
         logger.error(f"Error checking processing status: {str(e)}")
         return False, f"Error checking processing status: {str(e)}"
 
+"""
 
 @app.get("/get/documents")
 async def get_documents(path: str = ""):
