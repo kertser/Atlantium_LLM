@@ -1283,54 +1283,6 @@ async def process_documents():
         logger.error(f"Error in process_documents: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-""" (Duplicated or Redundant code)
-def check_processing_status():
-    #Check if all necessary files and data exist after processing
-    logger = logging.getLogger(__name__)
-    try:
-        # Check required paths
-        if not CONFIG.METADATA_PATH.exists():
-            logger.error("Metadata file not found")
-            return False, "Metadata file not found"
-
-        if not CONFIG.FAISS_INDEX_PATH.exists():
-            logger.error("FAISS index not found")
-            return False, "FAISS index not found"
-
-        # Check metadata content with explicit UTF-8 encoding
-        try:
-            with open(CONFIG.METADATA_PATH, 'r', encoding='utf-8') as f:
-                metadata = json.load(f)
-                if not metadata:
-                    logger.error("Empty metadata file")
-                    return False, "Empty metadata file"
-        except json.JSONDecodeError as e:
-            logger.error(f"Invalid metadata file: {e}")
-            return False, "Invalid metadata file format"
-        except UnicodeDecodeError as e:
-            logger.error(f"Encoding error in metadata file: {e}")
-            return False, "Encoding error in metadata file"
-
-        # Check index
-        try:
-            index = faiss.read_index(str(CONFIG.FAISS_INDEX_PATH))
-            if index.ntotal == 0:
-                logger.error("Empty FAISS index")
-                return False, "Empty FAISS index"
-        except Exception as e:
-            logger.error(f"Error reading FAISS index: {e}")
-            return False, f"Error reading FAISS index: {str(e)}"
-
-        logger.info(f"All processing checks passed successfully: "
-                    f"{len(metadata)} metadata entries, {index.ntotal} vectors")
-        return True, "Processing completed successfully"
-
-    except Exception as e:
-        logger.error(f"Error checking processing status: {str(e)}")
-        return False, f"Error checking processing status: {str(e)}"
-
-"""
-
 @app.get("/get/documents")
 async def get_documents(path: str = ""):
     """Get list of documents and folders with metadata recursively"""
