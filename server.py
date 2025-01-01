@@ -294,67 +294,81 @@ class ImageBasedRAG:
         self.labels = ["a technical image", "a non-technical image"]
         self.prompt_loader = PromptLoader()
 
-    def get_technical_context(self, metadata: Dict) -> Dict:
-        """Extract and format technical context from metadata"""
+    async def get_technical_context(self, image_data: Dict) -> Dict:
+        """Extract and enrich technical context from image using GPT"""
         try:
-            # Get system category based on metadata or path
-            system_category = "UV Water Treatment System"  # Default category
-            if "category" in metadata:
-                system_category = metadata.get("category")
-            elif "path" in metadata:
-                # Try to infer category from path
-                path = str(metadata.get("path", ""))
-                if "uv" in path.lower():
-                    system_category = "UV Water Treatment System"
-                elif "control" in path.lower():
-                    system_category = "Control System"
+            # Initialize OpenAI client
+            client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-            # Extract components list from metadata
-            components = metadata.get("components", [])
-            if not components and "content" in metadata:
-                # Try to extract components from content description
-                content = metadata.get("content", {})
-                if "description" in content:
-                    # Use simple NLP to extract technical terms
-                    description = content["description"]
-                    # This is a simple example - you might want to use more sophisticated NLP
-                    technical_terms = [word for word in description.split()
-                                       if word.lower() in ["sensor", "lamp", "controller", "valve", "meter"]]
-                    components = technical_terms
+            # Convert image to base64 if it's not already
+            if isinstance(image_data.get('image'), Image.Image):
+                buffered = BytesIO()
+                image_data['image'].save(buffered, format="JPEG")
+                base64_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
+            else:
+                base64_image = image_data.get('image')
 
-            # Format components list
-            components_list = "\n".join(f"- {component}" for component in components)
+            # Create analysis prompt
+            messages = [
+                {
+                    "role": "system",
+                    "content": "Analyze this technical image from a UV water treatment perspective. Identify components, measurements, warning indicators, and maintenance-relevant features."
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}"
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": "Analyze this technical image and identify key components and specifications."
+                        }
+                    ]
+                }
+            ]
 
-            # Get documentation references
-            doc_refs = metadata.get("documentation_refs", [])
-            if not doc_refs and "source" in metadata:
-                doc_refs = [metadata["source"]]
+            # Get GPT analysis
+            response = await client.chat.completions.create(
+                model="gpt-4-vision-preview",
+                messages=messages,
+                max_tokens=150
+            )
 
-            # Format documentation references
-            documentation_refs = "\n".join(f'"""{ref}"""' for ref in doc_refs)
+            # Extract insights from GPT response
+            analysis = response.choices[0].message.content
 
-            # Get maintenance notes
-            maintenance_notes = metadata.get("maintenance_notes", "")
-            if not maintenance_notes and "content" in metadata:
-                maintenance_notes = metadata.get("content", {}).get("maintenance_info", "")
-
-            return {
-                "system_category": system_category,
-                "components_list": components_list,
-                "documentation_refs": documentation_refs,
-                "maintenance_notes": maintenance_notes
+            # Base context
+            context = {
+                "system_category": "UV Water Treatment System",
+                "components_list": "",
+                "documentation_refs": "",
+                "maintenance_notes": "",
+                "analysis": analysis
             }
 
+            # Enhance with metadata if available
+            if metadata := image_data.get('metadata', {}):
+                if source := metadata.get('source', ''):
+                    context['documentation_refs'] = f'"""{source}"""'
+                context['maintenance_notes'] = metadata.get('maintenance_notes', '')
+
+            return context
+
         except Exception as e:
-            logging.error(f"Error extracting technical context: {e}")
+            logging.error(f"Error in get_technical_context: {e}")
             return {
                 "system_category": "Unknown",
                 "components_list": "",
                 "documentation_refs": "",
-                "maintenance_notes": ""
+                "maintenance_notes": "",
+                "analysis": ""
             }
 
-    def process_image_and_context(self, image_result: Dict, query_text: str,
+    async def process_image_and_context(self, image_result: Dict, query_text: str,
                                   similarity: float) -> tuple[None, float] | tuple[dict[str, str | Any], Any]:
         """Process a single image and get its context using templates"""
         metadata = image_result['metadata']
@@ -410,7 +424,7 @@ class ImageBasedRAG:
                 return None, 0.0
 
             # Get technical context using templates
-            technical_context = self.get_technical_context(metadata)
+            technical_context = await self.get_technical_context(metadata)
 
             # Format image description using template
             image_description = self.prompt_loader.format_template(
