@@ -651,7 +651,7 @@ class RAGQueryServer:
                 )
 
             # Get contexts
-            contexts, _ = self.get_relevant_contexts(results, query_text)
+            contexts, initial_images = self.get_relevant_contexts(results, query_text)
 
             # Handle special cases
             if len(contexts) > 1 and "conflicting" in query_text.lower():
@@ -691,8 +691,13 @@ class RAGQueryServer:
 
             text_response = response['choices'][0]['message']['content'].strip()
 
-            # Get and process images
-            images = self.get_images_from_referenced_documents(text_response)
+            # Get and process referenced images
+            referenced_images = self.get_images_from_referenced_documents(text_response)
+
+            # Combine both sets of images
+            images = initial_images + referenced_images if initial_images else referenced_images
+
+
             if images:
                 images = self.image_classifier.deduplicate(images, CONFIG.DEDUPLICATION_THRESHOLD)
 
@@ -1258,6 +1263,7 @@ async def process_documents():
     except Exception as e:
         logger.error(f"Error in process_documents: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/get/documents")
 async def get_documents(path: str = ""):
