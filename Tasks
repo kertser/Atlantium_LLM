@@ -12,9 +12,7 @@
 * Add option for "chat with live operator" (A button with contacts or whatsapp)
 * Calculator API:
     - Check with linux
-* Check why the initial images are ignored in server.py:
-       # Get contexts only (ignore images from initial search)
-       contexts, _ = self.get_relevant_contexts(results, query_text)
+* Images are not treated properly in the document processing. Need to add the image processing and search by image
 
 
 # TBDs for development:
