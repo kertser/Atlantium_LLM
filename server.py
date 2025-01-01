@@ -292,10 +292,71 @@ class ImageBasedRAG:
         self.image_store = image_store
         self.image_classifier = image_classifier
         self.labels = ["a technical image", "a non-technical image"]
+        self.prompt_loader = PromptLoader()
+
+    def get_technical_context(self, metadata: Dict) -> Dict:
+        """Extract and format technical context from metadata"""
+        try:
+            # Get system category based on metadata or path
+            system_category = "UV Water Treatment System"  # Default category
+            if "category" in metadata:
+                system_category = metadata.get("category")
+            elif "path" in metadata:
+                # Try to infer category from path
+                path = str(metadata.get("path", ""))
+                if "uv" in path.lower():
+                    system_category = "UV Water Treatment System"
+                elif "control" in path.lower():
+                    system_category = "Control System"
+
+            # Extract components list from metadata
+            components = metadata.get("components", [])
+            if not components and "content" in metadata:
+                # Try to extract components from content description
+                content = metadata.get("content", {})
+                if "description" in content:
+                    # Use simple NLP to extract technical terms
+                    description = content["description"]
+                    # This is a simple example - you might want to use more sophisticated NLP
+                    technical_terms = [word for word in description.split()
+                                       if word.lower() in ["sensor", "lamp", "controller", "valve", "meter"]]
+                    components = technical_terms
+
+            # Format components list
+            components_list = "\n".join(f"- {component}" for component in components)
+
+            # Get documentation references
+            doc_refs = metadata.get("documentation_refs", [])
+            if not doc_refs and "source" in metadata:
+                doc_refs = [metadata["source"]]
+
+            # Format documentation references
+            documentation_refs = "\n".join(f'"""{ref}"""' for ref in doc_refs)
+
+            # Get maintenance notes
+            maintenance_notes = metadata.get("maintenance_notes", "")
+            if not maintenance_notes and "content" in metadata:
+                maintenance_notes = metadata.get("content", {}).get("maintenance_info", "")
+
+            return {
+                "system_category": system_category,
+                "components_list": components_list,
+                "documentation_refs": documentation_refs,
+                "maintenance_notes": maintenance_notes
+            }
+
+        except Exception as e:
+            logging.error(f"Error extracting technical context: {e}")
+            return {
+                "system_category": "Unknown",
+                "components_list": "",
+                "documentation_refs": "",
+                "maintenance_notes": ""
+            }
 
     def process_image_and_context(self, image_result: Dict, query_text: str,
                                   similarity: float) -> tuple[None, float] | tuple[dict[str, str | Any], Any]:
-        """Process a single image and get its context"""
+        """Process a single image and get its context using templates"""
         metadata = image_result['metadata']
         image_id = (metadata.get('image', {}).get('id') or
                     metadata.get('content', {}).get('image_id'))
@@ -317,12 +378,11 @@ class ImageBasedRAG:
             if predicted_label != "a technical image" or confidence <= CONFIG.TECHNICAL_CONFIDENCE_THRESHOLD:
                 return None, 0.0
 
-            # Get content similarity
+            # Calculate content similarity using CLIP embeddings
             image_input = self.processor(images=image, return_tensors="pt").to(self.device)
             image_embedding = self.model.get_image_features(**image_input)
             image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
 
-            # Get query embedding
             query_input = self.processor(
                 text=[query_text],
                 return_tensors="pt",
@@ -334,29 +394,90 @@ class ImageBasedRAG:
             query_embedding = self.model.get_text_features(**query_input)
             query_embedding = query_embedding / query_embedding.norm(dim=-1, keepdim=True)
 
-            content_similarity = (query_embedding @ image_embedding.T).item()
+            # Calculate semantic similarity between image and query
+            semantic_similarity = (query_embedding @ image_embedding.T).item()
+
+            # Combine both similarities (semantic and provided)
+            # You can adjust the weights based on your needs
+            content_similarity = (semantic_similarity + similarity) / 2
 
             if content_similarity <= CONFIG.IMAGE_SIMILARITY_THRESHOLD:
                 return None, 0.0
 
+            # Get base64 image data
             base64_image = self.image_store.get_base64(image_id)
             if not base64_image:
                 return None, 0.0
+
+            # Get technical context using templates
+            technical_context = self.get_technical_context(metadata)
+
+            # Format image description using template
+            image_description = self.prompt_loader.format_template(
+                'image_description',
+                source=str(metadata.get('path', '')),
+                system_category=technical_context['system_category'],
+                components_list=technical_context['components_list'],
+                documentation_refs=technical_context['documentation_refs'],
+                context_text=metadata.get('image', {}).get('context', ''),
+                maintenance_notes=technical_context['maintenance_notes']
+            )
+
+            # Build query context using template
+            query_context = self.prompt_loader.format_template(
+                'image_query_with_context',
+                query_text=query_text,
+                image_context=image_description
+            )
 
             image_data = {
                 'image': base64_image,
                 'image_id': image_id,
                 'caption': metadata.get('image', {}).get('caption', ''),
-                'context': metadata.get('image', {}).get('context', ''),
+                'context': query_context,  # Enhanced context using templates
                 'source': str(metadata.get('path', '')),
                 'similarity': content_similarity,
-                'technical_confidence': confidence
+                'semantic_similarity': semantic_similarity,  # Add semantic similarity
+                'technical_confidence': confidence,
+                'technical_details': technical_context  # Add technical details for reference
             }
             return image_data, content_similarity
 
         except Exception as e:
             logging.error(f"Error processing image {image_id}: {e}")
             return None, 0.0
+
+    def validate_technical_image(self, image_data: Dict) -> bool:
+        """Validate technical image data against template rules"""
+        try:
+            # Define validation rules directly based on prompts.yaml
+            validation_rules = {
+                'image': {
+                    'max_size': 5 * 1024 * 1024,  # 5MB in bytes
+                    'allowed_formats': ["jpg", "png", "svg"],
+                    'min_dimensions': [100, 100],
+                    'max_dimensions': [4000, 4000]
+                }
+            }
+
+            # Check image size
+            if len(image_data['image']) > validation_rules['image']['max_size']:
+                return False
+
+            # Check technical confidence
+            if image_data.get('technical_confidence', 0) < CONFIG.TECHNICAL_CONFIDENCE_THRESHOLD:
+                return False
+
+            # Validate required technical details
+            tech_details = image_data.get('technical_details', {})
+            if not tech_details.get('system_category') or not tech_details.get('components_list'):
+                return False
+
+            return True
+
+        except Exception as e:
+            logging.error(f"Error validating technical image: {e}")
+            return False
 
 
 class RAGQueryServer:
@@ -717,7 +838,7 @@ class RAGQueryServer:
                 images=[]
             )
 
-    async def process_image_query(self, image_data: bytes, query_text: Optional[str] = None) -> str:
+    async def process_image_query(self, image_data: bytes, query_text: Optional[str] = None) -> dict:
         try:
             # Open and process the image
             image = Image.open(BytesIO(image_data))
@@ -730,48 +851,134 @@ class RAGQueryServer:
             elif image.mode != 'RGB':
                 image = image.convert('RGB')
 
+            # Initialize ImageBasedRAG for processing
+            image_processor = ImageBasedRAG(
+                model=self.model,
+                processor=self.processor,
+                device=self.device,
+                image_store=self.image_store,
+                image_classifier=self.image_classifier
+            )
+
+            # Search for similar images and related documents in the index using both text and image
+            results = query_with_context(
+                index=self.index,
+                metadata=self.metadata,
+                model=self.model,
+                processor=self.processor,
+                device=self.device,
+                text_query=query_text,
+                image_query=image,  # Pass the processed image directly
+                top_k=CONFIG.DEFAULT_TOP_K
+            )
+
+            # Get relevant contexts and images
+            contexts, related_images = self.get_relevant_contexts(results, query_text or "")
+
             # Convert the processed image to a base64 string
             buffered = BytesIO()
             image.save(buffered, format="JPEG", quality=95)
             base64_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
 
+            # Process each related image result to get technical context
+            technical_contexts = []
+            for img_result in results[0]:
+                if img_result['metadata'].get('type') == 'image':
+                    processed_img_data, similarity = image_processor.process_image_and_context(
+                        img_result,
+                        query_text or "Analyze this technical image",
+                        1 - (img_result['distance'] / 2)
+                    )
+                    if processed_img_data and similarity > CONFIG.IMAGE_SIMILARITY_THRESHOLD:
+                        technical_contexts.append(processed_img_data['context'])
+
             # Prepare the image context using the PromptBuilder
             prompt_builder = PromptBuilder()
+
+            # Build image context with related documents
             image_context = prompt_builder.loader.format_template(
                 'image_query_with_context',
                 base64_image=f"data:image/jpeg;base64,{base64_image}",
-                query_text=query_text or "What is shown in this image?"
+                query_text=query_text or "What is shown in this image?",
+                image_context="\n\n".join(
+                    technical_contexts) if technical_contexts else "No related technical documentation found"
             )
 
-            # Build the final prompt
-            full_prompt = prompt_builder.build_chat_prompt(
-                query_text=query_text or "Analyze this image",
-                contexts=[],
-                images=[{"source": "uploaded", "context": "Uploaded Image"}],
-                chat_history=self.chat_history,
-                is_technical=False
-            )
+            # Prepare system message and user message
+            system_message = {
+                "role": "system",
+                "content": prompt_builder.loader.get_system_prompt('vision_assistant')
+            }
 
-            # Make the API call with the generated prompt
-            response = self.client.chat.completions.create(
-                model=CONFIG.GPT_VISION_MODEL,
-                messages=prompt_builder.build_messages(full_prompt),
-                max_tokens=CONFIG.VISION_MAX_TOKENS
-            )
-
-            answer = response.choices[0].message.content.strip()
-
-            # Update chat history
-            self.chat_history.append({
+            user_message = {
                 "role": "user",
-                "content": f"[Image Query] {query_text or 'Analyze image'}"
-            })
-            self.chat_history.append({
-                "role": "assistant",
-                "content": answer
-            })
+                "content": [
+                    {"type": "text", "text": image_context},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64_image}"
+                        }
+                    }
+                ]
+            }
 
-            return answer
+            # Combine messages for the API call
+            messages = [system_message, user_message]
+
+            # Make API call with retries
+            MAX_RETRIES = 3
+            last_error = None
+
+            for attempt in range(MAX_RETRIES):
+                try:
+                    response = self.client.chat.completions.create(
+                        model=CONFIG.GPT_VISION_MODEL,
+                        messages=messages,
+                        max_tokens=CONFIG.VISION_MAX_TOKENS
+                    )
+
+                    answer = response.choices[0].message.content.strip()
+
+                    # Format response with document references
+                    formatter = EnhancedResponseFormatter()
+                    formatted_answer = formatter.format_response(answer)
+
+                    # Update chat history
+                    self.chat_history.append({
+                        "role": "user",
+                        "content": f"[Image Query] {query_text or 'Analyze image'}"
+                    })
+                    self.chat_history.append({
+                        "role": "assistant",
+                        "content": formatted_answer
+                    })
+
+                    # Return formatted response with document references
+                    return {
+                        "response": formatted_answer,
+                        "related_documents": contexts,
+                        "related_images": related_images
+                    }
+
+                except Exception as e:
+                    last_error = e
+                    if "429" in str(e) and attempt < MAX_RETRIES - 1:
+                        wait_time = (2 ** attempt) + random.uniform(0, 1)
+                        logging.warning(f"Rate limit hit, waiting {wait_time:.2f}s")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    elif attempt < MAX_RETRIES - 1:
+                        await asyncio.sleep(1)
+                        continue
+                    else:
+                        break
+
+            # If we get here, all retries failed
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed after {MAX_RETRIES} attempts: {str(last_error)}"
+            )
 
         except Exception as e:
             logging.error(f"Image processing error: {str(e)}")
