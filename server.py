@@ -40,7 +40,7 @@ from datetime import datetime
 from io import BytesIO
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Optional, List, Dict, Tuple, Any, Union
+from typing import Optional, List, Dict, Tuple, Any
 from urllib.parse import unquote
 import random
 
@@ -53,7 +53,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from openai import OpenAI
-from openai import OpenAIError, RateLimitError, APIError
 from pydantic import BaseModel
 
 from config import CONFIG
@@ -849,31 +848,12 @@ class RAGQueryServer:
 
     # In RAGQueryServer class
 
-    async def _process_image_base(self, image_data: Union[bytes, Image.Image],
-                                  query_text: Optional[str] = None) -> dict:
-        """
-        Base method for processing images that handles common functionality between image_query methods.
-
-        Args:
-            image_data: Either raw image bytes or PIL Image
-            query_text: Optional text query to accompany the image
-
-        Returns:
-            dict: Processed response including formatted answer and related documents
-        """
+    async def _process_image_base(self, image_data: bytes, query_text: Optional[str] = None) -> dict:
         try:
-            # Convert bytes to PIL Image if needed
-            if isinstance(image_data, bytes):
-                try:
-                    image = Image.open(BytesIO(image_data))
-                except Exception as e:
-                    logging.error(f"Error opening image: {str(e)}")
-                    raise HTTPException(status_code=400, detail="Invalid image format")
-            else:
-                image = image_data
-
-            # Standard image preprocessing
+            # Convert bytes to PIL Image and preprocess
             try:
+                image = Image.open(BytesIO(image_data))
+                # Handle image mode conversion
                 if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
                     background = Image.new('RGB', image.size, (255, 255, 255))
                     if image.mode == 'P':
@@ -886,26 +866,7 @@ class RAGQueryServer:
                 logging.error(f"Error preprocessing image: {str(e)}")
                 raise HTTPException(status_code=400, detail="Error processing image format")
 
-            # Search for similar images and get contexts
-            try:
-                results = query_with_context(
-                    index=self.index,
-                    metadata=self.metadata,
-                    model=self.model,
-                    processor=self.processor,
-                    device=self.device,
-                    text_query=query_text,
-                    image_query=image,
-                    top_k=CONFIG.DEFAULT_TOP_K
-                )
-            except Exception as e:
-                logging.error(f"Error querying context: {str(e)}")
-                raise HTTPException(status_code=500, detail="Error searching similar images")
-
-            # Get relevant contexts and images
-            contexts, related_images = await self.get_relevant_contexts(results, query_text or "")
-
-            # Convert to base64 for GPT Vision API
+            # Convert image to base64
             try:
                 buffered = BytesIO()
                 image.save(buffered, format="JPEG", quality=95)
@@ -914,65 +875,86 @@ class RAGQueryServer:
                 logging.error(f"Error converting image to base64: {str(e)}")
                 raise HTTPException(status_code=500, detail="Error preparing image for processing")
 
-            # Build prompt and context
-            prompt_builder = PromptBuilder()
+            # Get RAG contexts
+            results = query_with_context(
+                index=self.index,
+                metadata=self.metadata,
+                model=self.model,
+                processor=self.processor,
+                device=self.device,
+                text_query=query_text,
+                image_query=image,
+                top_k=CONFIG.DEFAULT_TOP_K
+            )
+            contexts, related_images = await self.get_relevant_contexts(results, query_text or "")
 
-            # Build enhanced context
-            rag_context = ""
+            # Build structured context using templates
+            technical_context = ""
+            # In _process_image_base:
             if contexts:
-                rag_context = "Based on our technical documentation:\n"
-                for idx, context in enumerate(contexts, 1):
-                    # Format each context with its source if available
-                    rag_context += f"\n{idx}. {context}"
+                # For text contexts (documentation)
+                technical_context = "Documentation Context:\n"
+                for context in contexts:
+                    technical_context += f"\nFrom Documentation: {context}\n"
 
-                # Add analysis guidance based on contexts
-                rag_context += "\n\nPlease analyze the image considering:"
-                rag_context += "\n- How the shown components relate to the documented specifications"
-                rag_context += "\n- Any matching technical parameters or measurements"
-                rag_context += "\n- Compatibility with documented maintenance procedures"
+                # For related images (if any)
+                if related_images:
+                    technical_context += "\nRelated Components in Documentation:\n"
+                    for img in related_images:
+                        if isinstance(img, dict):
+                            img_context = self.prompt_loader.format_template(
+                                'image_description',
+                                source=img.get('source', 'Unknown'),
+                                system_category="UV Water Treatment System",
+                                components_list=str(img.get('technical_details', {}).get('components_list', '')),
+                                documentation_refs=str(img.get('technical_details', {}).get('documentation_refs', '')),
+                                context_text=img.get('context', ''),
+                                maintenance_notes=str(img.get('technical_details', {}).get('maintenance_notes', ''))
+                            )
+                            technical_context += f"\n{img_context}\n"
 
-            # Add context from related images if available
-            if related_images:
-                rag_context += "\n\nSimilar components in our system:"
-                for img in related_images:
-                    if img.get('technical_details') and img.get('technical_details').get('analysis'):
-                        rag_context += f"\n- {img['technical_details']['analysis']}"
+            # Build query context
+            query_context = self.prompt_loader.format_template(
+                'image_query_with_context',
+                query_text=query_text or "Analyze this technical image",
+                image_context=technical_context
+            )
 
-            # Prepare messages for GPT
+            # Prepare messages using vision_assistant template
             messages = [
                 {
                     "role": "system",
-                    "content": prompt_builder.loader.get_system_prompt('vision_assistant')
+                    "content": self.prompt_loader.get_system_prompt('vision_assistant')
                 },
                 {
                     "role": "user",
                     "content": [
                         {
                             "type": "text",
-                            "text": prompt_builder.loader.format_template(
-                                'image_query_with_context',
-                                query_text=query_text or "What is shown in this image?",
-                                image_context=rag_context
-                            )
+                            "text": f"""
+                                {query_context}
+
+                                IMPORTANT: If this component appears in our documentation, explicitly mention that and reference the document using double quotes.
+                                Example: This component appears in ""Document_Name"" where it is described as...
+
+                                Use the provided documentation context to enhance your analysis.
+                            """
                         },
                         {
                             "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
-                            }
+                            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
                         }
                     ]
                 }
             ]
 
-            # Custom retry logic for API calls
+            # Make API call with retries
             MAX_RETRIES = 3
-            BASE_WAIT = 4  # Base wait time in seconds
+            BASE_WAIT = 4
             last_error = None
 
             for attempt in range(MAX_RETRIES):
                 try:
-                    # Use synchronous call for OpenAI API
                     response = self.client.chat.completions.create(
                         model=CONFIG.GPT_VISION_MODEL,
                         messages=messages,
@@ -1007,54 +989,17 @@ class RAGQueryServer:
                         ]
                     }
 
-                except RateLimitError as e:
-                    last_error = e
-                    if attempt < MAX_RETRIES - 1:
-                        wait_time = BASE_WAIT * (2 ** attempt) + random.uniform(0, 1)
-                        logging.warning(
-                            f"Rate limit hit, waiting {wait_time:.2f}s before retry {attempt + 1}/{MAX_RETRIES}")
-                        await asyncio.sleep(wait_time)
-                        continue
-                    else:
-                        logging.error("Rate limit exceeded after all retries")
-                        raise HTTPException(
-                            status_code=429,
-                            detail="Rate limit exceeded. Please try again later."
-                        )
-
-                except APIError as e:
-                    last_error = e
-                    if attempt < MAX_RETRIES - 1:
-                        wait_time = BASE_WAIT * (2 ** attempt) + random.uniform(0, 1)
-                        logging.warning(f"API error, waiting {wait_time:.2f}s before retry {attempt + 1}/{MAX_RETRIES}")
-                        await asyncio.sleep(wait_time)
-                        continue
-                    else:
-                        logging.error(f"API error after all retries: {str(e)}")
-                        raise HTTPException(
-                            status_code=500,
-                            detail="OpenAI API error after multiple retries"
-                        )
-
-                except OpenAIError as e:
-                    logging.error(f"OpenAI error: {str(e)}")
-                    raise HTTPException(
-                        status_code=500,
-                        detail="OpenAI service error"
-                    )
-
                 except Exception as e:
-                    logging.error(f"Unexpected error during API call: {str(e)}")
+                    last_error = e
                     if attempt < MAX_RETRIES - 1:
-                        await asyncio.sleep(1)
+                        wait_time = BASE_WAIT * (2 ** attempt) + random.uniform(0, 1)
+                        logging.warning(f"API error, retrying in {wait_time:.2f}s ({attempt + 1}/{MAX_RETRIES})")
+                        await asyncio.sleep(wait_time)
                         continue
                     else:
-                        raise HTTPException(
-                            status_code=500,
-                            detail="Unexpected error during API call"
-                        )
+                        logging.error(f"Failed after {MAX_RETRIES} attempts: {str(e)}")
+                        raise
 
-            # If we get here, all retries failed
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed after {MAX_RETRIES} attempts: {str(last_error)}"
@@ -1064,10 +1009,7 @@ class RAGQueryServer:
             raise he
         except Exception as e:
             logging.error(f"Unexpected error in image processing: {str(e)}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"An unexpected error occurred: {str(e)}"
-            )
+            raise HTTPException(status_code=500, detail=str(e))
 
     async def process_image_query(self, image_data: bytes, query_text: Optional[str] = None) -> dict:
         """Process an image query from raw bytes."""
@@ -1186,47 +1128,22 @@ async def image_query(
         image: UploadFile = File(...),
         query: Optional[str] = Form(None)
 ):
-    """FastAPI endpoint for image queries with enhanced context integration.
-
-    Args:
-        image (UploadFile): The image file to analyze
-        query (str, optional): Specific question about the image
-
-    Returns:
-        JSONResponse: Processed response including analysis and related documentation
-    """
     try:
+        if query is None:
+            query = "Please analyze this image and provide a detailed description based on our technical documentation."
+
         # Initial validation
         if not os.getenv("OPENAI_API_KEY"):
             raise ValueError("OpenAI API key not found")
 
-        # Read and validate file size
+        # Check file size and process image
         contents = await image.read()
         if len(contents) > 5 * 1024 * 1024:  # 5MB limit
             raise HTTPException(status_code=400, detail="File size too large")
 
-        # Validate file type
-        try:
-            with Image.open(BytesIO(contents)) as img:
-                if img.format.lower() not in ['jpeg', 'jpg', 'png', 'gif']:
-                    raise HTTPException(status_code=400, detail="Invalid image format")
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Invalid image: {str(e)}")
+        # Process using the base method
+        return await server._process_image_base(contents, query)
 
-        # Process image using the base method
-        response = await server._process_image_base(contents, query)
-
-        return JSONResponse(
-            content={
-                "status": "success",
-                "response": response["response"],
-                "related_documents": response["related_documents"],
-                "related_images": response["related_images"]
-            }
-        )
-
-    except HTTPException as he:
-        raise he
     except Exception as e:
         logging.error(f"Error processing image: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
