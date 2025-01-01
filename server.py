@@ -333,7 +333,7 @@ class ImageBasedRAG:
 
             # Get GPT analysis
             response = await client.chat.completions.create(
-                model="gpt-4-vision-preview",
+                model=CONFIG.GPT_VISION_MODEL,
                 messages=messages,
                 max_tokens=150
             )
@@ -369,7 +369,7 @@ class ImageBasedRAG:
             }
 
     async def process_image_and_context(self, image_result: Dict, query_text: str,
-                                  similarity: float) -> tuple[None, float] | tuple[dict[str, str | Any], Any]:
+                                        similarity: float) -> tuple[None, float] | tuple[dict[str, str | Any], Any]:
         """Process a single image and get its context using templates"""
         metadata = image_result['metadata']
         image_id = (metadata.get('image', {}).get('id') or
@@ -415,8 +415,10 @@ class ImageBasedRAG:
             # You can adjust the weights based on your needs
             content_similarity = (semantic_similarity + similarity) / 2
 
+            """ SIMILARITY check removed
             if content_similarity <= CONFIG.IMAGE_SIMILARITY_THRESHOLD:
                 return None, 0.0
+            """
 
             # Get base64 image data
             base64_image = self.image_store.get_base64(image_id)
@@ -451,9 +453,9 @@ class ImageBasedRAG:
                 'context': query_context,  # Enhanced context using templates
                 'source': str(metadata.get('path', '')),
                 'similarity': content_similarity,
-                'semantic_similarity': semantic_similarity,  # Add semantic similarity
+                'semantic_similarity': semantic_similarity,
                 'technical_confidence': confidence,
-                'technical_details': technical_context  # Add technical details for reference
+                'technical_details': technical_context
             }
             return image_data, content_similarity
 
@@ -832,7 +834,6 @@ class RAGQueryServer:
             # Combine both sets of images
             images = initial_images + referenced_images if initial_images else referenced_images
 
-
             if images:
                 images = self.image_classifier.deduplicate(images, CONFIG.DEDUPLICATION_THRESHOLD)
 
@@ -882,7 +883,7 @@ class RAGQueryServer:
                 processor=self.processor,
                 device=self.device,
                 text_query=query_text,
-                image_query=image,  # Pass the processed image directly
+                image_query=image,
                 top_k=CONFIG.DEFAULT_TOP_K
             )
 
@@ -1113,8 +1114,7 @@ async def image_query(
 ):
     try:
         # Get OpenAI API key from environment
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        if not client.api_key:
+        if not os.getenv("OPENAI_API_KEY"):
             raise ValueError("OpenAI API key not found")
 
         # Check file size and process image
@@ -1138,22 +1138,42 @@ async def image_query(
             elif img.mode != 'RGB':
                 img = img.convert('RGB')
 
-            # Convert to JPEG and base64
-            buffered = BytesIO()
-            img.save(buffered, format="JPEG", quality=95)
-            base64_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
-
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Invalid image: {str(e)}")
 
-        # Initialize prompt builder and get templates
+        # Search RAG system for similar images and relevant documents
+        results = query_with_context(
+            index=server.index,
+            metadata=server.metadata,
+            model=server.model,
+            processor=server.processor,
+            device=server.device,
+            text_query=query,
+            image_query=img,
+            top_k=CONFIG.DEFAULT_TOP_K
+        )
+
+        # Get relevant contexts and images
+        contexts, related_images = server.get_relevant_contexts(results, query or "")
+
+        # Convert to base64 for GPT Vision API
+        buffered = BytesIO()
+        img.save(buffered, format="JPEG", quality=95)
+        base64_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+        # Initialize prompt builder
         prompt_builder = PromptBuilder()
 
-        # Build message content
+        # Build enhanced context from RAG results
+        rag_context = "This is a part of UV water treatment system."
+        if contexts:
+            rag_context += "\n\nRelevant technical documentation:\n" + "\n".join(contexts)
+
+        # Build message content with enhanced context
         text_content = prompt_builder.loader.format_template(
             'image_query_with_context',
             query_text=query,
-            image_context="It might be a part of UV water treatment system"
+            image_context=rag_context
         )
 
         messages = [
@@ -1175,48 +1195,31 @@ async def image_query(
             }
         ]
 
-        # Make API call with retries
-        MAX_RETRIES = 3
-        last_error = None
-
-        for attempt in range(MAX_RETRIES):
-            try:
-                response = client.chat.completions.create(
-                    model=CONFIG.GPT_VISION_MODEL,
-                    messages=messages,
-                    max_tokens=CONFIG.VISION_MAX_TOKENS
-                )
-
-                answer = response.choices[0].message.content
-
-                # Format response if it's a specific query
-                if query:
-                    formatter = EnhancedResponseFormatter()
-                    answer = formatter.format_response(answer)
-
-                return {"response": answer}
-
-            except Exception as e:
-                last_error = e
-                if "429" in str(e) and attempt < MAX_RETRIES - 1:
-                    wait_time = (2 ** attempt) + random.uniform(0, 1)
-                    logging.warning(f"Rate limit hit, waiting {wait_time:.2f}s")
-                    await asyncio.sleep(wait_time)
-                    continue
-                elif attempt < MAX_RETRIES - 1:
-                    await asyncio.sleep(1)
-                    continue
-                else:
-                    break
-
-        # If we get here, all retries failed
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed after {MAX_RETRIES} attempts: {str(last_error)}"
+        # Make API call (removed await since it's not async)
+        response = server.client.chat.completions.create(
+            model=CONFIG.GPT_VISION_MODEL,
+            messages=messages,
+            max_tokens=CONFIG.VISION_MAX_TOKENS
         )
 
-    except HTTPException:
-        raise
+        answer = response.choices[0].message.content
+        formatter = EnhancedResponseFormatter()
+        formatted_answer = formatter.format_response(answer)
+
+        return {
+            "response": formatted_answer,
+            "related_documents": contexts,
+            "related_images": [
+                {
+                    "caption": img.get("caption", ""),
+                    "context": img.get("context", ""),
+                    "source": img.get("source", ""),
+                    "similarity": img.get("similarity", 0)
+                }
+                for img in related_images if isinstance(img, dict)
+            ]
+        }
+
     except Exception as e:
         logging.error(f"Error processing image: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
