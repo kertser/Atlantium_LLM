@@ -918,9 +918,25 @@ class RAGQueryServer:
             prompt_builder = PromptBuilder()
 
             # Build enhanced context
-            rag_context = "This is a part of UV water treatment system."
+            rag_context = ""
             if contexts:
-                rag_context += "\n\nRelevant technical documentation:\n" + "\n".join(contexts)
+                rag_context = "Based on our technical documentation:\n"
+                for idx, context in enumerate(contexts, 1):
+                    # Format each context with its source if available
+                    rag_context += f"\n{idx}. {context}"
+
+                # Add analysis guidance based on contexts
+                rag_context += "\n\nPlease analyze the image considering:"
+                rag_context += "\n- How the shown components relate to the documented specifications"
+                rag_context += "\n- Any matching technical parameters or measurements"
+                rag_context += "\n- Compatibility with documented maintenance procedures"
+
+            # Add context from related images if available
+            if related_images:
+                rag_context += "\n\nSimilar components in our system:"
+                for img in related_images:
+                    if img.get('technical_details') and img.get('technical_details').get('analysis'):
+                        rag_context += f"\n- {img['technical_details']['analysis']}"
 
             # Prepare messages for GPT
             messages = [
@@ -1170,20 +1186,47 @@ async def image_query(
         image: UploadFile = File(...),
         query: Optional[str] = Form(None)
 ):
-    """FastAPI endpoint for image queries."""
+    """FastAPI endpoint for image queries with enhanced context integration.
+
+    Args:
+        image (UploadFile): The image file to analyze
+        query (str, optional): Specific question about the image
+
+    Returns:
+        JSONResponse: Processed response including analysis and related documentation
+    """
     try:
         # Initial validation
         if not os.getenv("OPENAI_API_KEY"):
             raise ValueError("OpenAI API key not found")
 
-        # Check file size
+        # Read and validate file size
         contents = await image.read()
         if len(contents) > 5 * 1024 * 1024:  # 5MB limit
             raise HTTPException(status_code=400, detail="File size too large")
 
-        # Process image query using the base method
-        return await server.process_image_query(contents, query)
+        # Validate file type
+        try:
+            with Image.open(BytesIO(contents)) as img:
+                if img.format.lower() not in ['jpeg', 'jpg', 'png', 'gif']:
+                    raise HTTPException(status_code=400, detail="Invalid image format")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid image: {str(e)}")
 
+        # Process image using the base method
+        response = await server._process_image_base(contents, query)
+
+        return JSONResponse(
+            content={
+                "status": "success",
+                "response": response["response"],
+                "related_documents": response["related_documents"],
+                "related_images": response["related_images"]
+            }
+        )
+
+    except HTTPException as he:
+        raise he
     except Exception as e:
         logging.error(f"Error processing image: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
