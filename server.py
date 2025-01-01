@@ -782,7 +782,7 @@ class RAGQueryServer:
                 )
 
             # Get contexts
-            contexts, initial_images = self.get_relevant_contexts(results, query_text)
+            contexts, initial_images = await self.get_relevant_contexts(results, query_text)
 
             # Handle special cases
             if len(contexts) > 1 and "conflicting" in query_text.lower():
