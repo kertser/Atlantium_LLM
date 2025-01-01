@@ -398,7 +398,13 @@ class REDLibrary:
 
             if 'choices' not in response:
                 logging.error("No choices in OpenAI response")
-                return {"has_calculator_content": False}
+                return {
+                    "has_calculator_content": False,
+                    "is_valid_system": False,
+                    "parameters": {},
+                    "error_message": "Failed to get response from OpenAI",
+                    "extracted_text": ""
+                }
 
             result_text = response['choices'][0]['message']['content']
 
@@ -408,25 +414,52 @@ class REDLibrary:
                 # Validate against template output format
                 if not isinstance(result.get('has_calculator_content'), bool):
                     logging.error("Invalid response format: missing or invalid has_calculator_content")
-                    return {"has_calculator_content": False}
+                    return {
+                        "has_calculator_content": False,
+                        "is_valid_system": False,
+                        "parameters": {},
+                        "error_message": "Invalid response format",
+                        "extracted_text": ""
+                    }
 
                 # Validate system type if present
                 if result.get('has_calculator_content') and 'parameters' in result:
                     if result['parameters'].get('system_type'):
                         if result['parameters']['system_type'] not in self.supported_systems:
                             logging.warning(f"Unsupported system type: {result['parameters']['system_type']}")
-                            result['has_calculator_content'] = False
-                            result['parameters'] = {}
+                            return {
+                                "has_calculator_content": True,
+                                "is_valid_system": False,
+                                "parameters": result['parameters'],
+                                "error_message": f"Unsupported system type: {result['parameters']['system_type']}. Please verify the system model number.",
+                                "extracted_text": result.get('extracted_text', '')
+                            }
+                        else:
+                            # Valid system type
+                            result['is_valid_system'] = True
+                            result['error_message'] = None
 
                 return result
 
             except json.JSONDecodeError as e:
                 logging.error(f"Failed to parse response as JSON: {e}")
-                return {"has_calculator_content": False}
+                return {
+                    "has_calculator_content": False,
+                    "is_valid_system": False,
+                    "parameters": {},
+                    "error_message": "Failed to parse response",
+                    "extracted_text": ""
+                }
 
         except Exception as e:
             logging.error(f"Error in calculator content detection: {e}")
-            return {"has_calculator_content": False}
+            return {
+                "has_calculator_content": False,
+                "is_valid_system": False,
+                "parameters": {},
+                "error_message": str(e),
+                "extracted_text": ""
+            }
 
     def process_query(self, query: str) -> Union[Dict, None]:
         """Process a natural language query using OpenAI"""

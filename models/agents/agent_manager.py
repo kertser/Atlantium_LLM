@@ -82,7 +82,12 @@ class AgentManager:
                         return requirements
 
                 if calc_detection.get('has_calculator_content'):
-                    requirements['calculator'] = calc_detection.get('parameters', {})
+                    requirements['calculator'] = {
+                        'parameters': calc_detection.get('parameters', {}),
+                        'is_valid_system': calc_detection.get('is_valid_system', False),
+                        'error_message': calc_detection.get('error_message'),
+                        'extracted_text': calc_detection.get('extracted_text', '')
+                    }
                     logging.info(f"Detected calculator requirements: {requirements['calculator']}")
             except Exception as e:
                 logging.error(f"Error in calculator detection: {e}")
@@ -95,7 +100,23 @@ class AgentManager:
 
         if 'calculator' in requirements:
             try:
-                calc_params = requirements['calculator']
+                calc_requirements = requirements['calculator']
+
+                # If system is invalid, return the error message
+                if not calc_requirements.get('is_valid_system', False):
+                    return {
+                        'calculator': {
+                            'error': calc_requirements.get('error_message', 'Invalid system type'),
+                            'parameters': calc_requirements.get('parameters', {}),
+                            'extracted_text': calc_requirements.get('extracted_text', '')
+                        }
+                    }
+
+                # Get parameters from the correct location
+                calc_params = calc_requirements.get('parameters', {})
+                if not calc_params:
+                    raise ValueError("No calculator parameters found")
+
                 calculator_params = {
                     "system_type": calc_params['system_type'],
                     "flow": calc_params['flow'],
@@ -153,11 +174,22 @@ class AgentManager:
                     results['calculator'] = calc_result
                     logging.info(f"Calculator processing successful: {calc_result.get('result')} mJ/cm²")
                 else:
+                    results['calculator'] = {
+                        'error': calc_result.get('error', 'Unknown calculator error'),
+                        'parameters': calc_requirements.get('parameters', {}),
+                        'extracted_text': calc_requirements.get('extracted_text', '')
+                    }
                     logging.error(f"Calculator error: {calc_result.get('error')}")
 
             except Exception as e:
                 logging.error(f"Error in calculator processing: {str(e)}")
-                logging.error(f"Stack trace: ", exc_info=True)
+                logging.error("Stack trace:", exc_info=True)
+                results['calculator'] = {
+                    'error': str(e),
+                    'parameters': calc_requirements.get('parameters', {}) if 'calc_requirements' in locals() else {},
+                    'extracted_text': calc_requirements.get('extracted_text',
+                                                            '') if 'calc_requirements' in locals() else ''
+                }
 
         return results
 
@@ -171,6 +203,43 @@ class AgentManager:
             if 'calculator' in agent_results:
                 calc_result = agent_results['calculator']
 
+                # Check if there's an error
+                if 'error' in calc_result:
+                    # Format error message
+                    formatted_response = [
+                        "# ❌ Calculation Error",
+                        "",
+                        f"**Error**: {calc_result['error']}",
+                        "",
+                        "** Provided Parameters: **"
+                    ]
+
+                    # Add provided parameters if available
+                    params = calc_result.get('parameters', {})
+                    if params:
+                        formatted_response.extend([
+                            f"• **System**: {params.get('system_type', 'N/A')}",
+                            f"• **Flow Rate**: {params.get('flow', 'N/A')} m³/h",
+                            f"• **UVT**: {params.get('uvt', 'N/A')}%"
+                        ])
+
+                        # Add power settings if present
+                        if 'power_settings' in params:
+                            power_settings = params['power_settings']
+                            power_str = f"• **Power**: {power_settings.get('all_lamps', 'N/A')}%"
+                            formatted_response.append(power_str)
+
+                    # Add valid systems list if it's a system type error
+                    if "Unsupported system type" in calc_result['error']:
+                        formatted_response.extend([
+                            "",
+                            "**Valid System Types:**",
+                            f"<small>{', '.join(self.agents['calculator'].supported_systems)}</small>"
+                        ])
+
+                    return "\n".join(formatted_response)
+
+                # Handle successful calculation
                 # Extract the calculation results and parameters
                 result_data = calc_result.get('result', {}).get('result', {})
                 details = calc_result.get('result', {}).get('details', {})

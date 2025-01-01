@@ -4,7 +4,7 @@
 
 This document provides information about the methods available in the `libred_api` for RED (Reduction Equivalent Dose) calculation. These methods allow users to interact with various UV systems to perform RED calculations.
 
-Refer to explicit usage examples in `main.c` and `red_api.c` for practical implementation details.
+Refer to explicit usage examples in `calculator.py` for practical implementation details.
 
 ---
 
@@ -64,81 +64,53 @@ For automated builds and containerized execution, a `Dockerfile` and `docker-com
 
 ## Typical Usage
 
-```c
-// Solve for RED, using previously declared parameters
-REDFunction redFunction = getREDFunction(systemType);
-double result = redFunction(Flow, UVT, UVT215, P, Eff, D1Log, NLamps);
-```
-Here we define the values for:
-- Flow [m³/h]
-- UVT254 and UVT215 [%-1cm]
-- Power and Efficiency [%]
-- 1-Log inactivation dose [mJ/cm²]
-- Number of lamps.
+```python
+from calculator import REDLibrary
 
-Set `NLamps` to 0 if you wish to initialize the number of lamps automatically.
+# Initialize the REDLibrary with your OpenAI API key
+api_key = "your_openai_api_key"
+calculator = REDLibrary(api_key=api_key)
+
+# Example query
+query = "Calculate RED for RZM-350-8 with flow 100, UVT 95%, lamp 1 at 90% power and lamp 2 at 80% power"
+
+# Process the query
+result = calculator.process_query(query)
+
+# Print the result
+if 'result' in result:
+    print(f"Calculated RED: {result['result']['result']} mJ/cm²")
+else:
+    print(f"Error: {result.get('error', 'Unknown error')}")
+```
 
 ---
 
 ## Use Cases
 
-### Example for C Code
-```c
-#include "system_config.h"
+### Example for Python Code
+```python
+from calculator import REDLibrary
 
-char systemType[] = "RZM-350-8";
-uint32_t NLamps = getNLamps(systemType);
-double Flow = 100;  // [m³/h]
-double UVT = 95;    // [% -1cm]
-double UVT215 = -1; // [% -1cm] or -1 if NaN
-double P[8] = {100, 100, 100, 100, 100, 100, 100, 100};
-double Eff[8] = {80, 80, 80, 80, 80, 80, 80, 80};
-double D1Log = 18;  // [mJ/cm²]
+# Initialize the REDLibrary with your OpenAI API key
+api_key = "your_openai_api_key"
+calculator = REDLibrary(api_key=api_key)
 
-REDFunction redFunction = getREDFunction(systemType);
-double result = redFunction(Flow, UVT, UVT215, P, Eff, D1Log, NLamps);
-printf("Calculated RED: %.2f mJ/cm²\n", result);
-```
+# Example queries
+queries = [
+    "Calculate RED for RZM-350-8 with flow 100, UVT 95%, lamp 1 at 90% power and lamp 2 at 80% power",
+    "Calculate RED for RZMW-350-11 with flow 200, UVT 92%, lamp 1 efficiency 85% and lamp 2 efficiency 75%, all lamps at 80% power",
+    "Calculate RED for RZ-163-12 with flow 100, UVT 95%, lamp 1 efficiency 90%, lamp 2 efficiency 85%"
+]
 
-### Example for Java Integration
-```java
-public class RedApi {
-    // Declare the native methods
-    public native int getNLamps(String systemType);
-    public native double calculateRed(
-        String systemType, double flow, double uvt, double uvt215, 
-        double[] power, double[] efficiency, double d1Log, int nLamps
-    );
-
-    static {
-        // Load the native library
-        System.loadLibrary("libred_api");
-    }
-
-    public static void main(String[] args) {
-        RedApi api = new RedApi();
-
-        String systemType = "RZM-350-8";
-        double flow = 100.0; // [m³/h]
-        double uvt = 95.0;   // [% -1cm]
-        double uvt215 = -1.0; // [% -1cm] or -1 if NaN
-        double d1Log = 18.0; // [mJ/cm²]
-
-        // Retrieve the number of lamps for the system
-        int nLamps = api.getNLamps(systemType);
-        double[] power = new double[nLamps];
-        double[] efficiency = new double[nLamps];
-
-        for (int i = 0; i < nLamps; i++) {
-            power[i] = 100.0; // [%]
-            efficiency[i] = 80.0; // [%]
-        }
-
-        // Perform RED calculation
-        double result = api.calculateRed(systemType, flow, uvt, uvt215, power, efficiency, d1Log, nLamps);
-        System.out.println("Calculated RED for system " + systemType + " = " + result + " mJ/cm²");
-    }
-}
+for query in queries:
+    result = calculator.process_query(query)
+    if 'result' in result:
+        print(f"Query: {query}")
+        print(f"Calculated RED: {result['result']['result']} mJ/cm²")
+    else:
+        print(f"Query: {query}")
+        print(f"Error: {result.get('error', 'Unknown error')}")
 ```
 
 ---
@@ -149,32 +121,32 @@ public class RedApi {
 Returns the list of supported UV systems.
 
 **Prototype:**
-```c
-const char** ListOfSupportedSystems(size_t* size);
+```python
+def _get_supported_systems(self) -> List[str]:
 ```
 
 ### `getREDFunction`
 Selects the appropriate RED calculation function based on the system type.
 
 **Prototype:**
-```c
-REDFunction getREDFunction(char *systemType);
+```python
+def get_red_function(self, system_type: str) -> Callable:
 ```
 
 ### `getNLamps`
 Returns the standard number of lamps for a given system type.
 
 **Prototype:**
-```c
-uint32_t getNLamps(char *systemType);
+```python
+def _get_n_lamps(self, system_type: str) -> Dict[str, Union[int, str]]:
 ```
 
 ### `validate_parameters`
 Validates operational parameters against system configuration.
 
 **Prototype:**
-```c
-bool validate_parameters(const char* system_type, double flow, double uvt, double power, double efficiency);
+```python
+def validate_parameters(self, system_type: str, flow: float, uvt: float, power: float, efficiency: float) -> bool:
 ```
 
 ---
@@ -219,4 +191,3 @@ This project is proprietary to Atlantium company. Unauthorized copying, modifica
 ## Contact
 
 For any inquiries or support, please contact [mikek@atlantium.com](mailto:mikek@atlantium.com).
-
