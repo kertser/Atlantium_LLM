@@ -424,8 +424,6 @@ class RAGQueryServer:
             logging.error(f"Error validating technical image: {e}")
             return False
 
-
-
     def determine_query_type(self, query_text: str) -> QueryType:
         query_lower = query_text.lower()
         return QueryType(
@@ -783,7 +781,7 @@ class RAGQueryServer:
 
     # In RAGQueryServer class
 
-    async def _process_image_base(self, image_data: bytes, query_text: Optional[str] = None) -> dict:
+    async def process_image_query(self, image_data: bytes, query_text: Optional[str] = None) -> dict:
         """Process image data and generate response"""
         try:
             # Convert bytes to PIL Image and preprocess
@@ -838,9 +836,6 @@ class RAGQueryServer:
             logging.error(f"Unexpected error in image processing: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def process_image_query(self, image_data: bytes, query_text: Optional[str] = None) -> dict:
-        """Process an image query from raw bytes."""
-        return await self._process_image_base(image_data, query_text)
 
     def _build_technical_context(self, contexts: List[str], related_images: List[Dict]) -> str:
         """Build technical context from contexts and related images"""
