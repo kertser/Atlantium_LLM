@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 import yaml
 import copy
+from difflib import SequenceMatcher
 from models.agents.calculator import REDLibrary
 
 
@@ -105,10 +106,13 @@ class AgentManager:
 
                 # If system is invalid, return the error message
                 if not calc_requirements.get('is_valid_system', False):
+                    error_msg = calc_requirements.get('error_message', 'Invalid system type')
+                    params = calc_requirements.get('parameters', {})
+
                     return {
                         'calculator': {
-                            'error': calc_requirements.get('error_message', 'Invalid system type'),
-                            'parameters': calc_requirements.get('parameters', {}),
+                            'error': error_msg,
+                            'parameters': params,
                             'extracted_text': calc_requirements.get('extracted_text', '')
                         }
                     }
@@ -203,48 +207,118 @@ class AgentManager:
         return "\n".join(f"• Lamp {i + 1}: {value}%" for i, value in enumerate(settings))
 
     async def aggregate_responses(self, rag_response: str, agent_results: Dict[str, Any]) -> str:
+        """Aggregate and format responses from different agents."""
         if not agent_results or 'calculator' not in agent_results:
             return rag_response
 
         try:
             calc_result = agent_results['calculator']
 
-            # Start building response
-            formatted_response = ["<strong><u>Calculation Results:</u></strong>"]
+            # Start with the basic header
+            formatted_response = ["Calculation Results:"]
 
             if 'error' in calc_result:
                 error_data = calc_result['error']
                 params = calc_result.get('parameters', {})
 
-                if error_data.get('type') == 'validation':
+                if isinstance(error_data, dict) and error_data.get('type') == 'validation':
+                    # Handle validation errors
                     validation_errors = error_data.get('errors', {})
                     formatted_response.extend([
                         "",
-                        "** Parameter Validation Error **",
+                        "Parameter Validation Error",
                         ""
                     ])
 
                     for param, error_info in validation_errors.items():
                         formatted_response.extend([
-                            f"• ❌ {param.upper()}: {error_info['value']} {error_info['unit']} is out of range",
-                            f"• ℹ️ Valid range: {error_info['min']} - {error_info['max']} {error_info['unit']}",
-                            ""
+                            f"❌ {param.upper()}: {error_info['value']} {error_info['unit']} is out of range<br>",
+                            f"ℹ️ Valid range: {error_info['min']} - {error_info['max']} {error_info['unit']}"
                         ])
 
                     formatted_response.extend([
-                        "** System Parameters **",
+                        "",
+                        "System Parameters:",
                         f"• System: {params.get('system_type', 'Unknown')}",
                         f"• Flow Rate: {params.get('flow', 'N/A')} m³/h",
                         f"• UVT: {params.get('uvt', 'N/A')}%-1cm",
                         "",
-                        "❌ ** Calculation failed due to parameter validation errors **"
+                        "❌ Calculation failed due to parameter validation errors"
                     ])
+
+                elif isinstance(error_data, str):
+                    # Handle system type error with proper formatting
+                    if "Unsupported system type:" in error_data:
+                        # Split the error message and format each section
+                        formatted_response.extend([
+                            "System Type Error",
+                            f"❌ {error_data.split('.')[0]}.",  # Main error message
+                            "Available System Types:",
+                        ])
+
+                        # Extract and format systems list
+                        if 'Supported System Types:' in error_data:
+                            systems_part = error_data.split('Supported System Types:')[1].strip()
+                            current_series = None
+                            valid_systems = []
+
+                            # First pass: collect all valid systems and format the output
+                            for line in systems_part.split('\n'):
+                                line = line.strip()
+                                if not line:
+                                    continue
+
+                                if line.startswith('•'):
+                                    # Add blank line before new series (except for first series)
+                                    formatted_response.append(f"<u>{line.strip('•')}</u><br>")
+                                elif line.startswith('-'):
+                                    # Format each system on a new line and collect valid systems
+                                    system_name = line[2:].strip()  # Remove "- " prefix
+                                    formatted_response.append(f"      <sub>{line}</sub><br>")
+                                    valid_systems.append(system_name)
+                                elif line:
+                                    # Handle any other non-empty lines
+                                    formatted_response.append(f"  {line}")
+
+                            # Find best matching system using SequenceMatcher
+                            invalid_system = params.get('system_type', '')
+                            best_match = None
+                            highest_ratio = 0
+
+                            for system in valid_systems:
+                                # Compare without dashes and in lowercase
+                                ratio = SequenceMatcher(
+                                    None,
+                                    system.replace('-', '').lower(),
+                                    invalid_system.replace('-', '').lower()
+                                ).ratio()
+
+                                if ratio > highest_ratio:
+                                    highest_ratio = ratio
+                                    best_match = system
+
+                            # Only suggest if the match is good enough (threshold: 0.8)
+                            if best_match and highest_ratio > 0.8:
+                                formatted_response.extend([
+                                    "<br>",
+                                    f"💡 Did you mean: {best_match}?"
+                                ])
+                    else:
+                        # Handle other string errors
+                        formatted_response.extend([
+                            "",
+                            f"❌ {error_data}"
+                        ])
                 else:
+                    # Handle other types of errors
+                    error_message = error_data.get('message', 'Unknown error occurred')
                     formatted_response.extend([
                         "",
-                        f"❌ {error_data.get('message', 'Unknown error occurred')}"
+                        f"❌ {error_message}"
                     ])
+
             else:
+                # Handle successful calculation
                 result = calc_result.get('result', {})
                 details = result.get('details', {})
                 parameters = details.get('parameters', {})
@@ -253,7 +327,7 @@ class AgentManager:
                 # System Parameters section
                 formatted_response.extend([
                     "",
-                    "** System Parameters **",
+                    "System Parameters:",
                     f"• System: {details.get('system_type', 'Unknown')}",
                     f"• Number of Lamps: {details.get('number_of_lamps', 'N/A')}",
                     f"• Lamp Power: {details.get('lamp_power_watts', 'N/A')} W",
@@ -266,38 +340,38 @@ class AgentManager:
                 efficiency_settings = lamp_settings.get('efficiency', [])
 
                 if power_settings or efficiency_settings:
-                    formatted_response.extend([
-                        "",
-                        "<strong> Lamp Settings </strong><br>"
-                    ])
+                    formatted_response.append("")
+                    formatted_response.append("Lamp Settings:")
 
                     if power_settings:
                         formatted_response.extend([
-                            "<em>ℹ️Power Settings:</em><br>",
+                            "",
+                            "ℹ️ Power Settings:",
                             self._format_settings(power_settings)
                         ])
 
                     if efficiency_settings:
                         formatted_response.extend([
                             "",
-                            "<em>ℹ️Efficiency Settings:</em><br>",
+                            "ℹ️ Efficiency Settings:",
                             self._format_settings(efficiency_settings)
                         ])
 
                 # Results section
                 formatted_response.extend([
                     "",
-                    "<u><strong>Results:</strong></u><br>",
-                    f"ℹ️<bold>RED Value:</bold> <em><bold>{result.get('result', 'N/A')} </bold></em>[mJ/cm²]",
+                    "Results:",
+                    f"ℹ️ RED Value: {result.get('result', 'N/A')} mJ/cm²",
                     "",
                     "✅ Calculation completed successfully"
                 ])
 
-            return "\n".join(formatted_response)
+            # Join all lines with proper spacing
+            return "\n".join(line for line in formatted_response if line is not None)
 
         except Exception as e:
             logging.error(f"Error in response aggregation: {e}", exc_info=True)
-            return "** Error **\n\n> ❌ An error occurred while processing the calculation"
+            return "Error\n\n❌ An error occurred while processing the calculation"
 
     def _default_aggregation(self, rag_response: str, agent_results: Dict[str, Any]) -> str:
         """Fallback aggregation method when template is unavailable"""

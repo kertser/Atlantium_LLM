@@ -135,6 +135,17 @@ class REDLibrary:
             logging.error(f"Error in _get_n_lamps: {str(e)}")
             return {"error": f"Failed to get number of lamps: {str(e)}"}
 
+    def get_grouped_supported_systems(self) -> Dict[str, List[str]]:
+        """Group supported systems by their series"""
+        supported_systems = self._get_supported_systems()
+        series_groups = {
+            'RZ Series': [s for s in supported_systems if s.startswith('RZ-')],
+            'RZM Series': [s for s in supported_systems if s.startswith('RZM-')],
+            'RZMW Series': [s for s in supported_systems if s.startswith('RZMW-')],
+            'Other Series': [s for s in supported_systems if not any(s.startswith(p) for p in ['RZ-', 'RZM-', 'RZMW-'])]
+        }
+        return {k: sorted(v) for k, v in series_groups.items() if v}  # Only include non-empty groups
+
     def _get_supported_systems(self) -> List[str]:
         """Get list of supported UV systems"""
         try:
@@ -614,12 +625,39 @@ class REDLibrary:
                 if result.get('has_calculator_content') and 'parameters' in result:
                     if result['parameters'].get('system_type'):
                         if result['parameters']['system_type'] not in self.supported_systems:
-                            logging.warning(f"Unsupported system type: {result['parameters']['system_type']}")
+                            # Group and format supported systems
+                            grouped_systems = self.get_grouped_supported_systems()
+                            systems_list = []
+
+                            # Add each series with proper formatting
+                            for series, systems in grouped_systems.items():
+                                if systems:
+                                    series_systems = [f"  - {system}" for system in sorted(systems)]
+                                    systems_list.extend([f"• {series}:"] + series_systems)
+
+                            # Find similar system suggestion
+                            invalid_system = result['parameters']['system_type']
+                            similar_system = next((s for s in self.supported_systems
+                                                   if s.replace('-', '').lower() ==
+                                                   invalid_system.replace('-', '').lower()), None)
+
+                            # Build error message
+                            error_message = (
+                                f"Unsupported system type: {invalid_system}. "
+                                f"Please verify the system model number."
+                                f"\n\nSupported System Types:\n\n"
+                                f"{chr(10).join(systems_list)}"
+                            )
+
+                            if similar_system:
+                                error_message += f"\n\nDid you mean: {similar_system}?"
+
+                            logging.warning(f"Unsupported system type: {invalid_system}")
                             return {
                                 "has_calculator_content": True,
                                 "is_valid_system": False,
                                 "parameters": result['parameters'],
-                                "error_message": f"Unsupported system type: {result['parameters']['system_type']}. Please verify the system model number.",
+                                "error_message": error_message,
                                 "extracted_text": result.get('extracted_text', '')
                             }
                         else:
