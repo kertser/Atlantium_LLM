@@ -24,8 +24,6 @@ Classes and methods:
   query handling, and response generation.
 """
 
-import asyncio
-import base64
 import hashlib
 import json
 import logging
@@ -37,12 +35,10 @@ import sys
 from contextlib import asynccontextmanager
 from dataclasses import field
 from datetime import datetime
-from io import BytesIO
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple, Any
 from urllib.parse import unquote
-import random
 
 import faiss
 from PIL import Image
@@ -57,6 +53,7 @@ from pydantic import BaseModel
 
 from config import CONFIG
 from models.prompt_manager import PromptLoader, PromptBuilder
+from models.image_processor import ImageProcessor
 from utils.FAISS_utils import load_faiss_index, load_metadata, query_with_context
 from utils.LLM_utils import CLIP_init, openai_post_request
 from utils.document_utils import (
@@ -67,7 +64,6 @@ from utils.document_utils import (
     validate_folder_name,
     rescan_documents,
 )
-from utils.img_utils import ImageStore, ImageClassifier
 from models.agents.agent_manager import AgentManager
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -288,143 +284,57 @@ class RAGQueryServer:
     """
     Serves as the main backend for processing RAG-based queries, managing the index,
     metadata, and facilitating GPT-based chat interaction for text and image queries.
-
-    Methods:
-        determine_query_type(query_text): Determines the type of query based on input text.
-        get_relevant_contexts(results, query_text): Filters the most relevant contexts and images.
-        prepare_prompt(query_text, contexts, query_type, images): Constructs a GPT-ready prompt.
-        process_text_query(query_text): Processes and retrieves a response for text queries.
     """
 
     def __init__(self):
-        # Existing initialization code...
+        # Initialize environment and API
         load_dotenv()
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         if not self.openai_api_key:
             raise ValueError("OpenAI API key not found")
 
+        # Initialize OpenAI client
         self.client = OpenAI(api_key=self.openai_api_key)
-        self.model, self.processor, self.device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
-        self.prompt_loader = PromptLoader()
 
-        # Try to load existing index or create new one
+        # Initialize CLIP model
+        self.model, self.processor, self.device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
+
+        self.prompt_loader = PromptLoader()
+        self.formatter = EnhancedResponseFormatter()
+        self.agent_manager = AgentManager(api_key=self.openai_api_key)
+
+        # Initialize components
+        self.image_processor = ImageProcessor(
+            openai_client=self.client,
+            model=self.model,
+            processor=self.processor,
+            device=self.device,
+            formatter=self.formatter
+        )
+
+        # Initialize index and chat history
+        self._initialize_index()
+        self.chat_history = []
+
+        logging.info(
+            f"Server initialized with {len([m for m in self.metadata if m.get('type') == 'image'])} images in metadata"
+        )
+
+    def _initialize_index(self):
+        """Initialize or load existing FAISS index and metadata."""
         try:
             self.index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
             self.metadata = load_metadata(CONFIG.METADATA_PATH)
-        except:
-            logging.info("No existing index found, initializing new one")
+        except Exception as e:
+            logging.info(f"No existing index found, initializing new one: {e}")
             from utils.FAISS_utils import initialize_faiss_index, save_faiss_index, save_metadata
             self.index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
             self.metadata = []
             save_faiss_index(self.index, CONFIG.FAISS_INDEX_PATH)
             save_metadata(self.metadata, CONFIG.METADATA_PATH)
 
-        self.image_store = ImageStore()
-        self.image_classifier = ImageClassifier(model=self.model, processor=self.processor, device=self.device)
-        self.labels = ["a technical image", "a non-technical image"]  # Moved from ImageBasedRAG
-        self.similarity_threshold = CONFIG.SIMILARITY_THRESHOLD
-        self.formatter = EnhancedResponseFormatter()
-        self.agent_manager = AgentManager(api_key=self.openai_api_key)
-        self.reset_chat()
-
-        logging.info(
-            f"Server initialized with {len([m for m in self.metadata if m.get('type') == 'image'])} images in metadata")
-
-    async def get_technical_context(self, image_data: Dict) -> Dict:
-        """Extract and enrich technical context from image using GPT"""
-        try:
-            if isinstance(image_data.get('image'), Image.Image):
-                buffered = BytesIO()
-                image_data['image'].save(buffered, format="JPEG")
-                base64_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
-            else:
-                base64_image = image_data.get('image')
-
-            messages = [
-                {
-                    "role": "system",
-                    "content": "Analyze this technical image from a UV water treatment perspective. Identify components, measurements, warning indicators, and maintenance-relevant features."
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
-                            }
-                        },
-                        {
-                            "type": "text",
-                            "text": "Analyze this technical image and identify key components and specifications."
-                        }
-                    ]
-                }
-            ]
-
-            # Use create() without await for the new OpenAI client
-            response = self.client.chat.completions.create(
-                model=CONFIG.GPT_VISION_MODEL,
-                messages=messages,
-                max_tokens=150
-            )
-
-            analysis = response.choices[0].message.content
-
-            context = {
-                "system_category": "UV Water Treatment System",
-                "components_list": "",
-                "documentation_refs": "",
-                "maintenance_notes": "",
-                "analysis": analysis
-            }
-
-            if metadata := image_data.get('metadata', {}):
-                if source := metadata.get('source', ''):
-                    context['documentation_refs'] = f'"""{source}"""'
-                context['maintenance_notes'] = metadata.get('maintenance_notes', '')
-
-            return context
-
-        except Exception as e:
-            logging.error(f"Error in get_technical_context: {e}")
-            return {
-                "system_category": "Unknown",
-                "components_list": "",
-                "documentation_refs": "",
-                "maintenance_notes": "",
-                "analysis": ""
-            }
-
-    def validate_technical_image(self, image_data: Dict) -> bool:
-        """Validate technical image data against template rules"""
-        try:
-            validation_rules = {
-                'image': {
-                    'max_size': 5 * 1024 * 1024,  # 5MB in bytes
-                    'allowed_formats': ["jpg", "png", "svg"],
-                    'min_dimensions': [100, 100],
-                    'max_dimensions': [4000, 4000]
-                }
-            }
-
-            if len(image_data['image']) > validation_rules['image']['max_size']:
-                return False
-
-            if image_data.get('technical_confidence', 0) < CONFIG.TECHNICAL_CONFIDENCE_THRESHOLD:
-                return False
-
-            tech_details = image_data.get('technical_details', {})
-            if not tech_details.get('system_category') or not tech_details.get('components_list'):
-                return False
-
-            return True
-
-        except Exception as e:
-            logging.error(f"Error validating technical image: {e}")
-            return False
-
     def determine_query_type(self, query_text: str) -> QueryType:
+        """Determine the type of query based on input text."""
         query_lower = query_text.lower()
         return QueryType(
             is_overview="overview" in query_lower or "what is" in query_lower,
@@ -433,16 +343,10 @@ class RAGQueryServer:
         )
 
     async def get_relevant_contexts(self, results: List[Dict], query_text: str) -> Tuple[List[str], List[Dict]]:
-        """Get relevant contexts and images, filtering out non-technical images."""
+        """Get relevant contexts and images from search results."""
         if not results or not results[0]:
             logging.info("No results found")
             return [], []
-
-        logging.info(f"Processing query: {query_text}")
-        logging.info(f"Found {len(results[0])} results")
-        logging.info(f"Current thresholds: SIMILARITY={CONFIG.SIMILARITY_THRESHOLD}, "
-                     f"IMAGE_SIMILARITY={CONFIG.IMAGE_SIMILARITY_THRESHOLD}, "
-                     f"TECHNICAL_CONFIDENCE={CONFIG.TECHNICAL_CONFIDENCE_THRESHOLD}")
 
         try:
             relevant_contexts = []
@@ -451,86 +355,19 @@ class RAGQueryServer:
             for result in results[0]:
                 metadata = result['metadata']
                 similarity = 1 - (result['distance'] / 2)
-                logging.info(
-                    f"Processing result type: {metadata.get('type')} with similarity: {similarity:.4f} "
-                    f"(raw distance: {result['distance']:.4f})")
 
+                # Process text chunks
                 if metadata.get('type') == 'text-chunk':
-                    if similarity > CONFIG.SIMILARITY_THRESHOLD:
-                        if 'get_content' in metadata:
-                            chunk_text = metadata['get_content']()
-                            if chunk_text:
-                                relevant_contexts.append(chunk_text.strip())
-                                logging.info("Added text context")
+                    if similarity > CONFIG.SIMILARITY_THRESHOLD and 'get_content' in metadata:
+                        chunk_text = metadata['get_content']()
+                        if chunk_text:
+                            relevant_contexts.append(chunk_text.strip())
 
-                elif metadata.get('type') == 'image':
-                    if similarity > CONFIG.IMAGE_SIMILARITY_THRESHOLD:
-                        # Process image directly without ImageBasedRAG
-                        image_id = (metadata.get('image', {}).get('id') or
-                                    metadata.get('content', {}).get('image_id'))
-
-                        if not image_id:
-                            continue
-
-                        try:
-                            image, img_metadata = self.image_store.get_image(image_id)
-                            if not image:
-                                continue
-
-                            # Check if it's a technical image
-                            predicted_label, confidence = self.image_classifier.classify(
-                                image=image,
-                                labels=self.labels,
-                            )
-
-                            if predicted_label != "a technical image" or confidence <= CONFIG.TECHNICAL_CONFIDENCE_THRESHOLD:
-                                continue
-
-                            # Calculate content similarity using CLIP embeddings
-                            image_input = self.processor(images=image, return_tensors="pt").to(self.device)
-                            image_embedding = self.model.get_image_features(**image_input)
-                            image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
-
-                            query_input = self.processor(
-                                text=[query_text],
-                                return_tensors="pt",
-                                padding=True,
-                                truncation=True,
-                                max_length=77
-                            )
-                            query_input = {k: v.to(self.device) for k, v in query_input.items()}
-                            query_embedding = self.model.get_text_features(**query_input)
-                            query_embedding = query_embedding / query_embedding.norm(dim=-1, keepdim=True)
-
-                            # Calculate semantic similarity
-                            semantic_similarity = (query_embedding @ image_embedding.T).item()
-                            content_similarity = (semantic_similarity + similarity) / 2
-
-                            # Get technical context
-                            technical_context = await self.get_technical_context({'image': image, 'metadata': metadata})
-
-                            # Get base64 image data
-                            base64_image = self.image_store.get_base64(image_id)
-                            if not base64_image:
-                                continue
-
-                            image_data = {
-                                'image': base64_image,
-                                'image_id': image_id,
-                                'caption': metadata.get('image', {}).get('caption', ''),
-                                'context': query_text,
-                                'source': str(metadata.get('path', '')),
-                                'similarity': content_similarity,
-                                'semantic_similarity': semantic_similarity,
-                                'technical_confidence': confidence,
-                                'technical_details': technical_context
-                            }
-                            relevant_images.append(image_data)
-                            logging.info(f"Image content similarity score: {content_similarity:.4f}")
-
-                        except Exception as e:
-                            logging.error(f"Error processing image {image_id}: {e}")
-                            continue
+                # Process images using ImageProcessor
+                elif metadata.get('type') == 'image' and similarity > CONFIG.IMAGE_SIMILARITY_THRESHOLD:
+                    processed_images = await self._process_image_result(result, query_text)
+                    if processed_images:
+                        relevant_images.extend(processed_images)
 
             relevant_images.sort(key=lambda x: x['similarity'], reverse=True)
             logging.info(f"Final results: {len(relevant_contexts)} contexts, {len(relevant_images)} images")
@@ -540,63 +377,85 @@ class RAGQueryServer:
             logging.error(f"Error in get_relevant_contexts: {e}", exc_info=True)
             return [], []
 
-    def get_image_data(self, image_id: str, metadata: Dict, similarity: float) -> Optional[Dict]:
-        """Get image data with improved logging"""
+    async def _process_image_result(self, result: Dict, query_text: str) -> List[Dict]:
+        """Process individual image search result."""
         try:
-            logging.info(f"Retrieving image data for ID: {image_id}")
-            base64_image = self.image_store.get_base64(image_id)
+            metadata = result['metadata']
+            image_id = (metadata.get('image', {}).get('id') or
+                        metadata.get('content', {}).get('image_id'))
+
+            if not image_id:
+                return []
+
+            image, img_metadata = self.image_processor.image_store.get_image(image_id)
+            if not image:
+                return []
+
+            # Calculate content similarity
+            content_similarity = await self._calculate_image_similarity(
+                image,
+                query_text,
+                result['distance']
+            )
+
+            # Get technical context through ImageProcessor
+            technical_context = await self.image_processor.analyze_technical_context({
+                'image': image,
+                'metadata': metadata
+            })
+
+            # Get base64 image
+            base64_image = self.image_processor.image_store.get_base64(image_id)
             if not base64_image:
-                logging.warning(f"Failed to get base64 image for ID: {image_id}")
-                return None
+                return []
 
-            # Get all available metadata
-            source_doc = metadata.get('source_doc', '')
-            context = metadata.get('context', '')
-            caption = metadata.get('caption', '')
-
-            # Try to get additional metadata from content if available
-            if isinstance(metadata.get('content'), dict):
-                content = metadata['content']
-                context = content.get('context', context)
-                caption = content.get('caption', caption)
-
-            image_data = {
+            return [{
                 'image': base64_image,
                 'image_id': image_id,
-                'caption': caption,
-                'context': context,
-                'source': source_doc,
-                'similarity': similarity
+                'caption': metadata.get('image', {}).get('caption', ''),
+                'context': query_text,
+                'source': str(metadata.get('path', '')),
+                'similarity': content_similarity['similarity'],
+                'semantic_similarity': content_similarity['semantic_similarity'],
+                'technical_details': technical_context
+            }]
+
+        except Exception as e:
+            logging.error(f"Error processing image result: {e}")
+            return []
+
+    async def _calculate_image_similarity(self, image: Image.Image, query_text: str, distance: float) -> Dict:
+        """Calculate image-text similarity using CLIP embeddings."""
+        try:
+            image_input = self.processor(images=image, return_tensors="pt").to(self.device)
+            image_embedding = self.model.get_image_features(**image_input)
+            image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
+
+            query_input = self.processor(
+                text=[query_text],
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=77
+            )
+            query_input = {k: v.to(self.device) for k, v in query_input.items()}
+            query_embedding = self.model.get_text_features(**query_input)
+            query_embedding = query_embedding / query_embedding.norm(dim=-1, keepdim=True)
+
+            semantic_similarity = (query_embedding @ image_embedding.T).item()
+            content_similarity = (semantic_similarity + (1 - distance / 2)) / 2
+
+            return {
+                'similarity': content_similarity,
+                'semantic_similarity': semantic_similarity
             }
 
-            logging.info(f"Successfully retrieved image data for ID: {image_id}")
-            return image_data
         except Exception as e:
-            logging.error(f"Error getting image data for {image_id}: {e}")
-            return None
+            logging.error(f"Error calculating image similarity: {e}")
+            return {'similarity': 0, 'semantic_similarity': 0}
 
-    def prepare_prompt(self, query_text: str, contexts: List[str], query_type: QueryType, images: List[Dict]) -> list[
-                                                                                                                     dict[
-                                                                                                                         str, str]] | str:
-        if not contexts and not images:
-            # Use no-answer template if no relevant information
-            return self.formatter.prompt_builder.build_no_answer_message(query_text)
-        return self.formatter.prepare_prompt(query_text, contexts, query_type, images)
-
-    def prepare_messages(self, prompt: str) -> List[Dict[str, str]]:
-        return self.formatter.prepare_messages(prompt)
-
-    def get_images_from_referenced_documents(self, response_text: str) -> List[Dict]:
-        """
-        Get images from documents referenced in the OpenAI response text.
-        Documents are referenced using double-double quotes, e.g., ""Document ID""
-
-        Args:
-            response_text: The text response from OpenAI containing document references
-
-        Returns:
-            List of relevant images with their metadata
-        """
+    async def _get_referenced_images(self, response_text: str) -> List[Dict]:
+        """Get images from documents referenced in the response text."""
         try:
             # Extract document references using double-double quotes pattern
             referenced_docs = set()
@@ -632,7 +491,7 @@ class RAGQueryServer:
                     if doc_ref in clean_source:
                         if image_id not in processed_ids:
                             try:
-                                base64_image = self.image_store.get_base64(image_id)
+                                base64_image = self.image_processor.image_store.get_base64(image_id)
                                 if base64_image:
                                     image_info = {
                                         'image': base64_image,
@@ -659,42 +518,19 @@ class RAGQueryServer:
             return []
 
     async def process_text_query(self, query_text: str, top_k: int = CONFIG.DEFAULT_TOP_K) -> QueryResponse:
+        """Process a text query and return response with relevant images."""
         try:
-            logging.info(f"Processing query: {query_text}")
-
-            # Check if any documents are indexed
             if not self.metadata:
                 return QueryResponse(
                     text_response="No documents have been indexed yet. Please add some documents to the system first.",
                     images=[]
                 )
 
-            # Detect if query requires calculator agent
-            agent_requirements = await self.agent_manager.detect_agent_requirements(query_text)
+            # Handle calculator queries
+            if calculator_response := await self._handle_calculator_query(query_text):
+                return calculator_response
 
-            # If it's a pure calculator query, handle it directly without RAG
-            if agent_requirements.get('calculator'):
-                try:
-                    calc_results = await self.agent_manager.process_with_agents(
-                        query_text,
-                        agent_requirements
-                    )
-                    if calc_results and 'calculator' in calc_results:
-                        logging.info(f"Calculator results: {calc_results['calculator']}")
-                        text_response = await self.agent_manager.aggregate_responses(
-                            "",  # Empty string since it's a pure calculation
-                            calc_results
-                        )
-                        if text_response:
-                            return QueryResponse(text_response=text_response, images=[])
-                        else:
-                            logging.error("Empty response from calculator aggregation")
-                except Exception as e:
-                    logging.error(f"Error in calculator processing: {e}")
-
-            # If calculator processing failed, continue with RAG as fallback
-
-            # Only proceed with RAG if it's not a pure calculator query
+            # Process with RAG
             results = query_with_context(
                 index=self.index,
                 metadata=self.metadata,
@@ -705,72 +541,68 @@ class RAGQueryServer:
                 top_k=top_k
             )
 
-            # Handle empty RAG results
             if not results:
-                logging.info("No relevant documents found")
-                return QueryResponse(
-                    text_response=self.formatter.prompt_builder.build_no_answer_message(query_text)[1]['content'],
-                    images=[]
-                )
+                return self._create_no_results_response(query_text)
 
-            # Get contexts
+            # Get contexts and process special cases
             contexts, initial_images = await self.get_relevant_contexts(results, query_text)
+            if special_response := self._handle_special_cases(query_text, contexts):
+                return special_response
 
-            # Handle special cases
-            if len(contexts) > 1 and "conflicting" in query_text.lower():
-                logging.info("Detected potential conflict in contexts")
-                conflicting_docs = [{"doc": context} for context in contexts]
-                return QueryResponse(
-                    text_response=self.formatter.prompt_builder.build_conflict_resolution_message(conflicting_docs)[1][
-                        'content'],
-                    images=[]
-                )
-
-            if "ambiguous" in query_text.lower():
-                logging.info("Detected ambiguous query")
-                return QueryResponse(
-                    text_response=self.formatter.prompt_builder.build_ambiguity_message(query_text)[1]['content'],
-                    images=[]
-                )
-
-            # Prepare and get response
+            # Generate response
             query_type = self.determine_query_type(query_text)
-            prompt = self.prepare_prompt(query_text, contexts, query_type, [])
+            formatted_prompt = self.formatter.prompt_builder.build_chat_prompt(
+                query_text=query_text,
+                contexts=contexts,
+                images=initial_images,
+                chat_history=[],
+                is_technical=query_type.is_technical
+            )
 
-            # Add system message for concise responses
-            if agent_requirements.get('calculator'):
-                prompt.append({
+            # Prepare messages for OpenAI
+            messages = self.formatter.prompt_builder.build_messages(formatted_prompt)
+
+            # Add system message for technical queries
+            if query_type.is_technical:
+                messages.append({
                     "role": "system",
                     "content": "Provide only essential technical information. Avoid theoretical explanations."
                 })
 
+            # Get response from OpenAI
             response = openai_post_request(
-                messages=self.prepare_messages(prompt),
+                messages=messages,
                 model_name=CONFIG.GPT_MODEL,
                 max_tokens=CONFIG.DETAIL_MAX_TOKENS,
                 temperature=CONFIG.TEMPERATURE if query_type.is_technical else 0.7,
                 api_key=self.openai_api_key
             )
 
+            # Get the raw response text
             text_response = response['choices'][0]['message']['content'].strip()
 
-            # Get and process referenced images
-            referenced_images = self.get_images_from_referenced_documents(text_response)
+            # Get images from referenced documents using the image processor
+            referenced_images = await self._get_referenced_images(text_response)
 
-            # Combine both sets of images
-            images = initial_images + referenced_images if initial_images else referenced_images
+            # Combine and deduplicate images using the image processor
+            all_images = initial_images + referenced_images if initial_images else referenced_images
+            if all_images:
+                all_images = self.image_processor.image_classifier.deduplicate(all_images,
+                                                                               CONFIG.DEDUPLICATION_THRESHOLD)
 
-            if images:
-                images = self.image_classifier.deduplicate(images, CONFIG.DEDUPLICATION_THRESHOLD)
-
-            # Format response
-            text_response = self.formatter.format_response(text_response)
+            # Format the response text
+            formatted_response = self.formatter.format_response(text_response)
 
             # Update chat history
-            self.chat_history.append({"role": "user", "content": query_text})
-            self.chat_history.append({"role": "assistant", "content": text_response})
+            self._update_chat_history(query_text, formatted_response)
 
-            return QueryResponse(text_response=text_response, images=images)
+            # Create and return the final response
+            final_response = QueryResponse(
+                text_response=formatted_response,
+                images=all_images
+            )
+
+            return final_response
 
         except Exception as e:
             logging.error(f"Error processing query: {e}", exc_info=True)
@@ -779,186 +611,114 @@ class RAGQueryServer:
                 images=[]
             )
 
-    # In RAGQueryServer class
-
-    async def process_image_query(self, image_data: bytes, query_text: Optional[str] = None) -> dict:
-        """Process image data and generate response"""
+    async def process_image_query(self, image_data: bytes, query_text: Optional[str] = None) -> Dict:
+        """Process image query using ImageProcessor."""
         try:
-            # Convert bytes to PIL Image and preprocess
-            try:
-                image = Image.open(BytesIO(image_data))
-                if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
-                    background = Image.new('RGB', image.size, (255, 255, 255))
-                    if image.mode == 'P':
-                        image = image.convert('RGBA')
-                    background.paste(image, mask=image.split()[-1])
-                    image = background
-                elif image.mode != 'RGB':
-                    image = image.convert('RGB')
-            except Exception as e:
-                logging.error(f"Error preprocessing image: {str(e)}")
-                raise HTTPException(status_code=400, detail="Error processing image format")
-
-            # Convert image to base64
-            buffered = BytesIO()
-            image.save(buffered, format="JPEG", quality=95)
-            base64_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
-
-            # Get RAG contexts
-            results = query_with_context(
-                index=self.index,
-                metadata=self.metadata,
-                model=self.model,
-                processor=self.processor,
-                device=self.device,
-                text_query=query_text,
-                image_query=image,
-                top_k=CONFIG.DEFAULT_TOP_K
-            )
-
-            contexts, related_images = await self.get_relevant_contexts(results, query_text or "")
-
-            # Build technical context
-            technical_context = self._build_technical_context(contexts, related_images)
-
-            # Build query context
-            query_context = self.prompt_loader.format_template(
-                'image_query_with_context',
-                query_text=query_text or "Analyze this technical image",
-                image_context=technical_context
-            )
-
-            return await self._process_vision_request(base64_image, query_context, contexts, related_images)
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            logging.error(f"Unexpected error in image processing: {str(e)}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-
-    def _build_technical_context(self, contexts: List[str], related_images: List[Dict]) -> str:
-        """Build technical context from contexts and related images"""
-        technical_context = ""
-        if contexts:
-            technical_context = "Documentation Context:\n"
-            for context in contexts:
-                technical_context += f"\nFrom Documentation: {context}\n"
-
-            if related_images:
-                technical_context += "\nRelated Components in Documentation:\n"
-                for img in related_images:
-                    if isinstance(img, dict):
-                        img_context = self.prompt_loader.format_template(
-                            'image_description',
-                            source=img.get('source', 'Unknown'),
-                            system_category="UV Water Treatment System",
-                            components_list=str(img.get('technical_details', {}).get('components_list', '')),
-                            documentation_refs=str(img.get('technical_details', {}).get('documentation_refs', '')),
-                            context_text=img.get('context', ''),
-                            maintenance_notes=str(img.get('technical_details', {}).get('maintenance_notes', ''))
-                        )
-                        technical_context += f"\n{img_context}\n"
-
-        return technical_context
-
-    async def _process_vision_request(self, base64_image: str, query_context: str,
-                                      contexts: List[str], related_images: List[Dict]) -> Dict:
-        """Process the vision request with GPT with proper async handling"""
-        messages = [
-            {
-                "role": "system",
-                "content": self.prompt_loader.get_system_prompt('vision_assistant')
-            },
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": f"""
-                            {query_context}
-
-                            IMPORTANT: If this component appears in our documentation, explicitly mention that and reference the document using double quotes.
-                            Example: This component appears in ""Document_Name"" where it is described as...
-
-                            Use the provided documentation context to enhance your analysis.
-                        """
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
-                    }
-                ]
-            }
-        ]
-
-        MAX_RETRIES = 3
-        BASE_WAIT = 4
-
-        for attempt in range(MAX_RETRIES):
-            try:
-                # Use create() instead of create.async() for the new OpenAI client
-                response = self.client.chat.completions.create(
-                    model=CONFIG.GPT_VISION_MODEL,
-                    messages=messages,
-                    max_tokens=CONFIG.VISION_MAX_TOKENS
+            result = await self.image_processor.process_image_query(image_data, query_text)
+            if result.get('is_technical', False):
+                self._update_chat_history(
+                    f"[Image Query] {query_text or 'Analyze image'}",
+                    result.get('response', '')
                 )
-
-                # Check if we have a valid response
-                if response and hasattr(response, 'choices') and response.choices:
-                    answer = response.choices[0].message.content.strip()
-                    formatted_answer = self.formatter.format_response(answer)
-
-                    # Update chat history
-                    self.chat_history.append({
-                        "role": "user",
-                        "content": f"[Image Query] {query_context}"
-                    })
-                    self.chat_history.append({
-                        "role": "assistant",
-                        "content": formatted_answer
-                    })
-
-                    return {
-                        "response": formatted_answer,
-                        "related_documents": contexts,
-                        "related_images": [
-                            {
-                                "caption": img.get("caption", ""),
-                                "context": img.get("context", ""),
-                                "source": img.get("source", ""),
-                                "similarity": img.get("similarity", 0)
-                            }
-                            for img in related_images if isinstance(img, dict)
-                        ]
-                    }
-                else:
-                    raise ValueError("Empty or invalid response from OpenAI API")
-
-            except Exception as e:
-                logging.error(f"Attempt {attempt + 1}/{MAX_RETRIES} failed: {str(e)}")
-
-                if attempt < MAX_RETRIES - 1:
-                    wait_time = BASE_WAIT * (2 ** attempt) + random.uniform(0, 1)
-                    logging.warning(f"API error, retrying in {wait_time:.2f}s ({attempt + 1}/{MAX_RETRIES})")
-                    await asyncio.sleep(wait_time)
-                    continue
-                else:
-                    logging.error("Maximum retry attempts reached")
-                    raise HTTPException(
-                        status_code=500,
-                        detail=f"Failed to process image after {MAX_RETRIES} attempts: {str(e)}"
-                    )
-
-        raise HTTPException(status_code=500, detail="Unexpected error in vision request processing")
+            return result
+        except Exception as e:
+            logging.error(f"Error in process_image_query: {e}")
+            raise
 
     def reset_chat(self):
+        """Reset chat history."""
         self.chat_history = []
         logging.info("Chat history has been reset")
         return {"status": "success", "message": "Chat history cleared"}
 
     def get_chat_history(self):
+        """Get current chat history."""
         return self.chat_history
+
+    def _update_chat_history(self, query: str, response: str):
+        """Update chat history with new query and response."""
+        self.chat_history.append({"role": "user", "content": query})
+        self.chat_history.append({"role": "assistant", "content": response})
+
+    async def _handle_calculator_query(self, query_text: str) -> Optional[QueryResponse]:
+        """Handle calculator-specific queries."""
+        try:
+            agent_requirements = await self.agent_manager.detect_agent_requirements(query_text)
+            if agent_requirements.get('calculator'):
+                calc_results = await self.agent_manager.process_with_agents(query_text, agent_requirements)
+                if calc_results and 'calculator' in calc_results:
+                    text_response = await self.agent_manager.aggregate_responses("", calc_results)
+                    if text_response:
+                        return QueryResponse(text_response=text_response, images=[])
+        except Exception as e:
+            logging.error(f"Error in calculator processing: {e}")
+        return None
+
+    def _create_no_results_response(self, query_text: str) -> QueryResponse:
+        """Create response for when no results are found."""
+        return QueryResponse(
+            text_response=self.formatter.prompt_builder.build_no_answer_message(query_text)[1]['content'],
+            images=[]
+        )
+
+    def _handle_special_cases(self, query_text: str, contexts: List[str]) -> Optional[QueryResponse]:
+        """Handle special query cases (conflicts, ambiguity)."""
+        if len(contexts) > 1 and "conflicting" in query_text.lower():
+            conflicting_docs = [{"doc": context} for context in contexts]
+            return QueryResponse(
+                text_response=self.formatter.prompt_builder.build_conflict_resolution_message(conflicting_docs)[1][
+                    'content'],
+                images=[]
+            )
+        elif "ambiguous" in query_text.lower():
+            return QueryResponse(
+                text_response=self.formatter.prompt_builder.build_ambiguity_message(query_text)[1]['content'],
+                images=[]
+            )
+        return None
+
+    async def _generate_response(self, query_text: str, contexts: List[str], images: List[Dict]) -> QueryResponse:
+        """Generate final response using contexts and images."""
+        try:
+            query_type = self.determine_query_type(query_text)
+
+            # Format contexts and images for the prompt
+            formatted_prompt = self.formatter.prompt_builder.build_chat_prompt(
+                query_text=query_text,
+                contexts=contexts,
+                images=images,
+                chat_history=[],  # Empty list since we handle chat history separately
+                is_technical=query_type.is_technical
+            )
+
+            # Prepare messages for OpenAI
+            messages = self.formatter.prompt_builder.build_messages(formatted_prompt)
+
+            # Add system message for technical queries
+            if query_type.is_technical:
+                messages.append({
+                    "role": "system",
+                    "content": "Provide only essential technical information. Avoid theoretical explanations."
+                })
+
+            response = openai_post_request(
+                messages=messages,
+                model_name=CONFIG.GPT_MODEL,
+                max_tokens=CONFIG.DETAIL_MAX_TOKENS,
+                temperature=CONFIG.TEMPERATURE if query_type.is_technical else 0.7,
+                api_key=self.openai_api_key
+            )
+
+            text_response = response['choices'][0]['message']['content'].strip()
+            text_response = self.formatter.format_response(text_response)
+
+            return QueryResponse(
+                text_response=text_response,
+                images=self.image_processor.image_classifier.deduplicate(images, CONFIG.DEDUPLICATION_THRESHOLD)
+            )
+        except Exception as e:
+            logging.error(f"Error generating response: {e}")
+            raise
 
 
 @asynccontextmanager
