@@ -22,6 +22,7 @@ class REDLibrary:
         """Initialize connection to the RED calculation library"""
         try:
             self.api_key = api_key
+            self._json_lib = None  # Initialize JSON DLL reference
             self.lib = self._load_library()
             if self.lib is None:
                 raise RuntimeError("Failed to load library")
@@ -64,12 +65,15 @@ class REDLibrary:
                     # Load flags
                     LOAD_WITH_ALTERED_SEARCH_PATH = 0x8
 
-                    # Try loading JSON DLL first
+                    # Load JSON DLL first (dependency)
                     json_path = str(lib_path.parent / "libjson-c.dll")
                     json_handle = load_library_ex(json_path, None, LOAD_WITH_ALTERED_SEARCH_PATH)
                     if not json_handle:
                         logging.error("Could not load JSON DLL")
                         return None
+
+                    # Keep a reference to the JSON DLL to prevent it from being unloaded
+                    self._json_lib = ctypes.CDLL(json_path, handle=json_handle)
 
                     # Try loading RED API DLL
                     red_handle = load_library_ex(str(lib_path), None, LOAD_WITH_ALTERED_SEARCH_PATH)
@@ -77,8 +81,7 @@ class REDLibrary:
                         logging.error("Could not load RED API DLL")
                         return None
 
-                    # Create CDLL objects
-                    json_lib = ctypes.CDLL(json_path, handle=json_handle)
+                    # Create and return RED API DLL object
                     red_lib = ctypes.CDLL(str(lib_path), handle=red_handle)
 
                     os.chdir(original_dir)
@@ -244,61 +247,195 @@ class REDLibrary:
 
         return True
 
+    def _get_parameter_ranges(self, system_type: str) -> Optional[Dict]:
+        """Get valid parameter ranges for a system from configuration"""
+        try:
+            specs = self._load_system_specifications()
+            if not specs or 'supported_systems' not in specs:
+                logging.error("No supported_systems found in specifications")
+                return None
+
+            systems = specs['supported_systems']
+            if system_type not in systems:
+                logging.error(f"No specifications found for system {system_type}")
+                return None
+
+            system_specs = systems[system_type]
+            if 'operational_limits' not in system_specs:
+                logging.error(f"No operational limits found for system {system_type}")
+                return None
+
+            limits = system_specs['operational_limits']
+
+            return {
+                "flow": {
+                    "min": limits['flow']['min'],
+                    "max": limits['flow']['max'],
+                    "unit": limits['flow']['unit']
+                },
+                "uvt": {
+                    "min": limits['uvt']['min'],
+                    "max": limits['uvt']['max'],
+                    "unit": limits['uvt']['unit']
+                }
+            }
+        except Exception as e:
+            logging.error(f"Error getting parameter ranges: {str(e)}")
+            return None
+
+    def _load_system_specifications(self) -> Dict:
+        """Load system specifications from JSON file"""
+        try:
+            config_path = Path(__file__).parent / 'resources' / 'supported_systems.json'
+            if not config_path.exists():
+                logging.error(f"Configuration file not found at {config_path}")
+                return {}
+
+            with open(config_path, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logging.error(f"Error loading system specifications: {e}")
+            return {}
+
     def _calculate_red(self, system_type: str, flow: float, uvt: float,
                        uvt215: float = -1, d1_log: float = 18.0,
                        power_settings: dict = None,
                        efficiency_settings: dict = None) -> Optional[Dict]:
         """Calculate RED value with custom power and efficiency settings"""
         try:
-            # Validate system type
+            # Validate system type first
             if system_type not in self.supported_systems:
                 return {
-                    "error": f"System type '{system_type}' not found. Available systems: {', '.join(self.supported_systems)}"
+                    "status": "error",
+                    "error": {
+                        "type": "system",
+                        "message": f"System type '{system_type}' not found"
+                    },
+                    "parameters": {
+                        "system_type": system_type,
+                        "flow": flow,
+                        "uvt": uvt
+                    }
+                }
+
+            # Get parameter ranges first
+            ranges = self._get_parameter_ranges(system_type)
+            if ranges is None:
+                return {
+                    "status": "error",
+                    "error": {
+                        "type": "system",
+                        "message": f"Could not get valid parameter ranges for system {system_type}"
+                    },
+                    "parameters": {
+                        "system_type": system_type,
+                        "flow": flow,
+                        "uvt": uvt
+                    }
+                }
+
+            # Validate parameters against ranges
+            validation_errors = {}
+            if flow < ranges["flow"]["min"] or flow > ranges["flow"]["max"]:
+                validation_errors["flow"] = {
+                    "value": round(flow, 1),
+                    "min": ranges["flow"]["min"],
+                    "max": ranges["flow"]["max"],
+                    "unit": ranges["flow"]["unit"]
+                }
+
+            if uvt < ranges["uvt"]["min"] or uvt > ranges["uvt"]["max"]:
+                validation_errors["uvt"] = {
+                    "value": round(uvt, 1),
+                    "min": ranges["uvt"]["min"],
+                    "max": ranges["uvt"]["max"],
+                    "unit": ranges["uvt"]["unit"]
+                }
+
+            if validation_errors:
+                return {
+                    "status": "error",
+                    "error": {
+                        "type": "validation",
+                        "errors": validation_errors
+                    },
+                    "parameters": {
+                        "system_type": system_type,
+                        "flow": flow,
+                        "uvt": uvt,
+                        "power_settings": power_settings or {},
+                        "efficiency_settings": efficiency_settings or {"all_lamps": 80.0}
+                    }
                 }
 
             # Get number of lamps
             n_lamps = self.get_lamp_count_func(system_type.encode('utf-8'))
             if not n_lamps:
                 return {
-                    "error": f"Could not get lamp count for system {system_type}"
+                    "status": "error",
+                    "error": {
+                        "type": "system",
+                        "message": f"Could not get lamp count for system {system_type}"
+                    },
+                    "parameters": {
+                        "system_type": system_type,
+                        "flow": flow,
+                        "uvt": uvt
+                    }
                 }
 
             # Get lamp power
             lamp_power = self.get_lamp_power_func(system_type.encode('utf-8'))
 
-            # Initialize default arrays
+            # Initialize arrays with defaults
             power = [CONFIG.RED_CALCULATOR_DEFAULT_DRIVE] * n_lamps
             efficiency = [CONFIG.RED_CALCULATOR_DEFAULT_EFFICIENCY] * n_lamps
 
             # Process power settings
             if power_settings:
-                # First apply all_lamps setting if present
                 if 'all_lamps' in power_settings:
                     power = [float(power_settings['all_lamps'])] * n_lamps
 
-                # Then apply specific lamp settings
                 if 'specific_lamps' in power_settings:
                     for lamp_idx_str, value in power_settings['specific_lamps'].items():
                         try:
-                            idx = int(lamp_idx_str) - 1  # Convert 1-based to 0-based indexing
+                            idx = int(lamp_idx_str) - 1
                             if 0 <= idx < n_lamps:
                                 power[idx] = float(value)
                             else:
                                 return {
-                                    "error": f"Invalid lamp index {lamp_idx_str}. System has {n_lamps} lamps"
+                                    "status": "error",
+                                    "error": {
+                                        "type": "validation",
+                                        "message": f"Invalid lamp index {lamp_idx_str}. System has {n_lamps} lamps"
+                                    },
+                                    "parameters": {
+                                        "system_type": system_type,
+                                        "flow": flow,
+                                        "uvt": uvt,
+                                        "power_settings": power_settings
+                                    }
                                 }
                         except (ValueError, IndexError):
                             return {
-                                "error": f"Invalid lamp power setting for lamp {lamp_idx_str}"
+                                "status": "error",
+                                "error": {
+                                    "type": "validation",
+                                    "message": f"Invalid lamp power setting for lamp {lamp_idx_str}"
+                                },
+                                "parameters": {
+                                    "system_type": system_type,
+                                    "flow": flow,
+                                    "uvt": uvt,
+                                    "power_settings": power_settings
+                                }
                             }
 
             # Process efficiency settings
             if efficiency_settings:
-                # First apply all_lamps setting if present
                 if 'all_lamps' in efficiency_settings:
                     efficiency = [float(efficiency_settings['all_lamps'])] * n_lamps
 
-                # Then apply specific lamp settings
                 if 'specific_lamps' in efficiency_settings:
                     for lamp_idx_str, value in efficiency_settings['specific_lamps'].items():
                         try:
@@ -307,24 +444,54 @@ class REDLibrary:
                                 efficiency[idx] = float(value)
                             else:
                                 return {
-                                    "error": f"Invalid lamp index {lamp_idx_str}. System has {n_lamps} lamps"
+                                    "status": "error",
+                                    "error": {
+                                        "type": "validation",
+                                        "message": f"Invalid lamp index {lamp_idx_str}. System has {n_lamps} lamps"
+                                    },
+                                    "parameters": {
+                                        "system_type": system_type,
+                                        "flow": flow,
+                                        "uvt": uvt,
+                                        "efficiency_settings": efficiency_settings
+                                    }
                                 }
                         except (ValueError, IndexError):
                             return {
-                                "error": f"Invalid lamp efficiency setting for lamp {lamp_idx_str}"
+                                "status": "error",
+                                "error": {
+                                    "type": "validation",
+                                    "message": f"Invalid lamp efficiency setting for lamp {lamp_idx_str}"
+                                },
+                                "parameters": {
+                                    "system_type": system_type,
+                                    "flow": flow,
+                                    "uvt": uvt,
+                                    "efficiency_settings": efficiency_settings
+                                }
                             }
 
-            # Convert lists to ctypes arrays
+            # Prepare arrays for calculation
             power_array = (ctypes.c_double * n_lamps)(*power)
             efficiency_array = (ctypes.c_double * n_lamps)(*efficiency)
 
-            # Get and call RED calculation function
+            # Get RED calculation function
             red_func = self.get_red_function(system_type.encode('utf-8'))
             if not red_func:
                 return {
-                    "error": f"Could not get RED calculation function for system {system_type}"
+                    "status": "error",
+                    "error": {
+                        "type": "system",
+                        "message": f"Could not get RED calculation function for system {system_type}"
+                    },
+                    "parameters": {
+                        "system_type": system_type,
+                        "flow": flow,
+                        "uvt": uvt
+                    }
                 }
 
+            # Calculate RED
             result = red_func(
                 ctypes.c_double(flow),
                 ctypes.c_double(uvt),
@@ -338,11 +505,23 @@ class REDLibrary:
             # Validate result
             if result <= 0:
                 return {
-                    "error": "Calculation resulted in invalid RED value"
+                    "status": "error",
+                    "error": {
+                        "type": "calculation",
+                        "message": "Calculation resulted in invalid RED value"
+                    },
+                    "parameters": {
+                        "system_type": system_type,
+                        "flow": flow,
+                        "uvt": uvt,
+                        "power_settings": power_settings or {},
+                        "efficiency_settings": efficiency_settings or {"all_lamps": 80.0}
+                    }
                 }
 
-            # Prepare detailed output
+            # Return successful result
             return {
+                "status": "success",
                 "result": round(result, 1),
                 "details": {
                     "system_type": system_type,
@@ -363,7 +542,16 @@ class REDLibrary:
 
         except Exception as e:
             return {
-                "error": f"Calculation error: {str(e)}"
+                "status": "error",
+                "error": {
+                    "type": "system",
+                    "message": f"Calculation error: {str(e)}"
+                },
+                "parameters": {
+                    "system_type": system_type,
+                    "flow": flow,
+                    "uvt": uvt
+                }
             }
 
     def detect_calculation_content(self, text: str, template: Dict) -> Dict:
@@ -515,11 +703,21 @@ class REDLibrary:
             if result is None:
                 return {"error": "Failed to execute function"}
 
-            return {
+            # Modify this part
+            response_dict = {
                 "function": function_call['name'],
-                "parameters": json.loads(function_call['arguments']),
-                "result": result
+                "parameters": json.loads(function_call['arguments'])
             }
+
+            # Handle validation errors and successful calculations differently
+            if isinstance(result, dict):
+                if 'error' in result:
+                    response_dict['error'] = result['error']
+                    response_dict['original_parameters'] = result.get('original_parameters', {})
+                else:
+                    response_dict['result'] = result
+
+            return response_dict
 
         except Exception as e:
             logging.error(f"Error in process_query: {str(e)}")

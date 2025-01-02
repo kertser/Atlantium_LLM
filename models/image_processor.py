@@ -150,7 +150,7 @@ class ImageProcessor:
                 "analysis": ""
             }
 
-    def get_relevant_images(self, results: List[Dict], query_text: str) -> List[Dict]:
+    def get_relevant_images(self, results: List[Dict]) -> List[Dict]:
         """Get and process relevant images from search results."""
         relevant_images = []
         try:

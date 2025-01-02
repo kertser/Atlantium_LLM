@@ -526,11 +526,32 @@ class RAGQueryServer:
                     images=[]
                 )
 
-            # Handle calculator queries
-            if calculator_response := await self._handle_calculator_query(query_text):
-                return calculator_response
+            # Detect if query requires calculator agent
+            agent_requirements = await self.agent_manager.detect_agent_requirements(query_text)
 
-            # Process with RAG
+            # If it's a calculator query, handle it with proper error reporting
+            if agent_requirements.get('calculator'):
+                try:
+                    calc_results = await self.agent_manager.process_with_agents(
+                        query_text,
+                        agent_requirements
+                    )
+
+                    if calc_results and 'calculator' in calc_results:
+                        # Always use aggregate_responses for formatting
+                        text_response = await self.agent_manager.aggregate_responses(
+                            "",  # Empty string since it's a pure calculation
+                            calc_results
+                        )
+                        return QueryResponse(text_response=text_response, images=[])
+
+                except Exception as e:
+                    logging.error(f"Error in calculator processing: {e}")
+                    return QueryResponse(
+                        text_response=f"Error in calculation: {str(e)}",
+                        images=[]
+                    )
+
             results = query_with_context(
                 index=self.index,
                 metadata=self.metadata,

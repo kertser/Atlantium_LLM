@@ -8,26 +8,41 @@ format:
   header: "## Calculation Results"
   sections:
     system:
-      title: "System Parameters"
+      title: "### System Parameters"
       template: |
-        - System: {system_type}
-        - Flow Rate: {flow} m³/h
-        - UVT: {uvt}%-1cm
+        • System: {system_type}
+        • Number of Lamps: {number_of_lamps}
+        • Lamp Power: {lamp_power_watts} W
+        • Flow Rate: {flow} m³/h
+        • UVT: {uvt}%-1cm
+
+    lamp_settings:
+      title: "### Lamp Settings"
+      power_template: |
+        **Power Settings:**
+        {power_settings}
+
+      efficiency_template: |
+        **Efficiency Settings:**
+        {efficiency_settings}
 
     results:
-      title: ""
+      title: "### Results"
       template: |
-        - RED Value: {red_value} mJ/cm²
-        {validation_message}
+        • RED Value: {red_value} mJ/cm²
 
 styling:
-  section_separator: "\n"
+  section_separator: "\n\n"
   parameter_separator: "\n"
   emphasis: "**"
   warning: "> ⚠️ "
+  error: "> ❌ "
   success: "> ✅ "
+  info: "> ℹ️ "
 
 validation_messages:
   success: "> ✅ Calculation completed successfully"
-  warning: "> ⚠️ {message}"
-  error: "> ❌ {message}"
+  parameter_error: "> ❌ Parameter out of specification: {parameter}"
+  range_info: "> ℹ️ Valid range for {parameter}: {min} - {max} {unit}"
+  system_error: "> ❌ System validation error: {message}"
+  calculation_error: "> ❌ Calculation error: {message}"
