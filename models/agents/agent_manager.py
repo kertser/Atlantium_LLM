@@ -313,7 +313,7 @@ class AgentManager:
             ]
 
             if rag_response.strip():
-                return f"{rag_response}\n\n{'\n'.join(calc_section)}"
+                return f"{rag_response}\n\n" + "\n".join(calc_section)
             return "\n".join(calc_section)
 
         return rag_response
