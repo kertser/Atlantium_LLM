@@ -27,7 +27,7 @@ ENV PYTHONUNBUFFERED=1 \
     KMP_DUPLICATE_LIB_OK=TRUE \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONIOENCODING=utf-8 \
-    LD_LIBRARY_PATH=/app/models/agents/resources:$LD_LIBRARY_PATH
+    LD_LIBRARY_PATH=/app/models/agents/resources
 
 # Create non-root user and setup sudo
 RUN useradd -m -u 1000 appuser && \
@@ -68,14 +68,12 @@ RUN mkdir -p "/app/RAG_Data/stored_images" \
              "/app/Raw Documents" \
              /app/logs \
              /app/models/agents/resources && \
-    cp /lib/x86_64-linux-gnu/libjson-c.so.5.3.0 /app/models/agents/resources/libjson-c.so.5 && \
+    cp $(find /lib/x86_64-linux-gnu -name "libjson-c.so*" | grep -E "libjson-c\.so\.[0-9]+$") /app/models/agents/resources/libjson-c.so.5 && \
     chmod +x /app/models/agents/resources/libjson-c.so.5 && \
     chown -R appuser:appuser /app && \
     find /app -type d -exec chmod 775 {} \; && \
     find /app -type f -exec chmod 664 {} \; && \
     chmod 755 /app/docker-entrypoint.sh && \
-    # Set correct permissions for libraries
-    chmod 755 /app/models/agents/resources/*.so* && \
     # Verify the ownership
     ls -la /app/RAG_Data && \
     ls -la "/app/Raw Documents" && \
