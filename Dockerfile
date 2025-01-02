@@ -16,7 +16,9 @@ RUN apt-get clean && \
         python3-dev \
         netcat-traditional \
         pciutils \
-        sudo && \
+        sudo \
+        libjson-c5 \
+        patchelf && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -24,7 +26,8 @@ RUN apt-get clean && \
 ENV PYTHONUNBUFFERED=1 \
     KMP_DUPLICATE_LIB_OK=TRUE \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONIOENCODING=utf-8
+    PYTHONIOENCODING=utf-8 \
+    LD_LIBRARY_PATH=/app/models/agents/resources:$LD_LIBRARY_PATH
 
 # Create non-root user and setup sudo
 RUN useradd -m -u 1000 appuser && \
@@ -63,15 +66,29 @@ COPY . .
 RUN mkdir -p "/app/RAG_Data/stored_images" \
              "/app/RAG_Data/stored_text_chunks" \
              "/app/Raw Documents" \
-             /app/logs && \
+             /app/logs \
+             /app/models/agents/resources && \
+    cp /lib/x86_64-linux-gnu/libjson-c.so.5.3.0 /app/models/agents/resources/libjson-c.so.5 && \
+    chmod +x /app/models/agents/resources/libjson-c.so.5 && \
     chown -R appuser:appuser /app && \
     find /app -type d -exec chmod 775 {} \; && \
     find /app -type f -exec chmod 664 {} \; && \
     chmod 755 /app/docker-entrypoint.sh && \
+    # Set correct permissions for libraries
+    chmod 755 /app/models/agents/resources/*.so* && \
     # Verify the ownership
     ls -la /app/RAG_Data && \
     ls -la "/app/Raw Documents" && \
-    ls -la /app/logs
+    ls -la /app/logs && \
+    ls -la /app/models/agents/resources
+
+# Fix library paths if needed
+RUN cd /app/models/agents/resources && \
+    if [ -f "libred_api.so.1.0" ]; then \
+        patchelf --set-rpath '\$ORIGIN' libred_api.so.1.0 && \
+        ln -sf libred_api.so.1.0 libred_api.so && \
+        ln -sf libred_api.so.1.0 libred_api.so.1; \
+    fi
 
 # Switch to appuser for runtime
 USER appuser

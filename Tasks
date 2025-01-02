@@ -12,7 +12,6 @@
 * Add option for "chat with live operator" (A button with contacts or whatsapp)
 * Calculator API:
     - Check with linux
-* Images are not treated properly in the document processing. Need to add the image processing and search by image
 * Remove Safety & Maintenance from templates (make it optional)
 
 
