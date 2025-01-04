@@ -1,83 +1,103 @@
 from duckduckgo_search import DDGS
-from typing import List, Dict, Optional
+from typing import Dict, Optional
 
 
-class WebSearch:
-    """Web search and chat implementation using DuckDuckGo"""
+class WebSearchAgent:
+    """
+    Fallback web search agent for when RAG returns no results.
+    Uses DuckDuckGo's AI chat for generating relevant responses.
+    """
 
-    def __init__(self):
-        self.ddgs = DDGS()
-
-    def search(self, query: str, max_results: int = 5) -> List[Dict]:
-        """Regular web search"""
-        try:
-            results = list(self.ddgs.text(query, max_results=max_results))
-            return results
-        except Exception as e:
-            print(f"Search error: {str(e)}")
-            return []
-
-    def chat_query(self,
-                   query: str,
-                   model: str = "gpt-4o-mini",
-                   timeout: int = 30) -> Optional[str]:
+    def __init__(self, model: str = "gpt-4o-mini"):
         """
-        Get an AI-powered response using DuckDuckGo chat
+        Initialize the web search agent
 
         Args:
-            query: Question or topic to discuss
-            model: AI model to use. Options:
-                - "gpt-4o-mini" (default)
-                - "claude-3-haiku"
-                - "llama-3.1-70b"
-                - "mixtral-8x7b"
-            timeout: Request timeout in seconds (default: 30)
+            model: Default AI model to use for chat responses
+        """
+        self.ddgs = DDGS()
+        self.default_model = model
+
+    def get_response(self,
+                     query: str,
+                     context: Optional[str] = None,
+                     model: Optional[str] = None) -> Dict[str, str]:
+        """
+        Get AI-powered response for a query
+
+        Args:
+            query: User's question
+            context: Optional context about Atlantium Technologies
+            model: Override default model choice
 
         Returns:
-            AI response or None if error occurs
+            Dictionary containing response and metadata
         """
         try:
+            # Add context if provided
+            if context:
+                enhanced_query = f"In the context of {context}, {query}"
+            else:
+                enhanced_query = query
+
+            # Get response from DuckDuckGo chat
             response = self.ddgs.chat(
-                keywords=query,
-                model=model,
-                timeout=timeout
+                keywords=enhanced_query,
+                model=model or self.default_model,
+                timeout=30
             )
-            return response
+
+            return {
+                'status': 'success',
+                'response': response,
+                'source': 'web_search',
+                'model_used': model or self.default_model
+            }
+
         except Exception as e:
-            print(f"Chat error: {str(e)}")
-            return None
+            return {
+                'status': 'error',
+                'response': f"Failed to get web search response: {str(e)}",
+                'source': 'web_search',
+                'model_used': model or self.default_model
+            }
 
 
-def main():
-    searcher = WebSearch()
+# Usage example in your RAG system:
+"""
+from models.agents.websearch_agent import WebSearchAgent
 
-    print("Available models:")
-    print("1. gpt-4o-mini (default)")
-    print("2. claude-3-haiku")
-    print("3. llama-3.1-70b")
-    print("4. mixtral-8x7b")
+class RAGSystem:
+    def __init__(self):
+        self.web_search = WebSearchAgent(model="claude-3-haiku")  # Initialize with preferred model
+        # ... other RAG system initialization ...
 
-    query = input("\nEnter your question: ")
-    model = input("Choose model (press Enter for default): ").strip()
+    async def get_answer(self, query: str) -> Dict:
+        # First try RAG
+        rag_results = self.retrieve_documents(query)
 
-    # Map model choice to actual model name
-    model_map = {
-        "1": "gpt-4o-mini",
-        "2": "claude-3-haiku",
-        "3": "llama-3.1-70b",
-        "4": "mixtral-8x7b"
-    }
+        if not rag_results:  # If RAG returns no documents
+            # Use web search as fallback
+            context = "Atlantium Technologies, a company specializing in UV water treatment solutions"
+            web_result = self.web_search.get_response(
+                query=query,
+                context=context
+            )
+            return {
+                'answer': web_result['response'],
+                'source': 'web_search',
+                'model': web_result['model_used']
+            }
 
-    chosen_model = model_map.get(model, "gpt-4o-mini")
-
-    response = searcher.chat_query(query, model=chosen_model)
-
-    if response:
-        print("\nAI Response:")
-        print(response)
-    else:
-        print("Failed to get response.")
-
+        # Continue with normal RAG processing if documents were found
+        return self.process_rag_results(rag_results)
+"""
 
 if __name__ == "__main__":
-    main()
+    # Test the agent directly
+    agent = WebSearchAgent()
+    result = agent.get_response(
+        query="What are Atlantium's main water treatment technologies?",
+        context="Atlantium Technologies is a water treatment company"
+    )
+    print(result['response'])
