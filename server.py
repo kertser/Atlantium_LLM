@@ -593,8 +593,18 @@ class RAGQueryServer:
                 else:
                     text_response = self._create_no_results_response(query_text)
 
+                # Format the response text
                 formatted_response = self.formatter.format_response(text_response)
-                return QueryResponse(text_response=formatted_response, images=[])
+
+                # Update chat history
+                # self._update_chat_history(query_text, formatted_response)
+
+                # Create and return the final response
+                final_response = QueryResponse(
+                    text_response=formatted_response,
+                    images=[]
+                )
+                return final_response
             else:
 
                 # Generate response
