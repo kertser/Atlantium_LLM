@@ -81,6 +81,10 @@ class Config:
     TEMPERATURE: float = 0.01
     GPT_MODEL: str = "gpt-4o-mini"
 
+    # Web Search Configuration
+    WEB_SEARCH_MAX_RESULTS: int = 10
+    WEB_SEARCH_MODEL: str = "gpt-4o-mini"
+
     # Vision model settings
     GPT_VISION_MODEL: str = "gpt-4o"
     VISION_MAX_TOKENS: int = 4096

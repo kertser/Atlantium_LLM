@@ -8,21 +8,25 @@ class WebSearchAgent:
     Uses DuckDuckGo's AI chat for generating relevant responses.
     """
 
-    def __init__(self, model: str = "gpt-4o-mini"):
+    def __init__(self, model: str = "gpt-4o-mini", max_results: int = 10):
         """
         Initialize the web search agent
 
         Args:
             model: Default AI model to use for chat responses
+            max_results: Maximum number of search results to retrieve
         """
         self.ddgs = DDGS()
         self.default_model = model
+        self.max_results = max_results
 
-    def get_response(self,
-                     query: str,
-                     context: Optional[str] = None,
-                     model: Optional[str] = None,
-                     max_results: int = 10) -> Dict[str, str]:
+    def get_response(
+            self,
+            query: str,
+            context: Optional[str] = None,
+            model: Optional[str] = None,
+            max_results: Optional[int] = None
+    ) -> Dict[str, str]:
         """
         Get AI-powered response for a query.
         If context is provided, retrieve the context from the web search and use AI chat to summarize it.
@@ -32,31 +36,38 @@ class WebSearchAgent:
             query: User's question
             context: Optional context to enhance the query
             model: Override default model choice
-            max_results: Maximum number of search results to retrieve
+            max_results: Maximum number of search results to retrieve, defaults to self.max_results
 
         Returns:
             Dictionary containing response and metadata
         """
         try:
-            if context:
-                # Get search results from DuckDuckGo
-                results = self.ddgs.text(
-                    keywords=context,
-                    region='wt-wt',
-                    safesearch='moderate',
-                    timelimit='y',
-                    max_results=max_results
-                )
+            # Use instance max_results if not specified
+            max_results = max_results if max_results is not None else self.max_results
 
-                # Generate a summary from the search results
-                summary = self.summarize_results(results)
-                enhanced_query = f"In the context of {summary}, {query}"
+            if context:
+                try:
+                    # Get search results from DuckDuckGo
+                    results = list(self.ddgs.text(
+                        keywords=context,
+                        region='wt-wt',
+                        safesearch='moderate',
+                        timelimit='y',
+                        max_results=max_results
+                    ))
+
+                    # Generate a summary from the search results
+                    summary = self.summarize_results(results)
+                    enhanced_query = f"In the context of {summary}, {query}"
+                except Exception as search_error:
+                    # If web search fails, fall back to just the query
+                    enhanced_query = query
             else:
                 enhanced_query = query
 
             # Get response from DuckDuckGo chat
             response = self.ddgs.chat(
-                keywords=enhanced_query,
+                keywords=enhanced_query,  # Changed to keywords
                 model=model or self.default_model,
                 timeout=30
             )
@@ -65,7 +76,8 @@ class WebSearchAgent:
                 'status': 'success',
                 'response': response,
                 'source': 'web_search',
-                'model_used': model or self.default_model
+                'model_used': model or self.default_model,
+                'enhanced_query': enhanced_query
             }
 
         except Exception as e:
@@ -73,7 +85,8 @@ class WebSearchAgent:
                 'status': 'error',
                 'response': f"Failed to get web search response: {str(e)}",
                 'source': 'web_search',
-                'model_used': model or self.default_model
+                'model_used': model or self.default_model,
+                'error': str(e)
             }
 
     @staticmethod
@@ -90,13 +103,22 @@ class WebSearchAgent:
         if not results:
             return "No results found."
 
-        summary = []
-        for result in results:
-            title = result.get("title", "No title")
-            body = result.get("body", "No description available")
-            summary.append(f"{title}: {body}")
+        # Limit the number of results to summarize to prevent overly long summaries
+        MAX_RESULTS_TO_SUMMARIZE = 5
+        summary_parts = []
 
-        return "\n".join(summary)
+        for result in results[:MAX_RESULTS_TO_SUMMARIZE]:
+            title = result.get("title", "").strip()
+            body = result.get("body", "").strip()
+
+            if title and body:
+                summary_parts.append(f"{title}: {body}")
+            elif title:
+                summary_parts.append(title)
+            elif body:
+                summary_parts.append(body)
+
+        return " | ".join(summary_parts) if summary_parts else "No relevant information found."
 
 
 if __name__ == "__main__":
@@ -107,13 +129,14 @@ if __name__ == "__main__":
     result = agent.get_response(
         query="How cold is it?"  # No context is provided, therefore AI only
     )
+    print("Direct query result:")
     print(result['response'])
-
-    print("-" * 80 + '\n')
+    print("\n" + "-" * 80 + "\n")
 
     # Test chat response with context
     result = agent.get_response(
-        query="Weather in israel",  # AI-bases summary by query
-        context="Weather in israel"  # What shall be searched in the web
+        query="What is the current temperature?",  # AI-based summary by query
+        context="Weather in Tel Aviv today"  # What shall be searched in the web
     )
+    print("Query with context result:")
     print(result['response'])

@@ -65,6 +65,7 @@ from utils.document_utils import (
     rescan_documents,
 )
 from models.agents.agent_manager import AgentManager
+from models.agents.websearch_agent import WebSearchAgent
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
@@ -311,6 +312,9 @@ class RAGQueryServer:
             device=self.device,
             formatter=self.formatter
         )
+
+        # Initialize the web search agent
+        self.websearch = WebSearchAgent(model=CONFIG.WEB_SEARCH_MODEL, max_results=CONFIG.WEB_SEARCH_MAX_RESULTS)
 
         # Initialize index and chat history
         self._initialize_index()
@@ -740,7 +744,6 @@ class RAGQueryServer:
         except Exception as e:
             logging.error(f"Error generating response: {e}")
             raise
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
