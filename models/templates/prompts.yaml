@@ -30,7 +30,7 @@ system:
     4. TECHNICAL PRECISION:
        - Include units with all measurements
        - Specify operating conditions
-       - Note safety considerations (only if applicable)
+       - Note safety considerations
        - Reference relevant standards
        - Provide error margins where applicable
 
@@ -119,7 +119,7 @@ system:
       [Step-by-step implementation guidelines]
       
       ### Safety Considerations
-      [Required safety measures and warnings, if applicable]
+      [Required safety measures and warnings]
 
       Example:
       ## Overview
@@ -218,7 +218,7 @@ system:
        - What are the documented specifications?
        - What are the related components?
     
-    4. Maintenance & Safety (only if applicable):
+    4. Maintenance & Safety:
        - Documented maintenance procedures
        - Known issues or considerations
        - Safety requirements
@@ -285,7 +285,7 @@ templates:
     1. Reference the specific documents using ""document_name""
     2. Explain how this matches or differs from documented specifications
     3. Describe its role in the larger UV system
-    4. Include any documented maintenance or safety requirements (if applicable)
+    4. Include any documented maintenance or safety requirements
     
     Analysis Framework:
     1. Documentation Match Analysis:
@@ -303,17 +303,14 @@ templates:
        - Related components
        - Critical parameters
     
-    4. Safety & Maintenance (only if applicable):
+    4. Safety & Maintenance:
        - Documented procedures
        - Warning indicators
        - Maintenance points
 
   no_answer_prompt: |
     I apologize, but the available documentation does not contain sufficient information to answer your query about: {query}
-    
-    Based on web search results:
-    {web_results}
-    
+
     Missing Information:
     - [Specific details unavailable in current documentation]
     
@@ -499,7 +496,7 @@ instructions:
     - Start with fundamental concepts
     - Include relevant specifications
     - Provide step-by-step procedures
-    - Highlight critical safety information (if applicable)
+    - Highlight critical safety information
     - Reference specific documentation sections
     - Include verification steps
     - Note environmental requirements

@@ -168,10 +168,10 @@ class PromptBuilder:
             {"role": "user", "content": prompt}
         ]
 
-    def build_no_answer_message(self, query_text: str, web_search_results: str) -> List[Dict[str, str]]:
+    def build_no_answer_message(self, query_text: str) -> List[Dict[str, str]]:
         """Build a no-answer message if no relevant information is found."""
         no_answer_prompt = self.loader.get_no_answer_prompt()
-        formatted_no_answer = no_answer_prompt.format(query=query_text, web_results=web_search_results)
+        formatted_no_answer = no_answer_prompt.format(query=query_text)
         return [
             {
                 "role": "system",
