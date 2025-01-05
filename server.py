@@ -574,6 +574,30 @@ class RAGQueryServer:
             if special_response := self._handle_special_cases(query_text, contexts):
                 return special_response
 
+            # If no relevant local results found or similarity scores are low, use web search
+            if not contexts or all(result['distance'] > (1 - CONFIG.SIMILARITY_THRESHOLD) for result in results[0]):
+                logging.info("Insufficient local context found, using web search")
+
+                # Use web search with both context and direct query
+                web_result = self.websearch.get_response(
+                    query=query_text,
+                    context=query_text,  # Using query as context to get broader web results
+                    model=CONFIG.WEB_SEARCH_MODEL
+                )
+
+                if web_result['status'] == 'success':
+                    web_response = web_result['response']
+                    contexts.append(f"Web Search Result: {web_response}")
+
+                    text_response = f"Based on web search: {web_response}"
+                    formatted_response = self.formatter.format_response(text_response)
+
+                    return QueryResponse(
+                        # Format the response text
+                        text_response=formatted_response,
+                        images=initial_images
+                    )
+
             # Generate response
             query_type = self.determine_query_type(query_text)
             formatted_prompt = self.formatter.prompt_builder.build_chat_prompt(
