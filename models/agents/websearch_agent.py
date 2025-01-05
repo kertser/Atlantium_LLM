@@ -1,10 +1,10 @@
 from duckduckgo_search import DDGS
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 
 
 class WebSearchAgent:
     """
-    Fallback web search agent for when RAG returns no results.
+    Web search agent for generating responses and summaries.
     Uses DuckDuckGo's AI chat for generating relevant responses.
     """
 
@@ -21,22 +21,36 @@ class WebSearchAgent:
     def get_response(self,
                      query: str,
                      context: Optional[str] = None,
-                     model: Optional[str] = None) -> Dict[str, str]:
+                     model: Optional[str] = None,
+                     max_results: int = 10) -> Dict[str, str]:
         """
-        Get AI-powered response for a query
+        Get AI-powered response for a query.
+        If context is provided, retrieve the context from the web search and use AI chat to summarize it.
+        If no context is provided, get results from the web search.
 
         Args:
             query: User's question
-            context: Optional context about Atlantium Technologies
+            context: Optional context to enhance the query
             model: Override default model choice
+            max_results: Maximum number of search results to retrieve
 
         Returns:
             Dictionary containing response and metadata
         """
         try:
-            # Add context if provided
             if context:
-                enhanced_query = f"In the context of {context}, {query}"
+                # Get search results from DuckDuckGo
+                results = self.ddgs.text(
+                    keywords=context,
+                    region='wt-wt',
+                    safesearch='moderate',
+                    timelimit='y',
+                    max_results=max_results
+                )
+
+                # Generate a summary from the search results
+                summary = self.summarize_results(results)
+                enhanced_query = f"In the context of {summary}, {query}"
             else:
                 enhanced_query = query
 
@@ -62,42 +76,44 @@ class WebSearchAgent:
                 'model_used': model or self.default_model
             }
 
+    @staticmethod
+    def summarize_results(results: List[Dict[str, str]]) -> str:
+        """
+        Generate a summary from search results
 
-# Usage example in your RAG system:
-"""
-from models.agents.websearch_agent import WebSearchAgent
+        Args:
+            results: List of search result dictionaries
 
-class RAGSystem:
-    def __init__(self):
-        self.web_search = WebSearchAgent(model="claude-3-haiku")  # Initialize with preferred model
-        # ... other RAG system initialization ...
+        Returns:
+            Summary string
+        """
+        if not results:
+            return "No results found."
 
-    async def get_answer(self, query: str) -> Dict:
-        # First try RAG
-        rag_results = self.retrieve_documents(query)
+        summary = []
+        for result in results:
+            title = result.get("title", "No title")
+            body = result.get("body", "No description available")
+            summary.append(f"{title}: {body}")
 
-        if not rag_results:  # If RAG returns no documents
-            # Use web search as fallback
-            context = "Atlantium Technologies, a company specializing in UV water treatment solutions"
-            web_result = self.web_search.get_response(
-                query=query,
-                context=context
-            )
-            return {
-                'answer': web_result['response'],
-                'source': 'web_search',
-                'model': web_result['model_used']
-            }
+        return "\n".join(summary)
 
-        # Continue with normal RAG processing if documents were found
-        return self.process_rag_results(rag_results)
-"""
 
 if __name__ == "__main__":
     # Test the agent directly
     agent = WebSearchAgent()
+
+    # Test web search summary (no context provided)
     result = agent.get_response(
-        query="What are Atlantium's main water treatment technologies?",
-        context="Atlantium Technologies is a water treatment company"
+        query="How cold is it?"  # No context is provided, therefore AI only
+    )
+    print(result['response'])
+
+    print("-" * 80 + '\n')
+
+    # Test chat response with context
+    result = agent.get_response(
+        query="Weather in israel",  # AI-bases summary by query
+        context="Weather in israel"  # What shall be searched in the web
     )
     print(result['response'])
