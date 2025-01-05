@@ -145,7 +145,7 @@ class QueryType(BaseModel):
     is_overview: bool = False
     is_technical: bool = False
     is_summary: bool = False
-    is_base: bool = True
+    is_general: bool = True
 
 
 class QueryResponse(BaseModel):
@@ -344,7 +344,8 @@ class RAGQueryServer:
                     "role": "system",
                     "content": """Analyze queries to determine their type. Consider:
                         - Query domain (technical, summary, overview or general knowledge)
-                        - Reply with the following types: overview, technical, summary, base
+                        - Reply with the following types: overview, technical, summary, general
+                        - Choose only one, most relevant type based on the query
                         Analyze the full semantic meaning of the query."""
                 },
                 {
@@ -369,7 +370,7 @@ class RAGQueryServer:
                 is_overview="overview" in classification,
                 is_technical="technical" in classification,
                 is_summary="summary" in classification,
-                is_base="base" in classification
+                is_general="general" in classification
             )
 
         except Exception as e:
@@ -379,7 +380,7 @@ class RAGQueryServer:
                 is_overview=False,
                 is_technical=False,
                 is_summary=False,
-                is_base=True  # Default fallback assumption
+                is_general=True  # Default fallback assumption
             )
 
     async def get_relevant_contexts(self, results: List[Dict], query_text: str) -> Tuple[List[str], List[Dict]]:
@@ -610,11 +611,12 @@ class RAGQueryServer:
 
             # Get contexts and process special cases
             contexts, initial_images = await self.get_relevant_contexts(results, query_text)
-            if not contexts:
+
+            query_type = await self.determine_query_type(query_text)
+
+            # if no contexts or general question: return websearch results
+            if not contexts or query_type.is_general:
                 contexts = self._create_no_results_response(query_text)
-                query_type = QueryType(is_base=True)
-            else:
-                query_type = await self.determine_query_type(query_text)
 
             print(query_type)
             formatted_prompt = self.formatter.prompt_builder.build_chat_prompt(

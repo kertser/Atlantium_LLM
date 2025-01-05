@@ -108,6 +108,7 @@ class PromptBuilder:
             contexts: List[str],
             images: List[Dict],
             chat_history: List[Dict],
+            is_general: bool = True,
             is_technical: bool = False,
             is_summary: bool = False,
             is_overview: bool = False,
@@ -146,7 +147,7 @@ class PromptBuilder:
             image_context = "\n\nRelevant Images:\n" + "\n".join(image_descriptions)
 
         # Combine instructions
-        instructions = self.loader.get_instructions('base')
+        instructions = self.loader.get_instructions('general')
         if is_technical:
             instructions.extend(self.loader.get_instructions('technical'))
         elif is_summary:
