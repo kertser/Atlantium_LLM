@@ -191,9 +191,11 @@ system:
     ERROR HANDLING:
     If information is insufficient:
     ** The provided documentation does not contain enough information to fully answer this query. **
-    1. Specify missing information
-    2. Suggest alternative approaches
-    3. Request additional details
+    - Specify missing information (is any)
+    - Suggest alternative approaches (if exist)
+    - Request additional details (if needed)
+    - Provide partial answer from websearch (if available)
+    {websearch data}
 
   vision_assistant: |
     You are a technical vision analysis assistant for Atlantium Technologies, specializing in water treatment systems and UV technology. Your role is to:
@@ -264,9 +266,9 @@ templates:
     Technical Image Analysis:
     Source: {source}
     Image Description: 
-    {caption}
+    {caption_text}
     Technical Context:
-    {context}
+    {context_text}
 
   image_query_with_context: |
     Please analyze this technical image from a UV water treatment system perspective.

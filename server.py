@@ -65,6 +65,7 @@ from utils.document_utils import (
     rescan_documents,
 )
 from models.agents.agent_manager import AgentManager
+from models.agents.websearch_agent import WebSearchAgent
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
@@ -602,15 +603,19 @@ class RAGQueryServer:
             )
 
             if not results:
-                return self._create_no_results_response(query_text)
+                return QueryResponse(
+                    text_response="No relevant information found. Please try again.",
+                    images=[]
+                )
 
             # Get contexts and process special cases
             contexts, initial_images = await self.get_relevant_contexts(results, query_text)
             if not contexts:
-                return self._create_no_results_response(query_text)
+                contexts = self._create_no_results_response(query_text)
+                query_type = QueryType(is_base=True)
+            else:
+                query_type = await self.determine_query_type(query_text)
 
-            # Generate response
-            query_type = await self.determine_query_type(query_text)
             print(query_type)
             formatted_prompt = self.formatter.prompt_builder.build_chat_prompt(
                 query_text=query_text,
@@ -619,32 +624,11 @@ class RAGQueryServer:
                 chat_history=[],
                 is_technical=query_type.is_technical,
                 is_summary=query_type.is_summary,
-                is_overview=query_type.is_overview,
+                is_overview=query_type.is_overview
             )
 
             # Prepare messages for OpenAI
             messages = self.formatter.prompt_builder.build_messages(formatted_prompt)
-
-            """
-            # Add system message for technical queries
-            if query_type.is_technical:
-                messages.append({
-                    "role": "system",
-                    "content": "Provide only essential technical information. Avoid theoretical explanations."
-                })
-
-            if query_type.is_summary:
-                messages.append({
-                    "role": "system",
-                    "content": "Summarize the information in a concise manner."
-                })
-
-            if query_type.is_overview:
-                messages.append({
-                    "role": "system",
-                    "content": "Provide a high-level overview of the topic."
-                })
-            """
 
             # Get response from OpenAI
             response = openai_post_request(
@@ -731,12 +715,15 @@ class RAGQueryServer:
             logging.error(f"Error in calculator processing: {e}")
         return None
 
-    def _create_no_results_response(self, query_text: str) -> QueryResponse:
-        """Create response for when no results are found."""
-        return QueryResponse(
-            text_response='No Fucken Idea!',
-            images=[]
-        )
+    @staticmethod
+    def _create_no_results_response(query_text: str) -> str:
+        """Create response for when no context is found by web-search agent"""
+        websearch = WebSearchAgent(model=CONFIG.WEBSEARCH_MODEL, max_results=CONFIG.WEBSEARCH_MAX_RESULTS)
+        web_results = websearch.get_response(query=query_text, context=query_text)['response']
+        answer = (f'Here are some web search results (websearch data) that may help:\n\n {web_results}.\n There is no '
+                  f'technical context for this query') if web_results else ''
+        return answer
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

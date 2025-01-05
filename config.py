@@ -35,6 +35,10 @@ class Config:
     AGGREGATOR_TEMPERATURE: float = 0.1
     AGGREGATOR_MAX_TOKENS: int = 2000
 
+    # WEBSEARCH Configuration
+    WEBSEARCH_MODEL: str = "gpt-4o-mini"
+    WEBSEARCH_MAX_RESULTS: int = 10
+
     # RED Calculator Configuration
     RED_CALCULATOR_MODEL: str = "gpt-4o-mini"
     RED_CALCULATOR_TEMPERATURE: float = 0.1
@@ -48,8 +52,8 @@ class Config:
     USE_GPU: bool = True
 
     # Thresholds (not percentiles)
-    SIMILARITY_THRESHOLD: float = 0.75  # Text similarity
-    IMAGE_SIMILARITY_THRESHOLD: float = 0.3  # Image similarity - set to high value to avoid false positives
+    SIMILARITY_THRESHOLD: float = 0.8  # Text similarity
+    IMAGE_SIMILARITY_THRESHOLD: float = 0.35  # Image similarity - set to high value to avoid false positives
     TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.75  # Technical confidence
     DEDUPLICATION_THRESHOLD = 0.70  # Threshold for image deduplication
 
