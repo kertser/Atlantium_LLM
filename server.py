@@ -313,9 +313,6 @@ class RAGQueryServer:
             formatter=self.formatter
         )
 
-        # Initialize the web search agent
-        self.websearch = WebSearchAgent(model=CONFIG.WEB_SEARCH_MODEL, max_results=CONFIG.WEB_SEARCH_MAX_RESULTS)
-
         # Initialize index and chat history
         self._initialize_index()
         self.chat_history = []
@@ -521,6 +518,20 @@ class RAGQueryServer:
             logging.error(f"Error getting images from response: {e}")
             return []
 
+    async def perform_web_search(self, query_text: str) -> str:
+        """Perform a web search and return the results."""
+        try:
+            websearch_agent = WebSearchAgent(model=CONFIG.WEB_SEARCH_MODEL, max_results=CONFIG.WEB_SEARCH_MAX_RESULTS)
+            web_result = websearch_agent.get_response(query=query_text)
+
+            if web_result['status'] == 'success':
+                return web_result['response']
+            else:
+                return "No relevant information found on the web."
+        except Exception as e:
+            logging.error(f"Error performing web search: {e}")
+            return "Error performing web search."
+
     async def process_text_query(self, query_text: str, top_k: int = CONFIG.DEFAULT_TOP_K) -> QueryResponse:
         """Process a text query and return response with relevant images."""
         try:
@@ -556,6 +567,7 @@ class RAGQueryServer:
                         images=[]
                     )
 
+            # FAISS vector query
             results = query_with_context(
                 index=self.index,
                 metadata=self.metadata,
@@ -566,92 +578,79 @@ class RAGQueryServer:
                 top_k=top_k
             )
 
-            if not results:
-                return self._create_no_results_response(query_text)
-
             # Get contexts and process special cases
             contexts, initial_images = await self.get_relevant_contexts(results, query_text)
             if special_response := self._handle_special_cases(query_text, contexts):
                 return special_response
 
-            # If no relevant local results found or similarity scores are low, use web search
-            if not contexts or all(result['distance'] > (1 - CONFIG.SIMILARITY_THRESHOLD) for result in results[0]):
-                logging.info("Insufficient local context found, using web search")
+            max_similarity = max((1 - result['distance'] / 2) for result in results[0])
 
-                # Use web search with both context and direct query
-                web_result = self.websearch.get_response(
-                    query=query_text,
-                    context=query_text,  # Using query as context to get broader web results
-                    model=CONFIG.WEB_SEARCH_MODEL
+            if (not results) or (not contexts) or (max_similarity < CONFIG.SIMILARITY_THRESHOLD):
+                # No local results found, perform web search
+                web_search_results = await self.perform_web_search(query_text)
+                if web_search_results:
+                    text_response = self._create_no_results_response(query_text, web_search_results)
+                else:
+                    text_response = self._create_no_results_response(query_text)
+
+                formatted_response = self.formatter.format_response(text_response)
+                return QueryResponse(text_response=formatted_response, images=[])
+            else:
+
+                # Generate response
+                query_type = self.determine_query_type(query_text)
+                formatted_prompt = self.formatter.prompt_builder.build_chat_prompt(
+                    query_text=query_text,
+                    contexts=contexts,
+                    images=initial_images,
+                    chat_history=[],
+                    is_technical=query_type.is_technical
                 )
 
-                if web_result['status'] == 'success':
-                    web_response = web_result['response']
-                    contexts.append(f"Web Search Result: {web_response}")
+                # Prepare messages for OpenAI
+                messages = self.formatter.prompt_builder.build_messages(formatted_prompt)
 
-                    text_response = f"Based on web search: {web_response}"
-                    formatted_response = self.formatter.format_response(text_response)
+                # Add system message for technical queries
+                if query_type.is_technical:
+                    messages.append({
+                        "role": "system",
+                        "content": "Provide only essential technical information. Avoid theoretical explanations."
+                    })
 
-                    return QueryResponse(
-                        # Format the response text
-                        text_response=formatted_response,
-                        images=initial_images
-                    )
+                # Get response from OpenAI
+                response = openai_post_request(
+                    messages=messages,
+                    model_name=CONFIG.GPT_MODEL,
+                    max_tokens=CONFIG.DETAIL_MAX_TOKENS,
+                    temperature=CONFIG.TEMPERATURE if query_type.is_technical else 0.7,
+                    api_key=self.openai_api_key
+                )
 
-            # Generate response
-            query_type = self.determine_query_type(query_text)
-            formatted_prompt = self.formatter.prompt_builder.build_chat_prompt(
-                query_text=query_text,
-                contexts=contexts,
-                images=initial_images,
-                chat_history=[],
-                is_technical=query_type.is_technical
-            )
+                # Get the raw response text
+                text_response = response['choices'][0]['message']['content'].strip()
 
-            # Prepare messages for OpenAI
-            messages = self.formatter.prompt_builder.build_messages(formatted_prompt)
+                # Get images from referenced documents using the image processor
+                referenced_images = await self._get_referenced_images(text_response)
 
-            # Add system message for technical queries
-            if query_type.is_technical:
-                messages.append({
-                    "role": "system",
-                    "content": "Provide only essential technical information. Avoid theoretical explanations."
-                })
+                # Combine and deduplicate images using the image processor
+                all_images = initial_images + referenced_images if initial_images else referenced_images
+                if all_images:
+                    all_images = self.image_processor.image_classifier.deduplicate(all_images,
+                                                                                   CONFIG.DEDUPLICATION_THRESHOLD)
 
-            # Get response from OpenAI
-            response = openai_post_request(
-                messages=messages,
-                model_name=CONFIG.GPT_MODEL,
-                max_tokens=CONFIG.DETAIL_MAX_TOKENS,
-                temperature=CONFIG.TEMPERATURE if query_type.is_technical else 0.7,
-                api_key=self.openai_api_key
-            )
+                # Format the response text
+                formatted_response = self.formatter.format_response(text_response)
 
-            # Get the raw response text
-            text_response = response['choices'][0]['message']['content'].strip()
+                # Update chat history
+                self._update_chat_history(query_text, formatted_response)
 
-            # Get images from referenced documents using the image processor
-            referenced_images = await self._get_referenced_images(text_response)
+                # Create and return the final response
+                final_response = QueryResponse(
+                    text_response=formatted_response,
+                    images=all_images
+                )
 
-            # Combine and deduplicate images using the image processor
-            all_images = initial_images + referenced_images if initial_images else referenced_images
-            if all_images:
-                all_images = self.image_processor.image_classifier.deduplicate(all_images,
-                                                                               CONFIG.DEDUPLICATION_THRESHOLD)
-
-            # Format the response text
-            formatted_response = self.formatter.format_response(text_response)
-
-            # Update chat history
-            self._update_chat_history(query_text, formatted_response)
-
-            # Create and return the final response
-            final_response = QueryResponse(
-                text_response=formatted_response,
-                images=all_images
-            )
-
-            return final_response
+                return final_response
 
         except Exception as e:
             logging.error(f"Error processing query: {e}", exc_info=True)
@@ -703,10 +702,11 @@ class RAGQueryServer:
             logging.error(f"Error in calculator processing: {e}")
         return None
 
-    def _create_no_results_response(self, query_text: str) -> QueryResponse:
+    def _create_no_results_response(self, query_text: str, web_search_results: str = "") -> QueryResponse:
         """Create response for when no results are found."""
         return QueryResponse(
-            text_response=self.formatter.prompt_builder.build_no_answer_message(query_text)[1]['content'],
+            text_response=self.formatter.prompt_builder.build_no_answer_message(query_text, web_search_results)[1][
+                'content'],
             images=[]
         )
 
@@ -725,49 +725,6 @@ class RAGQueryServer:
                 images=[]
             )
         return None
-
-    async def _generate_response(self, query_text: str, contexts: List[str], images: List[Dict]) -> QueryResponse:
-        """Generate final response using contexts and images."""
-        try:
-            query_type = self.determine_query_type(query_text)
-
-            # Format contexts and images for the prompt
-            formatted_prompt = self.formatter.prompt_builder.build_chat_prompt(
-                query_text=query_text,
-                contexts=contexts,
-                images=images,
-                chat_history=[],  # Empty list since we handle chat history separately
-                is_technical=query_type.is_technical
-            )
-
-            # Prepare messages for OpenAI
-            messages = self.formatter.prompt_builder.build_messages(formatted_prompt)
-
-            # Add system message for technical queries
-            if query_type.is_technical:
-                messages.append({
-                    "role": "system",
-                    "content": "Provide only essential technical information. Avoid theoretical explanations."
-                })
-
-            response = openai_post_request(
-                messages=messages,
-                model_name=CONFIG.GPT_MODEL,
-                max_tokens=CONFIG.DETAIL_MAX_TOKENS,
-                temperature=CONFIG.TEMPERATURE if query_type.is_technical else 0.7,
-                api_key=self.openai_api_key
-            )
-
-            text_response = response['choices'][0]['message']['content'].strip()
-            text_response = self.formatter.format_response(text_response)
-
-            return QueryResponse(
-                text_response=text_response,
-                images=self.image_processor.image_classifier.deduplicate(images, CONFIG.DEDUPLICATION_THRESHOLD)
-            )
-        except Exception as e:
-            logging.error(f"Error generating response: {e}")
-            raise
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
