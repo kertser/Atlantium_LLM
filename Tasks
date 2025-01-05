@@ -10,7 +10,6 @@
 * Update methods of content treatment and chat history (including prompt templates). If the query is irrelevant to the history, do not take the history into account
 * Add prompt template for Interactive troubleshooting mode (analyze step-by-step)
 * Add option for "chat with live operator" (A button with contacts or whatsapp)
-* Remove Safety & Maintenance from templates (make it optional)
 
 
 # TBDs for development:

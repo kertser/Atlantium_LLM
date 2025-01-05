@@ -144,6 +144,7 @@ class QueryType(BaseModel):
     is_overview: bool = False
     is_technical: bool = False
     is_summary: bool = False
+    is_base: bool = True
 
 
 class QueryResponse(BaseModel):
@@ -333,14 +334,52 @@ class RAGQueryServer:
             save_faiss_index(self.index, CONFIG.FAISS_INDEX_PATH)
             save_metadata(self.metadata, CONFIG.METADATA_PATH)
 
-    def determine_query_type(self, query_text: str) -> QueryType:
-        """Determine the type of query based on input text."""
-        query_lower = query_text.lower()
-        return QueryType(
-            is_overview="overview" in query_lower or "what is" in query_lower,
-            is_technical="technical" in query_lower or "how" in query_lower,
-            is_summary="summary" in query_lower or "brief" in query_lower
-        )
+    async def determine_query_type(self, query_text: str) -> QueryType:
+        """Determine the type of query based on semantic analysis."""
+        try:
+            # GPT prompt messages
+            messages = [
+                {
+                    "role": "system",
+                    "content": """Analyze queries to determine their type. Consider:
+                        - Query domain (technical, summary, overview or general knowledge)
+                        - Reply with the following types: overview, technical, summary, base
+                        Analyze the full semantic meaning of the query."""
+                },
+                {
+                    "role": "user",
+                    "content": f"Classify this query: {query_text}"
+                }
+            ]
+
+            response = openai_post_request(
+                messages=messages,
+                model_name=CONFIG.GPT_MODEL,
+                max_tokens=CONFIG.SUMMARY_MAX_TOKENS,
+                temperature=0,
+                api_key=self.openai_api_key
+            )
+
+            # Extract and parse response content
+            classification = response['choices'][0]['message']['content'].strip()
+
+            # Define logic to set attributes dynamically based on classification
+            return QueryType(
+                is_overview="overview" in classification,
+                is_technical="technical" in classification,
+                is_summary="summary" in classification,
+                is_base="base" in classification
+            )
+
+        except Exception as e:
+            logging.error(f"Error determining query type: {e}")
+            # Fallback to default query type
+            return QueryType(
+                is_overview=False,
+                is_technical=False,
+                is_summary=False,
+                is_base=True  # Default fallback assumption
+            )
 
     async def get_relevant_contexts(self, results: List[Dict], query_text: str) -> Tuple[List[str], List[Dict]]:
         """Get relevant contexts and images from search results."""
@@ -567,22 +606,26 @@ class RAGQueryServer:
 
             # Get contexts and process special cases
             contexts, initial_images = await self.get_relevant_contexts(results, query_text)
-            if special_response := self._handle_special_cases(query_text, contexts):
-                return special_response
+            if not contexts:
+                return self._create_no_results_response(query_text)
 
             # Generate response
-            query_type = self.determine_query_type(query_text)
+            query_type = await self.determine_query_type(query_text)
+            print(query_type)
             formatted_prompt = self.formatter.prompt_builder.build_chat_prompt(
                 query_text=query_text,
                 contexts=contexts,
                 images=initial_images,
                 chat_history=[],
-                is_technical=query_type.is_technical
+                is_technical=query_type.is_technical,
+                is_summary=query_type.is_summary,
+                is_overview=query_type.is_overview,
             )
 
             # Prepare messages for OpenAI
             messages = self.formatter.prompt_builder.build_messages(formatted_prompt)
 
+            """
             # Add system message for technical queries
             if query_type.is_technical:
                 messages.append({
@@ -590,12 +633,25 @@ class RAGQueryServer:
                     "content": "Provide only essential technical information. Avoid theoretical explanations."
                 })
 
+            if query_type.is_summary:
+                messages.append({
+                    "role": "system",
+                    "content": "Summarize the information in a concise manner."
+                })
+
+            if query_type.is_overview:
+                messages.append({
+                    "role": "system",
+                    "content": "Provide a high-level overview of the topic."
+                })
+            """
+
             # Get response from OpenAI
             response = openai_post_request(
                 messages=messages,
                 model_name=CONFIG.GPT_MODEL,
                 max_tokens=CONFIG.DETAIL_MAX_TOKENS,
-                temperature=CONFIG.TEMPERATURE if query_type.is_technical else 0.7,
+                temperature=CONFIG.TEMPERATURE,
                 api_key=self.openai_api_key
             )
 
@@ -678,69 +734,9 @@ class RAGQueryServer:
     def _create_no_results_response(self, query_text: str) -> QueryResponse:
         """Create response for when no results are found."""
         return QueryResponse(
-            text_response=self.formatter.prompt_builder.build_no_answer_message(query_text)[1]['content'],
+            text_response='No Fucken Idea!',
             images=[]
         )
-
-    def _handle_special_cases(self, query_text: str, contexts: List[str]) -> Optional[QueryResponse]:
-        """Handle special query cases (conflicts, ambiguity)."""
-        if len(contexts) > 1 and "conflicting" in query_text.lower():
-            conflicting_docs = [{"doc": context} for context in contexts]
-            return QueryResponse(
-                text_response=self.formatter.prompt_builder.build_conflict_resolution_message(conflicting_docs)[1][
-                    'content'],
-                images=[]
-            )
-        elif "ambiguous" in query_text.lower():
-            return QueryResponse(
-                text_response=self.formatter.prompt_builder.build_ambiguity_message(query_text)[1]['content'],
-                images=[]
-            )
-        return None
-
-    async def _generate_response(self, query_text: str, contexts: List[str], images: List[Dict]) -> QueryResponse:
-        """Generate final response using contexts and images."""
-        try:
-            query_type = self.determine_query_type(query_text)
-
-            # Format contexts and images for the prompt
-            formatted_prompt = self.formatter.prompt_builder.build_chat_prompt(
-                query_text=query_text,
-                contexts=contexts,
-                images=images,
-                chat_history=[],  # Empty list since we handle chat history separately
-                is_technical=query_type.is_technical
-            )
-
-            # Prepare messages for OpenAI
-            messages = self.formatter.prompt_builder.build_messages(formatted_prompt)
-
-            # Add system message for technical queries
-            if query_type.is_technical:
-                messages.append({
-                    "role": "system",
-                    "content": "Provide only essential technical information. Avoid theoretical explanations."
-                })
-
-            response = openai_post_request(
-                messages=messages,
-                model_name=CONFIG.GPT_MODEL,
-                max_tokens=CONFIG.DETAIL_MAX_TOKENS,
-                temperature=CONFIG.TEMPERATURE if query_type.is_technical else 0.7,
-                api_key=self.openai_api_key
-            )
-
-            text_response = response['choices'][0]['message']['content'].strip()
-            text_response = self.formatter.format_response(text_response)
-
-            return QueryResponse(
-                text_response=text_response,
-                images=self.image_processor.image_classifier.deduplicate(images, CONFIG.DEDUPLICATION_THRESHOLD)
-            )
-        except Exception as e:
-            logging.error(f"Error generating response: {e}")
-            raise
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

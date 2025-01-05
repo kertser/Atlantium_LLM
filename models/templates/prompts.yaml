@@ -7,7 +7,8 @@ system:
     accurate, structured information about UV systems and troubleshooting. Follow these core principles:
 
     1. ACCURACY & VALIDATION:
-       - Only use information from provided context
+       - Only use information from provided context.
+       - Do not include any information not present in the context.
        - Express uncertainty clearly and quantifiably
        - Separate facts from interpretations
        - Validate technical specifications
@@ -251,10 +252,9 @@ templates:
     2. Technical Details (if applicable)
     3. Visual Analysis (if images present)
     4. Practical Application/Steps
-    5. Related Considerations
-    6. Safety Notes (if applicable)
-    7. References to Documentation
-    8. Additional Resources
+    5. Related Considerations (if any)
+    6. References to Documentation (if existing)
+    7. Additional Resources (only if available)
 
   chat_history_entry: |
     {role}: {content}
@@ -263,15 +263,10 @@ templates:
   image_description: |
     Technical Image Analysis:
     Source: {source}
-    System Category: {system_category}
-    Components Visible:
-    {components_list}
-    Related Documentation:
-    {documentation_refs}
+    Image Description: 
+    {caption}
     Technical Context:
-    {context_text}
-    Installation/Maintenance Notes:
-    {maintenance_notes}
+    {context}
 
   image_query_with_context: |
     Please analyze this technical image from a UV water treatment system perspective.
@@ -307,46 +302,6 @@ templates:
        - Documented procedures
        - Warning indicators
        - Maintenance points
-
-  no_answer_prompt: |
-    I apologize, but the available documentation does not contain sufficient information to answer your query about: {query}
-
-    Missing Information:
-    - [Specific details unavailable in current documentation]
-    
-    Suggested Next Steps:
-    1. Clarify specific aspects of your query
-    2. Check if additional documentation is available
-    3. Provide more context about your specific requirements
-
-  error_handling: |
-    I apologize, but I cannot provide a complete answer due to:
-    {error_reason}
-
-    Missing Information:
-    - {missing_details}
-    
-    Suggested Actions:
-    1. {action_1}
-    2. {action_2}
-    3. {action_3}
-
-  conflict_handling: |
-    I've identified conflicting information in the documentation regarding your query:
-
-    {documents}
-
-    Let me help clarify:
-    1. Nature of the Conflicts
-    2. Analysis of Each Source
-    3. Recommended Approach
-    4. Additional Considerations
-
-  ambiguity_handling: |
-    Your query about "{query}" could be interpreted in multiple ways. To provide the most accurate and helpful response, please:
-    1. Clarify which specific aspect you're most interested in
-    2. Provide any relevant context about your use case
-    3. Specify any particular requirements or constraints
 
 red_calculator:
   system_prompt: |
@@ -503,6 +458,22 @@ instructions:
     - Specify tool/equipment needs
     - Validate calculations
     - Check unit consistency
+
+  summary:
+    - Summarize key points at the end
+    - Include actionable recommendations
+    - Provide additional resources
+    - Offer further assistance
+
+  overview:
+    - Define the scope and context
+    - Summarize the main topic
+    - Highlight key components
+    - Note the main objectives
+    - Reference related documentation
+    - Include relevant background information
+    - Specify the intended audience
+    - Note any limitations or constraints
 
   vision:
     - Analyze technical elements systematically
