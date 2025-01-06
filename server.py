@@ -626,7 +626,7 @@ class RAGQueryServer:
                 contexts=contexts,
                 images=initial_images,
                 chat_history=[],  # No history for this query
-                #chat_history=self.get_chat_history(),
+                # chat_history=self.get_chat_history(),
                 is_technical=query_type.is_technical,
                 is_summary=query_type.is_summary,
                 is_overview=query_type.is_overview

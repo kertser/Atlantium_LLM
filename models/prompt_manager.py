@@ -87,15 +87,6 @@ class PromptLoader:
         """Get the no-answer prompt."""
         return self.get_template('no_answer_prompt')
 
-    def get_conflict_resolution_prompt(self) -> str:
-        """Get the conflict resolution prompt."""
-        return self.get_template('conflict_handling_prompt')
-
-    def get_ambiguity_handling_prompt(self) -> str:
-        """Get the ambiguity handling prompt."""
-        return self.get_template('ambiguity_handling_prompt')
-
-
 class PromptBuilder:
     """Class for building various types of prompts using the PromptLoader."""
 
@@ -147,6 +138,7 @@ class PromptBuilder:
             image_context = "\n\nRelevant Images:\n" + "\n".join(image_descriptions)
 
         # Combine instructions
+        # is_general:
         instructions = self.loader.get_instructions('general')
         if is_technical:
             instructions.extend(self.loader.get_instructions('technical'))
