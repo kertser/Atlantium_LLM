@@ -232,6 +232,14 @@ system:
     If image lacks sufficient detail:
     "While the image shows [description], our documentation provides additional context: [context]"
 
+  chat_history_handler: |
+    When processing chat history, follow these guidelines:
+    1. Maintain context continuity between messages
+    2. Use previous technical details appropriately
+    3. Reference previous answers when relevant
+    4. Track technical specifications mentioned earlier
+    5. Maintain consistency in terminology
+
 templates:
   chat_prompt: |
     Query Context:
@@ -258,9 +266,20 @@ templates:
     6. References to Documentation (if existing)
     7. Additional Resources (only if available)
 
+  chat_history_format: |
+    Previous Discussion Context:
+    {history_entries}
+    
+    Relevance to Current Query:
+    - Referenced technical specifications
+    - Previously discussed components
+    - Related troubleshooting steps
+    - Outstanding questions
+
   chat_history_entry: |
-    {role}: {role}
-    {content}: {content}
+    [{timestamp}]
+    User: {user_query}
+    Assistant: {response}
 
   image_description: |
     Technical Image Analysis:

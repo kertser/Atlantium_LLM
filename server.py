@@ -620,13 +620,17 @@ class RAGQueryServer:
             if not contexts or query_type.is_general:
                 contexts = self._create_no_results_response(query_text)
 
-            print(query_type)
+            logging.info("query types: %s", query_type)
+
+            # Get chat history with proper formatting
+            formatted_history = self.get_chat_history()
+
             formatted_prompt = self.formatter.prompt_builder.build_chat_prompt(
                 query_text=query_text,
                 contexts=contexts,
                 images=initial_images,
-                chat_history=[],  # No history for this query
-                # chat_history=self.get_chat_history(),
+                # chat_history=[],  # No history for this query
+                chat_history=formatted_history,
                 is_technical=query_type.is_technical,
                 is_summary=query_type.is_summary,
                 is_overview=query_type.is_overview

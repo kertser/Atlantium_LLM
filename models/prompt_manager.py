@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 from typing import List, Dict, Any
+from datetime import datetime, UTC
 
 import yaml
 
@@ -99,53 +100,57 @@ class PromptBuilder:
             contexts: List[str],
             images: List[Dict],
             chat_history: List[Dict],
-            is_general: bool = True,
             is_technical: bool = False,
             is_summary: bool = False,
             is_overview: bool = False,
+            is_general: bool = True
     ) -> str:
-        """Build a complete prompt for the chat interaction."""
+        """Build a complete prompt for the chat interaction with improved history handling."""
+
         # Process context information
         context_text = "\n\n".join(contexts) if contexts else "No relevant technical documentation found."
 
-        # Process chat history
+        # Enhanced chat history processing
         chat_context = ""
         if chat_history:
-            last_exchanges = chat_history[-(2 * CONFIG.MAX_CHAT_HISTORY):]
+            # Take last n entries (n = CONFIG.MAX_CHAT_HISTORY)
+            recent_history = chat_history[-(2 * CONFIG.MAX_CHAT_HISTORY):]
+
+            # Process messages into history entries
             history_entries = []
-            for msg in last_exchanges:
-                history_entries.append(
-                    self.loader.format_template(
+
+            for i in range(0, len(recent_history), 2):
+                # Process pairs of messages (user query and assistant response)
+                if i + 1 < len(recent_history):
+                    user_msg = recent_history[i]
+                    assistant_msg = recent_history[i + 1]
+
+                    # Format the entry with both messages using timezone-aware datetime
+                    formatted_msg = self.loader.format_template(
                         'chat_history_entry',
-                        role='User' if msg['role'] == 'user' else 'assistant',
-                        content=msg['content']
+                        timestamp=datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S UTC'),
+                        user_query=user_msg['content'],
+                        response=assistant_msg['content']
                     )
+                    history_entries.append(formatted_msg)
+
+            # Format complete history context
+            if history_entries:
+                chat_context = self.loader.format_template(
+                    'chat_history_format',
+                    history_entries="\n".join(history_entries)
                 )
-            chat_context = "\nRecent Chat History:\n" + "\n".join(history_entries)
 
         # Process image information
-        image_context = ""
-        if images:
-            image_descriptions = []
-            for img in images:
-                desc = self.loader.format_template(
-                    'image_description',
-                    source=img['source'],
-                    caption_text=f": {img['caption']}" if img.get('caption') else "",
-                    context_text=f" (Context: {img['context']})" if img.get('context') else ""
-                )
-                image_descriptions.append(desc)
-            image_context = "\n\nRelevant Images:\n" + "\n".join(image_descriptions)
+        image_context = self._process_image_context(images)
 
-        # Combine instructions
-        # is_general:
-        instructions = self.loader.get_instructions('general')
-        if is_technical:
-            instructions.extend(self.loader.get_instructions('technical'))
-        elif is_summary:
-            instructions.extend(self.loader.get_instructions('summary'))
-        elif is_overview:
-            instructions.extend(self.loader.get_instructions('overview'))
+        # Determine appropriate instruction set
+        instructions = self._get_instruction_set(
+            is_technical=is_technical,
+            is_summary=is_summary,
+            is_overview=is_overview,
+            is_general=is_general
+        )
 
         # Build final prompt using template
         return self.loader.format_template(
@@ -156,6 +161,36 @@ class PromptBuilder:
             chat_context=chat_context,
             instructions="\n".join(instructions)
         )
+
+    def _get_instruction_set(self, **query_types) -> List[str]:
+        """Get appropriate instruction set based on query type."""
+        instructions = self.loader.get_instructions('general')
+
+        if query_types.get('is_technical'):
+            instructions.extend(self.loader.get_instructions('technical'))
+        elif query_types.get('is_summary'):
+            instructions.extend(self.loader.get_instructions('summary'))
+        elif query_types.get('is_overview'):
+            instructions.extend(self.loader.get_instructions('overview'))
+
+        return instructions
+
+    def _process_image_context(self, images: List[Dict]) -> str:
+        """Process image information into formatted context."""
+        if not images:
+            return ""
+
+        image_descriptions = []
+        for img in images:
+            desc = self.loader.format_template(
+                'image_description',
+                source=img.get('source', ''),
+                caption_text=f": {img.get('caption', '')}" if img.get('caption') else "",
+                context_text=f" (Context: {img.get('context', '')})" if img.get('context') else ""
+            )
+            image_descriptions.append(desc)
+
+        return "\n\nRelevant Images:\n" + "\n".join(image_descriptions)
 
     def build_messages(self, prompt: str) -> List[Dict[str, str]]:
         """Build the messages list for the API request."""
