@@ -259,8 +259,8 @@ templates:
     7. Additional Resources (only if available)
 
   chat_history_entry: |
-    {role}: {content}
-    Context: {context}
+    {role}: {role}
+    {content}: {content}
 
   image_description: |
     Technical Image Analysis:

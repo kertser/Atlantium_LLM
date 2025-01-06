@@ -341,7 +341,7 @@ class RAGQueryServer:
             # GPT prompt messages
             messages = [
                 {
-                    "role": "system",
+                    "role": "assistant",
                     "content": """Analyze queries to determine their type. Consider:
                         - Query domain (technical, summary, overview or general knowledge)
                         - Reply with the following types: overview, technical, summary, general
@@ -584,6 +584,8 @@ class RAGQueryServer:
                             "",  # Empty string since it's a pure calculation
                             calc_results
                         )
+                        # Update the history and return
+                        self.update_chat_history(query_text, text_response)
                         return QueryResponse(text_response=text_response, images=[])
 
                 except Exception as e:
@@ -623,7 +625,8 @@ class RAGQueryServer:
                 query_text=query_text,
                 contexts=contexts,
                 images=initial_images,
-                chat_history=[],
+                chat_history=[],  # No history for this query
+                #chat_history=self.get_chat_history(),
                 is_technical=query_type.is_technical,
                 is_summary=query_type.is_summary,
                 is_overview=query_type.is_overview
@@ -657,7 +660,7 @@ class RAGQueryServer:
             formatted_response = self.formatter.format_response(text_response)
 
             # Update chat history
-            self._update_chat_history(query_text, formatted_response)
+            self.update_chat_history(query_text, formatted_response)
 
             # Create and return the final response
             final_response = QueryResponse(
@@ -679,7 +682,7 @@ class RAGQueryServer:
         try:
             result = await self.image_processor.process_image_query(image_data, query_text)
             if result.get('is_technical', False):
-                self._update_chat_history(
+                self.update_chat_history(
                     f"[Image Query] {query_text or 'Analyze image'}",
                     result.get('response', '')
                 )
@@ -698,10 +701,13 @@ class RAGQueryServer:
         """Get current chat history."""
         return self.chat_history
 
-    def _update_chat_history(self, query: str, response: str):
-        """Update chat history with new query and response."""
+    def update_chat_history(self, query: str, response: str):
+        """Update chat history with new query and response up to N times."""
         self.chat_history.append({"role": "user", "content": query})
         self.chat_history.append({"role": "assistant", "content": response})
+        # Pop last N records:
+        if len(self.chat_history) > 2 * CONFIG.MAX_CHAT_HISTORY:
+            self.chat_history = self.chat_history[-(2 * CONFIG.MAX_CHAT_HISTORY):]
 
     async def _handle_calculator_query(self, query_text: str) -> Optional[QueryResponse]:
         """Handle calculator-specific queries."""

@@ -126,7 +126,7 @@ class PromptBuilder:
                 history_entries.append(
                     self.loader.format_template(
                         'chat_history_entry',
-                        role='User' if msg['role'] == 'user' else 'Assistant',
+                        role='User' if msg['role'] == 'user' else 'assistant',
                         content=msg['content']
                     )
                 )
