@@ -105,27 +105,27 @@ class PromptBuilder:
             is_overview: bool = False,
             is_general: bool = True
     ) -> str:
-        """Build a complete prompt for the chat interaction with improved history handling."""
+        """Build a complete prompt with priority on current query."""
 
-        # Process context information
-        context_text = "\n\n".join(contexts) if contexts else "No relevant technical documentation found."
+        # Process context information with priority markers
+        context_text = ("## Primary Technical Documentation:\n" +
+                        "\n\n".join(contexts)) if contexts else "No relevant technical documentation found."
 
-        # Enhanced chat history processing
+        # Enhanced chat history processing with relevance filtering
         chat_context = ""
         if chat_history:
-            # Take last n entries (n = CONFIG.MAX_CHAT_HISTORY)
+            # Take last n entries but mark them as reference only
             recent_history = chat_history[-(2 * CONFIG.MAX_CHAT_HISTORY):]
 
-            # Process messages into history entries
+            # Process messages into history entries with relevance markers
             history_entries = []
 
             for i in range(0, len(recent_history), 2):
-                # Process pairs of messages (user query and assistant response)
                 if i + 1 < len(recent_history):
                     user_msg = recent_history[i]
                     assistant_msg = recent_history[i + 1]
 
-                    # Format the entry with both messages using timezone-aware datetime
+                    # Format with emphasis on relevance to current query
                     formatted_msg = self.loader.format_template(
                         'chat_history_entry',
                         timestamp=datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S UTC'),
@@ -134,17 +134,16 @@ class PromptBuilder:
                     )
                     history_entries.append(formatted_msg)
 
-            # Format complete history context
             if history_entries:
                 chat_context = self.loader.format_template(
                     'chat_history_format',
                     history_entries="\n".join(history_entries)
                 )
 
-        # Process image information
+        # Process image information with current context priority
         image_context = self._process_image_context(images)
 
-        # Determine appropriate instruction set
+        # Get instruction set with priority guidelines
         instructions = self._get_instruction_set(
             is_technical=is_technical,
             is_summary=is_summary,
@@ -152,7 +151,7 @@ class PromptBuilder:
             is_general=is_general
         )
 
-        # Build final prompt using template
+        # Build final prompt emphasizing current query
         return self.loader.format_template(
             'chat_prompt',
             query_text=query_text,

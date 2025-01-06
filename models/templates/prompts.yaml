@@ -233,53 +233,75 @@ system:
     "While the image shows [description], our documentation provides additional context: [context]"
 
   chat_history_handler: |
-    When processing chat history, follow these guidelines:
-    1. Maintain context continuity between messages
-    2. Use previous technical details appropriately
-    3. Reference previous answers when relevant
-    4. Track technical specifications mentioned earlier
-    5. Maintain consistency in terminology
+    When processing queries with chat history, follow these priority guidelines:
+    
+    1. Current Query Priority:
+       - Always treat the current query as the primary focus
+       - Use current technical documentation as the main source of information
+    
+    2. Historical Context Usage:
+       - Only reference history if directly relevant to current query
+       - Prioritize recent technical specifications over historical ones
+       - Use historical context for:
+         * System-wide parameters and configurations
+         * Previously established technical parameters
+         * Relevant troubleshooting steps
+         * System-specific configurations
+       - Ignore historical context that doesn't directly support current query
+    
+    3. Response Structure:
+       - Lead with direct answer to current query
+       - Include current technical documentation references
+       - Reference history to support or enhance current response
+       - Clearly separate current information from historical references
+    
+    4. Context Integration:
+       - Merge technical specifications only when consistent
+       - Highlight any discrepancies between current and historical data
+       - Prioritize current technical requirements over historical ones
 
 templates:
   chat_prompt: |
-    Query Context:
-    Original Query: {query_text}
-    
-    Available Documentation:
+    # Current Technical Query
+    {query_text}
+
+    ## Primary Technical Context
     {context_text}
-    
-    Visual Information:
+
+    ## Current Visual Analysis
     {image_context}
-    
-    Conversation History:
+
+    ## Historical Context (Reference Only)
+    Note: Consider historical context only if directly relevant to the current query.
     {chat_context}
-    
-    Response Guidelines:
+
+    ## Response Guidelines
+    Priority Order:
+    1. Address the current query directly using available technical documentation
+    2. Use current visual information if relevant
+    3. Reference historical context only if it provides additional technical value
+
     {instructions}
-    
+
     Required Response Structure:
-    1. Overview/Summary
-    2. Technical Details (if applicable)
-    3. Visual Analysis (if images present)
-    4. Practical Application/Steps
-    5. Related Considerations (if any)
-    6. References to Documentation (if existing)
-    7. Additional Resources (only if available)
+    1. Direct Answer to Current Query
+    2. Technical Details from Current Context
+    3. Related Visual Analysis (if present)
+    4. Relevant Historical References (only if directly applicable)
+    5. Additional Considerations
+    6. Documentation References
+    7. Next Steps/Recommendations
 
   chat_history_format: |
-    Previous Discussion Context:
+    Previous Relevant Technical Discussions:
+    Note: Only reference these if directly applicable to current query
     {history_entries}
-    
-    Relevance to Current Query:
-    - Referenced technical specifications
-    - Previously discussed components
-    - Related troubleshooting steps
-    - Outstanding questions
 
   chat_history_entry: |
-    [{timestamp}]
-    User: {user_query}
-    Assistant: {response}
+    Previous Discussion [{timestamp}]:
+    Query: {user_query}
+    Technical Response: {response}
+    Relevance: Consider only technical specifications and documented procedures that directly relate to current query.
 
   image_description: |
     Technical Image Analysis:
