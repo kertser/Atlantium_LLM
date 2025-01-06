@@ -108,7 +108,10 @@ class PromptBuilder:
             contexts: List[str],
             images: List[Dict],
             chat_history: List[Dict],
-            is_technical: bool = False
+            is_general: bool = True,
+            is_technical: bool = False,
+            is_summary: bool = False,
+            is_overview: bool = False,
     ) -> str:
         """Build a complete prompt for the chat interaction."""
         # Process context information
@@ -144,9 +147,13 @@ class PromptBuilder:
             image_context = "\n\nRelevant Images:\n" + "\n".join(image_descriptions)
 
         # Combine instructions
-        instructions = self.loader.get_instructions('base')
+        instructions = self.loader.get_instructions('general')
         if is_technical:
             instructions.extend(self.loader.get_instructions('technical'))
+        elif is_summary:
+            instructions.extend(self.loader.get_instructions('summary'))
+        elif is_overview:
+            instructions.extend(self.loader.get_instructions('overview'))
 
         # Build final prompt using template
         return self.loader.format_template(
@@ -178,28 +185,4 @@ class PromptBuilder:
                 "content": self.loader.get_system_prompt('technical_assistant')
             },
             {"role": "user", "content": formatted_no_answer}
-        ]
-
-    def build_conflict_resolution_message(self, conflicting_docs: List[Dict]) -> List[Dict[str, str]]:
-        """Build a message to handle conflicting document data."""
-        conflict_prompt = self.loader.get_conflict_resolution_prompt()
-        formatted_conflict = conflict_prompt.format(documents="\n".join(conflicting_docs))
-        return [
-            {
-                "role": "system",
-                "content": self.loader.get_system_prompt('technical_assistant')
-            },
-            {"role": "user", "content": formatted_conflict}
-        ]
-
-    def build_ambiguity_message(self, query_text: str) -> List[Dict[str, str]]:
-        """Build a message to handle ambiguous queries."""
-        ambiguity_prompt = self.loader.get_ambiguity_handling_prompt()
-        formatted_ambiguity = ambiguity_prompt.format(query=query_text)
-        return [
-            {
-                "role": "system",
-                "content": self.loader.get_system_prompt('technical_assistant')
-            },
-            {"role": "user", "content": formatted_ambiguity}
         ]

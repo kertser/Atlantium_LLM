@@ -59,7 +59,7 @@ class WebSearchAgent:
                     # Generate a summary from the search results
                     summary = self.summarize_results(results)
                     enhanced_query = f"In the context of {summary}, {query}"
-                except Exception as search_error:
+                except Exception:
                     # If web search fails, fall back to just the query
                     enhanced_query = query
             else:

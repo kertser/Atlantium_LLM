@@ -35,6 +35,10 @@ class Config:
     AGGREGATOR_TEMPERATURE: float = 0.1
     AGGREGATOR_MAX_TOKENS: int = 2000
 
+    # WEBSEARCH Configuration
+    WEBSEARCH_MODEL: str = "gpt-4o-mini"
+    WEBSEARCH_MAX_RESULTS: int = 10
+
     # RED Calculator Configuration
     RED_CALCULATOR_MODEL: str = "gpt-4o-mini"
     RED_CALCULATOR_TEMPERATURE: float = 0.1
@@ -48,8 +52,8 @@ class Config:
     USE_GPU: bool = True
 
     # Thresholds (not percentiles)
-    SIMILARITY_THRESHOLD: float = 0.8  # Text similarity
-    IMAGE_SIMILARITY_THRESHOLD: float = 0.3  # Image similarity - set to high value to avoid false positives
+    SIMILARITY_THRESHOLD: float = 0.6  # Text similarity (it shall be 0.6-0.8)
+    IMAGE_SIMILARITY_THRESHOLD: float = 0.35  # Image similarity - set to high value to avoid false positives
     TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.75  # Technical confidence
     DEDUPLICATION_THRESHOLD = 0.70  # Threshold for image deduplication
 
@@ -57,7 +61,7 @@ class Config:
     BATCH_SIZE: int = 5  # Document processing in batches. For limited RAM it is 2-5. For GPU 8-16GB it is 8-16
     CHUNK_OVERLAP: int = 100  # set to 200
     MIN_CHUNK_SIZE: int = 100
-    CHUNK_SIZE: int = 1000  # set to 800 - Optimal for larger content. Smaller chunks are more selective, but harder to compare
+    CHUNK_SIZE: int = 1000  # Smaller chunks are more selective, but harder to compare
     SUPPORTED_EXTENSIONS: List[str] = None
     MAX_TEXT_LENGTH: int = 10000  # Maximum length of stored text chunks
     MAX_METADATA_SIZE: int = 1000000  # Maximum size in bytes
@@ -77,13 +81,9 @@ class Config:
     DETAIL_MAX_TOKENS: int = 3000  # Setting for detailed responses
 
     # Query Configuration
-    DEFAULT_TOP_K: int = 10
-    TEMPERATURE: float = 0.01
+    DEFAULT_TOP_K: int = 20
+    TEMPERATURE: float = 0
     GPT_MODEL: str = "gpt-4o-mini"
-
-    # Web Search Configuration
-    WEB_SEARCH_MAX_RESULTS: int = 10
-    WEB_SEARCH_MODEL: str = "gpt-4o-mini"
 
     # Vision model settings
     GPT_VISION_MODEL: str = "gpt-4o"
