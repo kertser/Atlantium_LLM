@@ -2,7 +2,7 @@
 ARG BUILD_TYPE
 
 # Base image
-FROM python:3.10-slim AS base
+FROM python:3.12-slim AS base
 
 # Set working directory
 WORKDIR /app
