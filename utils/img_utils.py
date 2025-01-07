@@ -1,34 +1,46 @@
 import base64
 import hashlib
 import json
-import logging
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
-from typing import Tuple, List, Dict, Optional, Union
+from typing import Tuple, List, Dict, Optional, Union, Any, Generator
+import logging
+import pymupdf
+from contextlib import contextmanager
 
 import imagehash
 import torch
 from PIL import Image
 
 from config import CONFIG
+logger = logging.getLogger(__name__)
 
+pymupdf.TOOLS.mupdf_display_errors(False)
 
 class ImageProcessor:
     """Base class for image processing operations."""
 
     @staticmethod
     def convert_to_rgb(image: Image.Image) -> Image.Image:
-        """Convert an image to RGB format, handling transparency."""
-        if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
+        """Convert an image to RGB format, preserving original colors."""
+        if image.mode == 'RGB':
+            return image
+
+        if image.mode in ('RGBA', 'LA'):
+            # Handle transparency
             background = Image.new('RGB', image.size, (255, 255, 255))
-            if image.mode == 'P':
-                image = image.convert('RGBA')
-            background.paste(image, mask=image.split()[-1])
-            return background
-        elif image.mode != 'RGB':
-            return image.convert('RGB')
-        return image
+            if 'A' in image.mode:
+                # Preserve original colors when removing transparency
+                rgb_image = image.convert('RGB')
+                if image.mode == 'RGBA':
+                    background.paste(rgb_image, mask=image.split()[3])
+                else:
+                    background.paste(rgb_image)
+                return background
+
+        # Direct conversion for other modes
+        return image.convert('RGB')
 
     @staticmethod
     def calculate_hash(image: Union[Image.Image, str, bytes]) -> Optional[str]:
@@ -53,6 +65,51 @@ class ImageProcessor:
 
         except Exception as e:
             logging.error(f"Error calculating image hash: {e}")
+            return None
+
+    @staticmethod
+    def validate_image_data(image: Image.Image) -> bool:
+        """Validate image data integrity."""
+        try:
+            # Basic size check
+            if image.width < CONFIG.MIN_IMAGE_SIZE or image.height < CONFIG.MIN_IMAGE_SIZE:
+                return False
+
+            # Try to access image data
+            try:
+                image.load()
+                _ = image.getdata()[0]  # Check first pixel
+                return True
+            except Exception:
+                return False
+
+        except Exception:
+            return False
+
+    @staticmethod
+    def handle_pdf_image(image_bytes: bytes, page: Any) -> Optional[Image.Image]:
+        """Handle problematic PDF images with multiple fallback methods."""
+        try:
+            # Try direct conversion first
+            try:
+                return Image.open(BytesIO(image_bytes))
+            except Exception as e:
+                logging.debug(f"Direct conversion failed: {e}")
+
+            # Try PyMuPDF's alternative extraction
+            try:
+                pix = page.get_pixmap(matrix=pymupdf.Matrix(1, 1))
+                return Image.frombytes(
+                    "RGB",
+                    (pix.width, pix.height),  # Use tuple instead of list
+                    pix.samples
+                )
+            except Exception as e:
+                logging.debug(f"PyMuPDF conversion failed: {e}")
+
+            return None
+        except Exception as e:
+            logging.error(f"Error handling PDF image: {e}")
             return None
 
     @staticmethod
@@ -98,6 +155,14 @@ class ImageStore(ImageProcessor):
 
         self.metadata = self._load_metadata()
         self._verify_stored_images()
+
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit with cleanup."""
+        self.cleanup()
 
     def _load_metadata(self) -> Dict:
         """Load existing metadata or create new."""
@@ -176,10 +241,35 @@ class ImageStore(ImageProcessor):
         """Store an image and return its ID."""
         try:
             image_id = self._generate_id(image, source_doc, page_num)
-            image = self.convert_to_rgb(image)
+            original_mode = image.mode
 
-            path = self.base_path / f"{image_id}.png"
-            image.save(path, "PNG")
+            # Only convert if absolutely necessary
+            if original_mode not in ('RGB', 'RGBA'):
+                if original_mode in ('L', 'LA'):
+                    # Keep grayscale as grayscale
+                    if original_mode == 'LA':
+                        background = Image.new('L', image.size, 255)
+                        background.paste(image, mask=image.split()[1])
+                        image = background
+                else:
+                    # Minimal conversion for other modes
+                    image = image.convert('RGB')
+
+            path = self.base_path / f"{image_id}.{CONFIG.PREFERRED_SAVE_FORMAT.lower()}"
+
+            # Save with minimal processing
+            save_params = {
+                'format': CONFIG.PREFERRED_SAVE_FORMAT,
+                'quality': 100,  # Maximum quality
+            }
+
+            if CONFIG.PREFERRED_SAVE_FORMAT == 'PNG':
+                save_params.update({
+                    'optimize': False,
+                    'compress_level': 0  # No compression
+                })
+
+            image.save(path, **save_params)
 
             self.metadata[image_id] = {
                 "source_document": str(source_doc),
@@ -188,7 +278,8 @@ class ImageStore(ImageProcessor):
                 "caption": caption,
                 "context": context,
                 "width": image.width,
-                "height": image.height
+                "height": image.height,
+                "original_mode": original_mode
             }
 
             self._save_metadata()
@@ -205,17 +296,58 @@ class ImageStore(ImageProcessor):
                 return None, None
 
             metadata = self.metadata[image_id]
-            path = CONFIG.BASE_DIR / metadata["path"]
+            try:
+                path = CONFIG.BASE_DIR / metadata["path"]
+            except Exception as e:
+                logging.error(f"Invalid path in metadata for image {image_id}: {e}")
+                return None, None
 
             if not path.exists():
                 logging.error(f"Image not found: {path}")
                 return None, None
 
-            return Image.open(path), metadata
+            try:
+                return Image.open(path), metadata
+            except Exception as e:
+                logging.error(f"Failed to open image {path}: {e}")
+                return None, None
 
         except Exception as e:
             logging.error(f"Error retrieving image {image_id}: {e}")
             return None, None
+
+    @contextmanager
+    def open_image_safely(self, path: Union[str, Path]) -> Generator[Optional[Image.Image], None, None]:
+        """Safely open and handle image cleanup."""
+        img = None
+        try:
+            img = Image.open(path)
+            yield img
+        except Exception as e:
+            logging.error(f"Error opening image {path}: {e}")
+            yield None
+        finally:
+            if img:
+                try:
+                    img.close()
+                except Exception:
+                    pass
+
+    def cleanup(self):
+        """Clean up temporary resources."""
+        try:
+            # Clear the LRU cache for base64 encodings
+            self.get_base64.cache_clear()
+        except Exception as e:
+            logging.error(f"Error during cleanup: {e}")
+
+    @staticmethod
+    def is_valid_format(image: Image.Image) -> bool:
+        """Check if image format is supported."""
+        return (
+            image.format in CONFIG.SUPPORTED_IMAGE_FORMATS and
+            image.mode in CONFIG.VALID_IMAGE_MODES
+        )
 
     @lru_cache(maxsize=100)
     def get_base64(self, image_id: str) -> Optional[str]:
@@ -226,7 +358,11 @@ class ImageStore(ImageProcessor):
                 return None
 
             buffer = BytesIO()
-            image.save(buffer, format="PNG")
+            image.save(
+                buffer,
+                format=CONFIG.PREFERRED_SAVE_FORMAT,
+                quality=CONFIG.IMAGE_QUALITY
+            )
             return base64.b64encode(buffer.getvalue()).decode('utf-8')
         except Exception as e:
             logging.error(f"Error encoding image: {e}")
@@ -262,25 +398,28 @@ class ImageStore(ImageProcessor):
             logging.error(f"Error deleting image: {e}")
             return False
 
-    def deduplicate_images(self) -> None:
-        """Remove duplicate images based on perceptual hashing."""
+    def deduplicate_images(self, batch_size: int = 100) -> None:
+        """Remove duplicate images based on perceptual hashing with batch processing."""
         hash_map: Dict[str, List[str]] = {}
+        total = len(self.metadata)
 
-        for image_id, metadata in self.metadata.items():
-            try:
-                image, _ = self.get_image(image_id)
-                if image is None:
+        for i in range(0, total, batch_size):
+            batch_ids = list(self.metadata.keys())[i:i + batch_size]
+            for image_id in batch_ids:
+                try:
+                    image, _ = self.get_image(image_id)
+                    if image is None:
+                        continue
+
+                    image_hash = self.calculate_hash(image)
+                    if image_hash is None:
+                        continue
+
+                    hash_map.setdefault(image_hash, []).append(image_id)
+
+                except Exception as e:
+                    logging.error(f"Error processing {image_id}: {e}")
                     continue
-
-                image_hash = self.calculate_hash(image)
-                if image_hash is None:
-                    continue
-
-                hash_map.setdefault(image_hash, []).append(image_id)
-
-            except Exception as e:
-                logging.error(f"Error processing {image_id}: {e}")
-                continue
 
         # Remove duplicates keeping oldest version
         for image_hash, id_list in hash_map.items():
@@ -319,6 +458,21 @@ class ImageClassifier(ImageProcessor):
 
         if self.model and self.model.device.type != device:
             self.model = self.model.to(device)
+
+    def cleanup(self):
+        """Clean up model resources."""
+        try:
+            if self.model is not None:
+                self.model.cpu()
+                del self.model
+            if hasattr(self, 'processor'):
+                del self.processor
+            import gc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception as e:
+            logging.error(f"Error during classifier cleanup: {e}")
 
     def classify(
             self,
@@ -366,12 +520,6 @@ class ImageClassifier(ImageProcessor):
     ) -> List[Dict]:
         """
         Deduplicate a list of images based on perceptual hash comparison.
-
-        :param images: A list of image dictionaries, each containing at least
-                       a base64-encoded 'image' field.
-        :param similarity_threshold: Similarity threshold for considering two
-                                     images duplicates (0.0 - 1.0).
-        :return: A list of unique image dictionaries after deduplication.
         """
         if not images:
             return []
@@ -380,16 +528,13 @@ class ImageClassifier(ImageProcessor):
 
         for img in images:
             try:
-                # Skip if no 'image' field is present
                 if 'image' not in img:
                     continue
 
-                # Decode base64 and convert to a PIL Image for size checks
-                image_bytes = base64.b64decode(img['image'])
-                current_image = Image.open(BytesIO(image_bytes))
+                current_image = Image.open(BytesIO(base64.b64decode(img['image'])))
 
-                # Skip small images (likely icons/logos)
-                if current_image.size[0] < 200 or current_image.size[1] < 200:
+                # Use configured constant for size check
+                if current_image.size[0] < CONFIG.MIN_ICON_SIZE or current_image.size[1] < CONFIG.MIN_ICON_SIZE:
                     continue
 
                 # Calculate hash for the current image

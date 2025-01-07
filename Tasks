@@ -5,12 +5,13 @@
   One good idea is to keep this data with special metadata entry: 'block_type': position,  # 'header', 'footer', 'toc', 'content'
   Then adding flags in the query processing to control whether to include this content and weight different content types differently in relevance scoring
   It will provide more data in format_response function
-* Visualize the document processing with progress bar - over the "processing" button
+* Visualize the document processing with progress bar - over the "processing" button (processing batches)
 * Improve the search for the image and faiss metadata to retrieve the context from the documents, containing the images, similar to the attached.
-* Update methods of content treatment and chat history (including prompt templates). If the query is irrelevant to the history, do not take the history into account
 * Add prompt template for Interactive troubleshooting mode (analyze step-by-step)
 * Add option for "chat with live operator" (A button with contacts or whatsapp)
-* Add calculator results to the chat history
+* Update documentation
+* Text context search is not good enough.
+Try setting text chunks to 150-300 words with 30-50% overlap
 
 
 # TBDs for development:
@@ -19,3 +20,4 @@
 * Android mobile app development (TBD)
 * Offline and fine-tuned LLMs (TBD)
 * Multimodal Input - Connect audio model (TBD)
+* Adaptive retrieval thresholds (TBD)

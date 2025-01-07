@@ -1,6 +1,7 @@
 import logging
 from io import BytesIO
 from pathlib import Path
+from typing import Optional, Dict, List
 
 import openpyxl  # for Excel files
 import pymupdf  # PyMuPDF for PDFs
@@ -8,16 +9,55 @@ from PIL import Image, UnidentifiedImageError
 from docx import Document
 
 from config import CONFIG
-# Updated import: combine image utilities into one module
-from utils.img_utils import ImageStore
+from utils.img_utils import ImageStore, ImageProcessor
 
+# Suppress MuPDF warnings
+logging.getLogger("fitz").setLevel(logging.CRITICAL)
 logger = logging.getLogger(__name__)
 
+pymupdf.TOOLS.mupdf_display_errors(False)
 
-def extract_text_around_image(page, image_bbox, context_range=100):
-    """
-    Extract text around an image's location on the page with improved context.
-    """
+
+def extract_image_safely(page, xref: int, base_image: Dict) -> Optional[Image.Image]:
+    """Safely extract and convert image with multiple fallback methods."""
+    image_bytes = base_image.get("image")
+
+    if not image_bytes:
+        return None
+
+    methods = [
+        lambda: Image.open(BytesIO(image_bytes)),
+        lambda: Image.frombytes(
+            "RGB",
+            (page.get_pixmap().width, page.get_pixmap().height),
+            page.get_pixmap(
+                matrix=pymupdf.Matrix(1, 1),
+                colorspace="rgb",
+                clip=page.get_image_rects(xref)[0] if page.get_image_rects(xref) else None
+            ).samples
+        ),
+        lambda: Image.frombytes(
+            "RGB",
+            (page.get_pixmap().width, page.get_pixmap().height),
+            page.get_pixmap(colorspace="rgb").samples
+        )
+    ]
+
+    last_error = None
+    for method in methods:
+        try:
+            image = method()
+            if image and ImageProcessor.validate_image_data(image):
+                return image
+        except Exception as e:
+            last_error = e
+            continue
+
+    logging.debug(f"All image extraction methods failed for xref {xref}: {last_error}")
+    return None
+
+def extract_text_around_image(page, image_bbox, context_range=CONFIG.MAX_CONTEXT_RANGE):
+    """Extract text around an image's location on the page."""
     try:
         blocks = page.get_text("blocks")
         image_center_y = (image_bbox[1] + image_bbox[3]) / 2
@@ -92,12 +132,9 @@ def get_relevant_images(query_context: str, image_store: ImageStore, threshold: 
 
 
 def extract_text_and_images_from_pdf(pdf_path):
-    """
-    Extracts text and images with their context from a PDF file.
-    """
+    """Extracts text and images with their context from a PDF file."""
     text = ""
     image_data = []
-    min_size = 50
     pdf_document = None
 
     try:
@@ -113,64 +150,109 @@ def extract_text_and_images_from_pdf(pdf_path):
                     text += page_text + "\n"
 
                 image_list = page.get_images(full=True)
-                logger.info(f"Found {len(image_list)} images on page {page_num + 1}")
 
                 for img_index, img in enumerate(image_list):
                     try:
                         xref = img[0]
                         base_image = pdf_document.extract_image(xref)
+
                         if not base_image or "image" not in base_image:
                             continue
 
-                        for img_bbox in page.get_image_rects(xref):
-                            context = extract_text_around_image(page, img_bbox)
-
+                        try:
                             image_bytes = base_image["image"]
                             image = Image.open(BytesIO(image_bytes))
 
-                            if image.width < min_size or image.height < min_size:
-                                logger.info(
-                                    f"Skipping small image ({image.width}x{image.height}) on page {page_num + 1}"
+                            # Force load to verify image is valid
+                            image.load()
+
+                            # Get dimensions and calculate aspect ratio
+                            width, height = image.size
+                            aspect_ratio = max(width / height, height / width)
+
+                            # Filter out small images and icons using CONFIG settings
+                            if (width < CONFIG.MIN_IMAGE_SIZE or
+                                    height < CONFIG.MIN_IMAGE_SIZE or
+                                    max(width, height) < CONFIG.MIN_ICON_SIZE or
+                                    aspect_ratio > CONFIG.MAX_ASPECT_RATIO):
+                                logger.debug(
+                                    f"Skipping small/icon image on page {page_num + 1}: "
+                                    f"{width}x{height} pixels, aspect ratio: {aspect_ratio:.2f}"
                                 )
                                 continue
 
-                            # Convert to RGB if needed
-                            if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
-                                background = Image.new('RGB', image.size, (255, 255, 255))
-                                if image.mode == 'P':
-                                    image = image.convert('RGBA')
-                                background.paste(image, mask=image.split()[-1])
-                                image = background
-                            elif image.mode != 'RGB':
+                            # Extract context with CONFIG.MAX_CONTEXT_RANGE
+                            context = ""
+                            for img_bbox in page.get_image_rects(xref):
+                                context = extract_text_around_image(
+                                    page,
+                                    img_bbox,
+                                    context_range=CONFIG.MAX_CONTEXT_RANGE
+                                )
+                                break
+
+                            # Handle color modes while preserving quality
+                            if image.mode in ('RGB', 'RGBA'):
+                                pass  # Keep as is
+                            elif image.mode == 'CMYK':
                                 image = image.convert('RGB')
+                            elif image.mode == 'P':
+                                if 'transparency' in image.info:
+                                    image = image.convert('RGBA')
+                                else:
+                                    image = image.convert('RGB')
+                            elif image.mode in ('L', 'LA'):
+                                if image.mode == 'LA':
+                                    image = image.convert('RGBA')
+                            else:
+                                image = image.convert('RGB')
+
+                            # Set image DPI if not already set
+                            if 'dpi' not in image.info:
+                                image.info['dpi'] = CONFIG.IMAGE_DPI
 
                             image_data.append({
                                 'image': image,
                                 'context': context,
                                 'page_num': page_num + 1,
                                 'caption': f"Image {img_index + 1} from {doc_name} (Page {page_num + 1})",
-                                'bbox': [img_bbox.x0, img_bbox.y0, img_bbox.x1, img_bbox.y1]
+                                'dimensions': f"{width}x{height}",
+                                'dpi': CONFIG.IMAGE_DPI,
+                                'bits': CONFIG.IMAGE_BITS,
+                                'original_mode': image.mode
                             })
-                            logger.info(f"Processed image {img_index + 1} from page {page_num + 1}")
+
+                            logger.info(
+                                f"Processed image {img_index + 1} from page {page_num + 1}: "
+                                f"{width}x{height} pixels, mode={image.mode}"
+                            )
+
+                        except UnidentifiedImageError:
+                            logger.debug(
+                                f"Skipping unidentifiable image on page {page_num + 1}"
+                            )
+                            continue
+                        except Exception as e:
+                            logger.debug(
+                                f"Error processing image on page {page_num + 1}: {str(e)}"
+                            )
+                            continue
 
                     except Exception as e:
-                        logger.error(f"Error processing image {img_index} on page {page_num}: {e}")
+                        logger.error(
+                            f"Error extracting image on page {page_num + 1}: {str(e)}"
+                        )
                         continue
 
             except Exception as e:
-                logger.error(f"Error processing page {page_num}: {e}")
+                logger.error(f"Error processing page {page_num + 1}: {str(e)}")
                 continue
 
-        logger.info(f"Completed processing {doc_name}: {len(image_data)} images extracted")
-
     except Exception as e:
-        logger.error(f"Error opening or processing PDF {pdf_path}: {e}")
+        logger.error(f"Error processing PDF {pdf_path}: {str(e)}")
     finally:
         if pdf_document is not None:
-            try:
-                pdf_document.close()
-            except Exception as e:
-                logger.error(f"Error closing PDF document: {e}")
+            pdf_document.close()
 
     return text, image_data
 
@@ -190,8 +272,6 @@ def extract_text_and_images_from_word(doc_path):
             - page_num: Page number (always 1 for Word docs)
             - caption: Image caption
     """
-    min_size = 50
-
     try:
         doc = Document(doc_path)
         doc_name = Path(doc_path).name
@@ -207,7 +287,7 @@ def extract_text_and_images_from_word(doc_path):
                     image_data = rel.target_part.blob
                     image = Image.open(BytesIO(image_data))
 
-                    if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
+                    if image.mode in CONFIG.VALID_IMAGE_MODES:
                         background = Image.new('RGB', image.size, (255, 255, 255))
                         if image.mode == 'P':
                             image = image.convert('RGBA')
@@ -216,7 +296,7 @@ def extract_text_and_images_from_word(doc_path):
                     elif image.mode != 'RGB':
                         image = image.convert('RGB')
 
-                    if image.width < min_size or image.height < min_size:
+                    if image.width < CONFIG.MIN_IMAGE_SIZE or image.height < CONFIG.MIN_IMAGE_SIZE:
                         logger.info(f"Skipping small image ({image.width}x{image.height}) in {doc_name}")
                         continue
 
@@ -225,7 +305,7 @@ def extract_text_and_images_from_word(doc_path):
                     img_data = {
                         'image': image,
                         'context': surrounding_text,
-                        'page_num': 1,
+                        'page_num': 1,  # Word docs don't have pages in the same way as PDFs
                         'caption': f"Image from {doc_name}",
                         'dimensions': f"{image.width}x{image.height}",
                         'format': image.format,
@@ -254,7 +334,7 @@ def extract_text_and_images_from_excel(excel_path):
     Extract text and images from an Excel file.
     """
     try:
-        workbook = openpyxl.load_workbook(excel_path)
+        workbook = openpyxl.load_workbook(excel_path, read_only=True)
         doc_name = Path(excel_path).name
         logger.info(f"Processing Excel document: {doc_name}")
 
@@ -294,12 +374,25 @@ def extract_text_and_images_from_excel(excel_path):
         return "", []
 
 
-def chunk_text(text: str, source_path: str, chunk_size=CONFIG.CHUNK_SIZE, overlap=CONFIG.CHUNK_OVERLAP):
+def chunk_text(text: str, source_path: str, chunk_size: int = CONFIG.CHUNK_SIZE,
+               overlap: int = CONFIG.CHUNK_OVERLAP) -> List[Dict]:
     """
     Split text into chunks with overlap and enhanced metadata.
+
+    Args:
+        text: The text to be chunked
+        source_path: Path to the source document
+        chunk_size: Size of each chunk (default: from CONFIG)
+        overlap: Number of words to overlap between chunks (default: from CONFIG)
+
+    Returns:
+        List of dictionaries containing chunks and their metadata
     """
     if not text or chunk_size < CONFIG.MIN_CHUNK_SIZE:
         return []
+
+    # Define sentence ending characters
+    sentence_endings = {'.', '!', '?', '\n'}
 
     words = text.split()
     chunks = []
@@ -310,8 +403,10 @@ def chunk_text(text: str, source_path: str, chunk_size=CONFIG.CHUNK_SIZE, overla
         end_idx = start_idx + chunk_size
         if end_idx < len(words):
             breakpoint = end_idx
+            # Look for natural sentence endings within the overlap region
             for i in range(max(start_idx + chunk_size - overlap, start_idx), end_idx):
-                if words[i].endswith('.') or words[i].endswith('\n'):
+                word = words[i]
+                if any(word.endswith(end) for end in sentence_endings):
                     breakpoint = i + 1
                     break
             end_idx = breakpoint

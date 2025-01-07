@@ -4,7 +4,9 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Tuple, List, Dict
+from typing import Any, Tuple, List, Dict, Optional, Union
+import gc
+import torch
 
 import faiss
 import numpy as np
@@ -29,9 +31,10 @@ from utils.RAG_utils import (
     chunk_text,
 )
 # Updated import: combine image utilities into one module
-from utils.img_utils import ImageStore, ImageClassifier
+from utils.img_utils import ImageStore, ImageClassifier, ImageProcessor
 
 # Setup logging
+logger = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s: %(message)s',
@@ -40,64 +43,55 @@ logging.basicConfig(
     ]
 )
 
-# Create a separate console handler for critical/final information
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setLevel(logging.WARNING)  # Only WARNING and above go to console
-console_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
-logging.getLogger().addHandler(console_handler)
-
-
 def filter_technical_images(images_data, model, processor, device, source_doc):
-    """
-    Filter images to keep only technical ones using CLIP-based classification.
-
-    Args:
-        images_data: List of dictionaries containing image data
-        model: CLIP model
-        processor: CLIP processor
-        device: Computing device (CPU/GPU)
-        source_doc: Source document path
-
-    Returns:
-        List of filtered image data containing only technical images
-    """
     filtered_images = []
     classifier = ImageClassifier(model=model, processor=processor, device=device)
-
-    # Define classification labels
     labels = ["a technical image", "a non-technical image"]
+
+    logging.info(f"Processing {len(images_data)} images for technical content")  # Added logging
 
     for img_data in images_data:
         try:
             image = img_data['image']
+            logging.info(f"Image size: {image.size}, mode: {image.mode}")  # Added logging
 
-            # Perform classification using ImageClassifier class
-            predicted_label, confidence = classifier.classify(
-                image=image,
-                labels=labels
-            )
+            # Validate image before processing - silently skip invalid images
+            if not ImageProcessor.validate_image_data(image):
+                continue
 
-            # Convert confidence to similarity score (0-1 range)
+            # Convert to RGB safely
+            try:
+                image = ImageProcessor.convert_to_rgb(image)
+            except Exception as e:
+                logger.debug(f"Error converting image format: {e}")  # Changed to debug
+                continue
+
+            # Perform classification
+            try:
+                predicted_label, confidence = classifier.classify(
+                    image=image,
+                    labels=labels
+                )
+            except Exception as e:
+                logger.debug(f"Classification error: {e}")  # Changed to debug
+                continue
+
             similarity = confidence if predicted_label == "a technical image" else 1 - confidence
 
-            logging.info(f"Image from {source_doc}: {predicted_label} (similarity: {similarity:.4f})")
-
-            # Use similarity threshold for filtering
             if similarity > CONFIG.TECHNICAL_CONFIDENCE_THRESHOLD:
-                logging.info(f"Technical image found in {source_doc} (similarity: {similarity:.4f})")
-                # Add similarity score to image data for later use
                 img_data['technical_similarity'] = similarity
                 filtered_images.append(img_data)
-            else:
-                logging.info(f"Skipping non-technical image in {source_doc} (similarity: {similarity:.4f})")
+                logger.debug(  # Changed to debug
+                    f"Technical image found in {source_doc} "
+                    f"(similarity: {similarity:.4f})"
+                )
 
         except Exception as e:
-            logging.error(f"Error processing image from {source_doc}: {e}")
+            logger.debug(f"Error processing image from {source_doc}: {e}")  # Changed to debug
             continue
 
-    # Sort filtered images by similarity score
-    filtered_images.sort(key=lambda x: x.get('technical_similarity', 0), reverse=True)
     return filtered_images
+
 
 
 def compress_metadata(metadata: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -186,7 +180,7 @@ def cleanup_metadata(metadata, index):
     return cleaned_metadata, index
 
 
-def process_incrementally(docs, batch_size=5):
+def process_incrementally(docs: List[Path], batch_size: int = CONFIG.BATCH_SIZE) -> None:
     """Process documents incrementally and save progress"""
     for i in range(0, len(docs), batch_size):
         batch = docs[i:i + batch_size]
@@ -204,7 +198,15 @@ def process_incrementally(docs, batch_size=5):
             continue
 
 
-def process_documents(model, processor, device, index, metadata, image_store, doc_paths=None):
+def process_documents(
+    model: Any,
+    processor: Any,
+    device: str,
+    index: Any,
+    metadata: List[Dict],
+    image_store: ImageStore,
+    doc_paths: Optional[List[str]] = None
+) -> Tuple[Any, List[Dict]]:
     """
     Process documents to extract text and technical images, generate embeddings,
     and store them in FAISS index.
@@ -291,11 +293,14 @@ def process_documents(model, processor, device, index, metadata, image_store, do
                     # Filter and process images
                     if images_data:
                         logging.info(f"Processing {len(images_data)} images from {doc_path}")
+                        # Add size check before classification
+                        images_data = [
+                            img for img in images_data
+                            if img['image'].width >= CONFIG.MIN_IMAGE_SIZE
+                               and img['image'].height >= CONFIG.MIN_IMAGE_SIZE
+                        ]
                         filtered_images = filter_technical_images(
                             images_data, model, processor, device, str(doc_path)
-                        )
-                        logging.info(
-                            f"Filtered {len(filtered_images)} technical images from {len(images_data)} total images"
                         )
 
                         for img_data in filtered_images:
@@ -368,7 +373,10 @@ def process_documents(model, processor, device, index, metadata, image_store, do
         raise
 
 
-def get_all_documents(base_path: Path, extensions: List[str]) -> List[Path]:
+def get_all_documents(
+    base_path: Path = CONFIG.RAW_DOCUMENTS_PATH,
+    extensions: List[str] = CONFIG.SUPPORTED_EXTENSIONS
+) -> List[Path]:
     """
     Recursively fetch all documents with specified extensions from the base path.
 
@@ -394,18 +402,16 @@ def check_stored_images():
     - Corresponding metadata entries in the image metadata JSON file.
     - Presence of image entries in the FAISS metadata file.
     """
-    images_path = CONFIG.STORED_IMAGES_PATH / "images"
-    if not images_path.exists():
-        print(f"Images directory not found at {images_path}")
+    if not CONFIG.STORED_IMAGES_PATH.exists():
+        print(f"Images directory not found at {CONFIG.STORED_IMAGES_PATH}")
         return
 
-    stored_images = list(images_path.glob("*.png"))
+    stored_images = list(CONFIG.STORED_IMAGES_PATH.glob(f"*.{CONFIG.PREFERRED_SAVE_FORMAT.lower()}"))
     print(f"Found {len(stored_images)} stored image files")
 
-    # Check metadata file
-    metadata_path = CONFIG.STORED_IMAGES_PATH / "image_metadata.json"
-    if metadata_path.exists():
-        with open(metadata_path, 'r', encoding='utf-8') as f:
+    # Use CONFIG path for metadata
+    if CONFIG.IMAGE_METADATA_PATH.exists():
+        with open(CONFIG.IMAGE_METADATA_PATH, 'r', encoding='utf-8') as f:
             metadata = json.load(f)
             print(f"Found {len(metadata)} image entries in metadata")
             for img_id, data in metadata.items():
@@ -430,11 +436,9 @@ def check_stored_images():
         print("No FAISS metadata file found")
 
 
-def update_processed_files(doc_paths):
-    """
-    Update the local record of successfully processed files.
-    """
-    processed_files_path = Path("processed_files.json")
+def update_processed_files(doc_paths: List[Union[str, Path]]) -> None:
+    """Update the local record of successfully processed files."""
+    processed_files_path = CONFIG.BASE_DIR / "processed_files.json"  # Changed to base dir
     try:
         if processed_files_path.exists():
             with open(processed_files_path, 'r', encoding='utf-8') as f:
@@ -480,13 +484,8 @@ def get_unprocessed_documents():
 
 
 def get_processed_files():
-    """
-    Load the list of documents that have already been processed.
-
-    Returns:
-        Set of absolute file paths to processed documents.
-    """
-    processed_files_path = Path("processed_files.json")
+    """Load the list of documents that have already been processed."""
+    processed_files_path = CONFIG.BASE_DIR / "processed_files.json"  # Changed to base dir
     try:
         if processed_files_path.exists():
             with open(processed_files_path, 'r', encoding='utf-8') as f:
@@ -559,29 +558,25 @@ def validate_metadata_and_index(metadata: list, index: Any, image_store: ImageSt
 
 def main():
     """Main function with progress bars for batch processing and optimized memory management."""
+    clip_model = None
+    clip_processor = None
+    index = None
+    metadata = []
+
     try:
         load_dotenv()
 
         # Initialize document discovery
-        try:
-            all_docs = get_all_documents(CONFIG.RAW_DOCUMENTS_PATH, CONFIG.SUPPORTED_EXTENSIONS)
-            if not all_docs:
-                logging.warning("No documents found to process")
-                return 0
+        all_docs = get_all_documents(CONFIG.RAW_DOCUMENTS_PATH, CONFIG.SUPPORTED_EXTENSIONS)
+        if not all_docs:
+            logging.warning("No documents found to process")
+            return 0
 
-            all_docs = [str(doc) for doc in all_docs]
-            logging.info(f"Found {len(all_docs)} documents in total")
-        except Exception as e:
-            logging.error(f"Error finding documents: {e}")
-            return 1
+        all_docs = [str(doc) for doc in all_docs]
+        logging.info(f"Found {len(all_docs)} documents in total")
 
         # Get processed files
-        try:
-            processed_files = get_processed_files()
-        except Exception as e:
-            logging.error(f"Error loading processed files: {e}")
-            processed_files = set()
-
+        processed_files = get_processed_files()
         new_docs = [path for path in all_docs if str(Path(path).absolute()) not in processed_files]
 
         if not new_docs:
@@ -590,59 +585,53 @@ def main():
 
         logging.info(f"Found {len(new_docs)} new documents to process")
 
-        clip_model = None
-        index = None
-        metadata = []
+        # Initialize CLIP and FAISS
+        with tqdm(desc="Initializing", total=2) as init_pbar:
+            # Initialize CLIP
+            clip_model, clip_processor, device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
+            if not clip_model or not clip_processor:
+                raise RuntimeError("Failed to initialize CLIP model")
+            init_pbar.update(1)
 
-        try:
-            # Initialize CLIP and FAISS
-            with tqdm(desc="Initializing", total=2) as init_pbar:
-                # Initialize CLIP
-                clip_model, clip_processor, device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
-                if not clip_model or not clip_processor:
-                    raise RuntimeError("Failed to initialize CLIP model")
-                init_pbar.update(1)
+            # Initialize FAISS
+            CONFIG.RAG_DATA.mkdir(parents=True, exist_ok=True)
 
+            # Load or create FAISS index
+            if CONFIG.FAISS_INDEX_PATH.exists():
                 try:
-                    CONFIG.RAG_DATA.mkdir(parents=True, exist_ok=True)
+                    index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
+                    metadata = load_metadata(CONFIG.METADATA_PATH)
 
-                    # Load or create FAISS index
-                    if CONFIG.FAISS_INDEX_PATH.exists():
-                        try:
-                            index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
-                            metadata = load_metadata(CONFIG.METADATA_PATH)
-
-                            # Validate and cleanup existing metadata
-                            metadata, index = cleanup_metadata(metadata, index)
-                            metadata = compress_metadata(metadata)
-                            index, metadata = optimize_faiss_index(index, metadata)
-
-                            logging.info("Loaded and optimized existing FAISS index and metadata")
-                        except Exception as e:
-                            logging.warning(f"Failed to load existing index: {e}")
-                            index = None
-
-                    if index is None:
-                        logging.info("Creating new FAISS index")
-                        index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
-                        metadata = []
-                        save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
-                        save_metadata(metadata, CONFIG.METADATA_PATH)
-
-                    init_pbar.update(1)
-
+                    # Validate and cleanup existing metadata
+                    metadata, index = cleanup_metadata(metadata, index)
+                    metadata = compress_metadata(metadata)
+                    index, metadata = optimize_faiss_index(index, metadata)
+                    logging.info("Loaded and optimized existing FAISS index and metadata")
                 except Exception as e:
-                    logging.error(f"Critical error with FAISS initialization: {e}")
-                    raise
+                    logging.warning(f"Failed to load existing index: {e}")
+                    index = None
 
-            # Process documents in batches with progress bar
-            batch_size = CONFIG.BATCH_SIZE
-            num_batches = (len(new_docs) + batch_size - 1) // batch_size
+            if index is None:
+                logging.info("Creating new FAISS index")
+                index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
+                metadata = []
+                save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
+                save_metadata(metadata, CONFIG.METADATA_PATH)
 
-            with tqdm(total=num_batches, desc="Processing batches", unit="batch", position=0, leave=True) as batch_pbar:
+            init_pbar.update(1)
+
+        # Process documents in batches
+        batch_size = CONFIG.BATCH_SIZE
+        num_batches = (len(new_docs) + batch_size - 1) // batch_size
+        with ImageStore() as image_store:
+            with tqdm(total=num_batches, desc="Processing batches", unit="batch") as batch_pbar:
                 for i in range(0, len(new_docs), batch_size):
                     batch_docs = new_docs[i:i + batch_size]
-                    batch_pbar.set_postfix({"Batch": f"{(i // batch_size) + 1}/{num_batches}"}, refresh=True)
+                    current_batch = (i // batch_size) + 1
+                    batch_pbar.set_postfix({
+                        "Batch": f"{current_batch}/{num_batches}",
+                        "Files": len(batch_docs)
+                    })
 
                     try:
                         updated_index, new_metadata = process_documents(
@@ -651,12 +640,11 @@ def main():
                             device=device,
                             index=index,
                             metadata=metadata,
-                            image_store=ImageStore(),
+                            image_store=image_store,
                             doc_paths=batch_docs
                         )
 
                         if new_metadata:
-                            # Validate new metadata before adding
                             valid_new_metadata = [
                                 entry for entry in new_metadata
                                 if validate_metadata_entry(entry)
@@ -667,60 +655,57 @@ def main():
                                 metadata.extend(valid_new_metadata)
 
                                 # Periodic optimization
-                                if i % (batch_size * CONFIG.CLEANUP_FREQUENCY) == 0:
+                                if i > 0 and i % (batch_size * CONFIG.CLEANUP_FREQUENCY) == 0:
                                     logging.info("Performing periodic optimization...")
-                                    try:
-                                        metadata, index = cleanup_metadata(metadata, index)
-                                        metadata = compress_metadata(metadata)
-                                        index, metadata = optimize_faiss_index(index, metadata)
-                                    except Exception as e:
-                                        logging.error(f"Error during optimization: {e}")
+                                    metadata, index = cleanup_metadata(metadata, index)
+                                    metadata = compress_metadata(metadata)
+                                    index, metadata = optimize_faiss_index(index, metadata)
 
                                 # Save progress
-                                try:
-                                    save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
-                                    save_metadata(metadata, CONFIG.METADATA_PATH)
-                                    update_processed_files(batch_docs)
-                                except Exception as e:
-                                    logging.error(f"Error saving progress: {e}")
-
-                        import gc
-                        gc.collect()
+                                save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
+                                save_metadata(metadata, CONFIG.METADATA_PATH)
+                                update_processed_files(batch_docs)
 
                     except Exception as e:
-                        logging.error(f"Error processing batch {(i // batch_size) + 1}: {e}")
+                        logging.error(f"Error processing batch {current_batch}: {e}", exc_info=True)
                         continue
                     finally:
                         batch_pbar.update(1)
+                        gc.collect()
 
-            logging.info("Processing completed successfully")
-            return 0
-
-        except Exception as e:
-            logging.error(f"Critical error during processing: {str(e)}", exc_info=True)
-            return 1
-
-        finally:
-            if clip_model is not None and hasattr(clip_model, 'cpu'):
-                try:
-                    clip_model.cpu()
-                    del clip_model
-                except Exception as e:
-                    logging.error(f"Error cleaning up CLIP model: {e}")
-
-            if index is not None:
-                try:
-                    del index
-                except Exception as e:
-                    logging.error(f"Error cleaning up FAISS index: {e}")
-
-            import gc
-            gc.collect()
+        logging.info("Processing completed successfully")
+        return 0
 
     except Exception as e:
-        logging.error(f"Unhandled exception in main: {str(e)}", exc_info=True)
+        logging.error(f"Critical error during processing: {e}", exc_info=True)
         return 1
 
+    finally:
+        # Cleanup resources
+        try:
+            if 'image_store' in locals() and image_store is not None:
+                image_store.cleanup()
+            if clip_model is not None and hasattr(clip_model, 'cpu'):
+                clip_model.cpu()
+                del clip_model
+            if clip_processor is not None:
+                del clip_processor
+            if index is not None:
+                del index
+            # Cleanup temporary files
+            tmp_files = list(CONFIG.RAG_DATA.glob("*.tmp"))
+            for tmp_file in tmp_files:
+                try:
+                    tmp_file.unlink()
+                except Exception as e:
+                    logging.error(f"Error removing temporary file {tmp_file}: {e}")
+            gc.collect()
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+        except Exception as e:
+            logging.error(f"Error during cleanup: {e}", exc_info=True)
 
 if __name__ == "__main__":
     try:

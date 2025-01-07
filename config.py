@@ -1,7 +1,7 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
+from typing import List, Tuple, Set
 
 # Get base directory from environment variable or use current directory for local development
 BASE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
@@ -52,38 +52,15 @@ class Config:
     USE_GPU: bool = True
 
     # Thresholds (not percentiles)
-    SIMILARITY_THRESHOLD: float = 0.6  # Text similarity (it shall be 0.6-0.8)
+    SIMILARITY_THRESHOLD: float = 0.4  # Text similarity (it shall be 0.6-0.8)
     IMAGE_SIMILARITY_THRESHOLD: float = 0.35  # Image similarity - set to high value to avoid false positives
     TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.75  # Technical confidence
     DEDUPLICATION_THRESHOLD = 0.70  # Threshold for image deduplication
 
-    # Document Processing
-    BATCH_SIZE: int = 5  # Document processing in batches. For limited RAM it is 2-5. For GPU 8-16GB it is 8-16
-    CHUNK_OVERLAP: int = 100  # set to 200
-    MIN_CHUNK_SIZE: int = 100
-    CHUNK_SIZE: int = 1000  # Smaller chunks are more selective, but harder to compare
-    SUPPORTED_EXTENSIONS: List[str] = None
-    MAX_TEXT_LENGTH: int = 10000  # Maximum length of stored text chunks
-    MAX_METADATA_SIZE: int = 1000000  # Maximum size in bytes
-    METADATA_TEXT_LIMIT:  int = 1500  # Maximum text length in metadata entries
-    COMPRESSION_ENABLED = True
-    CLEANUP_FREQUENCY = 10  # Cleanup every N batches
-
-    def validate_metadata_size(self, metadata_path):
-        if os.path.getsize(metadata_path) > self.MAX_METADATA_SIZE:
-            # Trigger cleanup
-            return False
-        return True
-
-    # Token limits for completeness
-    MAX_TOKENS: int = 2000  # General setting
-    SUMMARY_MAX_TOKENS: int = 1000  # Setting for summaries
-    DETAIL_MAX_TOKENS: int = 3000  # Setting for detailed responses
-
     # Query Configuration
     DEFAULT_TOP_K: int = 20
     TEMPERATURE: float = 0
-    GPT_MODEL: str = "gpt-4o-mini"
+    GPT_MODEL: str = "gpt-4o"
 
     # Vision model settings
     GPT_VISION_MODEL: str = "gpt-4o"
@@ -97,25 +74,95 @@ class Config:
     # Chat parameters
     MAX_CHAT_HISTORY: int = 3
 
+    # Token limits for completeness
+    MAX_TOKENS: int = 3000  # General setting
+    SUMMARY_MAX_TOKENS: int = 2000  # Setting for summaries
+    DETAIL_MAX_TOKENS: int = 4000  # Setting for detailed responses
+
+    # Document Processing
+    BATCH_SIZE: int = 5  # Document processing in batches. For limited RAM it is 2-5. For GPU 8-16GB it is 8-16
+    CHUNK_OVERLAP: int = 50
+    MIN_CHUNK_SIZE: int = 50
+    CHUNK_SIZE: int = 500  # Smaller chunks are more selective, but harder to compare
+    SUPPORTED_EXTENSIONS: List[str] = None
+    MAX_TEXT_LENGTH: int = 10000  # Maximum length of stored text chunks
+    MAX_METADATA_SIZE: int = 1000000  # Maximum size in bytes
+    METADATA_TEXT_LIMIT:  int = 1500  # Maximum text length in metadata entries
+    COMPRESSION_ENABLED = True
+    CLEANUP_FREQUENCY = 10  # Cleanup every N batches
+
+    # Image Processing
+    MIN_IMAGE_SIZE: int = 150  # Leave as is for basic filtering
+    MIN_ICON_SIZE: int = 100  # Leave as is for icon filtering
+    MAX_CONTEXT_RANGE: int = 100  # Leave as is for text context
+    MAX_ASPECT_RATIO: int = 5  # Maximum width/height ratio
+
+    # Image Quality Settings
+    IMAGE_DPI: Tuple[int, int] = (300, 300)  # DPI
+    IMAGE_BITS: int = 32  # Good for preserving color depth
+    COMPRESSION_LEVEL: int = 0  # No compression - good for quality
+    IMAGE_QUALITY: int = 100  # Maximum quality - perfect
+
+    # Image Enhancement Settings
+    SHARPEN_FACTOR: float = 1.1  # Reduce sharpening to prevent artifacts
+    COLOR_FACTOR: float = 1.0  # Keep at 1.0 to preserve original colors
+    CONTRAST_FACTOR: float = 1.0  # Set to 1.0 to preserve original contrast
+
+    # Save Format Settings
+    PREFERRED_SAVE_FORMAT: str = 'PNG'  # Good choice for lossless quality
+    VALID_IMAGE_MODES: List[str] = field(
+        default_factory=lambda: ['RGB', 'RGBA', 'L', 'LA', 'P', '1', 'I']
+    )
+    SUPPORTED_IMAGE_FORMATS: Set[str] = field(
+        default_factory=lambda: {'PNG', 'JPEG', 'JPG', 'BMP', 'TIFF', 'GIF'}
+    )
+    SUPPORTED_EXTENSIONS: List[str] = field(
+        default_factory=lambda: ['.pdf', '.docx', '.xlsx']
+    )
+
+    def validate_metadata_size(self, metadata_path):
+        if os.path.getsize(metadata_path) > self.MAX_METADATA_SIZE:
+            # Trigger cleanup
+            return False
+        return True
+
     def __post_init__(self):
         if self.SUPPORTED_EXTENSIONS is None:
             self.SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.xlsx']
 
-            # Create directories if they don't exist
-            for path in [self.RAW_DOCUMENTS_PATH, self.RAG_DATA, self.LOG_PATH,
-                         self.STORED_IMAGES_PATH, self.STORED_TEXT_CHUNKS_PATH]:
-                path.mkdir(parents=True, exist_ok=True)
+        # Create directories if they don't exist
+        for path in [self.RAW_DOCUMENTS_PATH, self.RAG_DATA, self.LOG_PATH,
+                     self.STORED_IMAGES_PATH, self.STORED_TEXT_CHUNKS_PATH]:
+            path.mkdir(parents=True, exist_ok=True)
 
-            # Ensure all paths are Path objects
-            self.RAW_DOCUMENTS_PATH = Path(self.RAW_DOCUMENTS_PATH)
-            self.RAG_DATA = Path(self.RAG_DATA)
-            self.FAISS_INDEX_PATH = Path(self.FAISS_INDEX_PATH)
-            self.METADATA_PATH = Path(self.METADATA_PATH)
-            self.IMAGE_METADATA_PATH = Path(self.IMAGE_METADATA_PATH)
-            self.STORED_IMAGES_PATH = Path(self.STORED_IMAGES_PATH)
-            self.STORED_TEXT_CHUNKS_PATH = Path(self.STORED_TEXT_CHUNKS_PATH)
-            self.LOG_PATH = Path(self.LOG_PATH)
+            # Fix mutable defaults using field(default_factory=...)
+            VALID_IMAGE_MODES: List[str] = field(
+                default_factory=lambda: ['RGB', 'RGBA', 'L', 'LA', 'P', '1', 'I']
+            )
 
+            SUPPORTED_IMAGE_FORMATS: Set[str] = field(
+                default_factory=lambda: {'PNG', 'JPEG', 'JPG', 'BMP', 'TIFF', 'GIF'}
+            )
+
+            SUPPORTED_EXTENSIONS: List[str] = field(
+                default_factory=lambda: ['.pdf', '.docx', '.xlsx']
+            )
+
+            def __post_init__(self):
+                # Create directories if they don't exist
+                for path in [self.RAW_DOCUMENTS_PATH, self.RAG_DATA, self.LOG_PATH,
+                             self.STORED_IMAGES_PATH, self.STORED_TEXT_CHUNKS_PATH]:
+                    path.mkdir(parents=True, exist_ok=True)
+
+                # Ensure all paths are Path objects
+                self.RAW_DOCUMENTS_PATH = Path(self.RAW_DOCUMENTS_PATH)
+                self.RAG_DATA = Path(self.RAG_DATA)
+                self.FAISS_INDEX_PATH = Path(self.FAISS_INDEX_PATH)
+                self.METADATA_PATH = Path(self.METADATA_PATH)
+                self.IMAGE_METADATA_PATH = Path(self.IMAGE_METADATA_PATH)
+                self.STORED_IMAGES_PATH = Path(self.STORED_IMAGES_PATH)
+                self.STORED_TEXT_CHUNKS_PATH = Path(self.STORED_TEXT_CHUNKS_PATH)
+                self.LOG_PATH = Path(self.LOG_PATH)
 
 # Create global config instance
 CONFIG = Config()
