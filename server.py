@@ -181,8 +181,6 @@ class EnhancedResponseFormatter:
 
     @staticmethod
     def format_response(content: str) -> str:
-        #  debug print:
-        print(f"Raw content:\n {content}")
 
         def process_document_references(text: str) -> str:
             try:
@@ -204,7 +202,7 @@ class EnhancedResponseFormatter:
                             doc_number = search_term
 
                         # Clean but preserve the document ID structure
-                        # For PG42A0D0E, we want to keep the full ID intact
+                        # For documents like PG42A0D0E, we want to keep the full ID intact
                         clean_doc_number = ''.join(c.lower() for c in doc_number if c.isalnum())
 
                         # Also extract just the numeric part for FCO-type documents
@@ -391,11 +389,13 @@ class RAGQueryServer:
             # GPT prompt messages
             messages = [
                 {
-                    "role": "assistant",
-                    "content": """Analyze queries to determine their type. Consider:
+                    "role": "system",
+                    "content": """
+                        You are the specialist, able to classify queries based on their content.
+                        Analyze queries to determine their type. Consider:
                         - Query domain (technical, summary, overview or general knowledge)
                         - Reply with the following types: overview, technical, summary, general
-                        - Choose only one, most relevant type based on the query
+                        - Choose ONLY one, most relevant type based on the query
                         Analyze the full semantic meaning of the query."""
                 },
                 {
@@ -415,13 +415,35 @@ class RAGQueryServer:
             # Extract and parse response content
             classification = response['choices'][0]['message']['content'].strip()
 
-            # Define logic to set attributes dynamically based on classification
-            return QueryType(
-                is_overview="overview" in classification,
-                is_technical="technical" in classification,
-                is_summary="summary" in classification,
-                is_general="general" in classification
-            )
+            # Default is_technical:
+            if classification == "overview":
+                return QueryType(
+                    is_overview=True,
+                    is_technical=False,
+                    is_summary=False,
+                    is_general=False
+                )
+            elif classification == "summary":
+                return QueryType(
+                    is_overview=False,
+                    is_technical=False,
+                    is_summary=True,
+                    is_general=False
+                )
+            elif classification == "general":
+                return QueryType(
+                    is_overview=False,
+                    is_technical=False,
+                    is_summary=False,
+                    is_general=True
+                )
+            else:
+                return QueryType(
+                    is_overview=False,
+                    is_technical=True,
+                    is_summary=False,
+                    is_general=False
+                )
 
         except Exception as e:
             logging.error(f"Error determining query type: {e}")

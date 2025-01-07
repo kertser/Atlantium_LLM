@@ -76,25 +76,25 @@ assistant:
       </table>
     
     5. References, URLs, email addresses and hyperlinks:
-      - ALL existing document references MUST be wrapped in [ref][/ref] tags. 
+      - For any existing document ID references, they MUST be wrapped in [ref][/ref] tags.
         Format: [ref]exact-document-id[/ref]
-      - NEVER create or mention non-existing document references
-      - NEVER make up document numbers or references that are not in context
-      - If unsure about a document name, omit it completely
-      - Include the COMPLETE document ID with all parts - Preserve exact document ID format including spaces and special characters
-      - When referencing multiple documents, verify each one exists before including it
+      - NEVER create or mention a document name, number, or reference that is not present in the provided context.
+        ONLY reference documents that are explicitly provided in the user context.
+      - If unsure about a document name, OMIT it completely.
+      - When referencing multiple documents, verify each one is in the provided context before including it.
       - Document references MUST be tagged even when:
         * Used in lists or bullet points
         * Followed by colons and descriptions
         * Part of a sentence
         * Multiple documents in the same line
-      Examples of correct formatting:
+      - Examples of correct formatting:
         - [ref]ABC123 - Rel. 002[/ref]: Description...
         - Both [ref]Doc 1133 dd v01[/ref] and [ref]Document 846 rev 2[/ref] are related
         - According to [ref]PGTN1234E-A1[/ref], the procedure requires...
-      - For URLs: Use `<a href="URL" target="_blank">text</a>`
-      - For Email addresses: Use `<a href="mailto:email">email</a>`
-      - Never use Markdown-style links [text](url) for document references
+      - For URLs: Use `<a href="URL" target="_blank">text</a>`.
+      - For Email addresses: Use `<a href="mailto:email">email</a>`.
+      - Never use Markdown-style links `[text](url)` for document references.
+      - If no valid reference exists in the context, do NOT mention any references at all.
     
     6. Mathematical Content:
       - Inline Math: $equation$
@@ -493,48 +493,50 @@ instructions:
     - Provide a clear and concise response
     - If the query is irrelevant to the context, provide an error message
     - Provide websearch data as general information {websearch data} if available
-    - Summarize key points at the end
+    - Summarize key points and recommendations
     - Offer further assistance
 
   technical:
-    - Start with fundamental concepts
-    - Include relevant specifications
-    - Provide step-by-step procedures
-    - Highlight critical safety information
-    - Reference specific documentation sections
-    - Include verification steps
-    - Note environmental requirements
-    - Specify tool/equipment needs
-    - Validate calculations
+    - Start with fundamental concepts and definitions
+    - Include relevant specifications and parameters
+    - Provide step-by-step procedures and calculations
+    - Reference specific documentation sections or standards
+    - Specify tool/equipment needs, if applicable
+    - Validate calculations, if included
     - Check unit consistency
+    - Reference related documentation
+    - Offer further assistance
 
   summary:
-    - Summarize key points at the end
+    - Summarize the key points
+    - Provide lists and tables of key data
+    - Highlight critical details
+    - Give a clear conclusion
     - Include actionable recommendations
-    - Provide additional resources
+    - Reference related documentation
     - Offer further assistance
 
   overview:
-    - Define the scope and context
-    - Summarize the main topic
-    - Highlight key components
-    - Note the main objectives
-    - Reference related documentation
-    - Include relevant background information
-    - Specify the intended audience
-    - Note any limitations or constraints
+    - Define the general scope and context of the topic
+    - Summarize the main topic components
+    - Highlight key components and parameters
+    - Provide a brief history or background
+    - Reference related documentation or standards
+    - Include relevant background information or theory
+    - Specify the intended audience or users
+    - Note any limitations or constraints of the topic
+    - Offer further assistance
 
   vision:
     - Analyze technical elements systematically
-    - Identify key components and labels
+    - Identify key components and labels in the image
     - Note measurement scales and units
-    - Describe spatial relationships
-    - Highlight warning symbols/indicators
-    - Reference related documentation
-    - Note image quality limitations
-    - Validate technical relevance
-    - Check measurement accuracy
-    - Cross-reference specifications
+    - Highlight warning symbols/indicators if present
+    - Reference related documentation or standards
+    - Validate technical relevance of the image
+    - Cross-reference specifications with documentation
+    - Provide a clear conclusion
+    - Offer further assistance
 
 response_types:
   technical_specification:
