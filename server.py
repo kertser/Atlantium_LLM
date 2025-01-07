@@ -189,65 +189,22 @@ class EnhancedResponseFormatter:
                     processed_files = json.load(f)
 
                 def find_matching_path(doc_ref: str) -> str:
-                    try:
-                        # Clean up the reference while preserving structure
-                        search_term = doc_ref.strip()
+                    # Remove spaces from the reference
+                    search_term = doc_ref.replace(' ', '')
+                    logging.info(f"Looking for document reference: {search_term}")
 
-                        # Handle special cases where doc_ref includes document number
-                        doc_number = None
-                        if ':' in search_term:
-                            parts = search_term.split(':')
-                            doc_number = parts[0].strip()
-                        else:
-                            doc_number = search_term
-
-                        # Clean but preserve the document ID structure
-                        # For documents like PG42A0D0E, we want to keep the full ID intact
-                        clean_doc_number = ''.join(c.lower() for c in doc_number if c.isalnum())
-
-                        # Also extract just the numeric part for FCO-type documents
-                        numeric_part = ''.join(c for c in doc_number if c.isdigit())
-
-                        best_match = None
-                        highest_similarity = 0
-
-                        for file_path in processed_files:
-                            path_obj = Path(file_path)
-                            try:
-                                if 'Raw Documents' in str(path_obj):
-                                    rel_path = path_obj.relative_to(CONFIG.RAW_DOCUMENTS_PATH)
-                                else:
-                                    continue
-                            except ValueError:
-                                continue
-
-                            # Clean filename for comparison
-                            clean_filename = ''.join(c.lower() for c in path_obj.stem if c.isalnum())
-
-                            # Try exact alphanumeric match first
-                            if clean_doc_number in clean_filename:
-                                print(f"Found alphanumeric match for {doc_ref}: {rel_path}")
-                                return str(rel_path).replace('\\', '/')
-
-                            # Fall back to numeric match for FCO-type documents
-                            if numeric_part and len(numeric_part) > 3:  # Only if we have a significant numeric part
-                                file_numbers = ''.join(c for c in path_obj.stem if c.isdigit())
-                                if numeric_part in file_numbers:
-                                    similarity = len(numeric_part) / len(file_numbers)
-                                    if similarity > highest_similarity:
-                                        highest_similarity = similarity
-                                        best_match = rel_path
-
-                        if best_match:
-                            print(f"Found numeric match for {doc_ref}: {best_match}")
-                            return str(best_match).replace('\\', '/')
-
-                        print(f"No match found for {doc_ref}")
-                        return ''
-
-                    except Exception as e:
-                        logging.error(f"Error in find_matching_path for {doc_ref}: {e}")
-                        return ''
+                    for file_path in processed_files:
+                        # Normalize path separators
+                        norm_path = file_path.replace('\\', '/')
+                        cleaned_path = norm_path.replace(' ', '')
+                        if search_term in cleaned_path:
+                            # Extract path relative to Raw Documents
+                            if 'Raw Documents/' in norm_path:
+                                relative_path = norm_path.split('Raw Documents/')[1]
+                                # logging.info(f"Found matching path: {relative_path}")
+                                return relative_path
+                    logging.info(f"No matching path found for {search_term}")
+                    return ''
 
                 # Find and replace document references
                 pattern = r'\[ref](.*?)\[/ref]'

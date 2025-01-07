@@ -88,6 +88,10 @@ class PromptLoader:
         """Get the no-answer prompt."""
         return self.get_template('no_answer_prompt')
 
+    def get_troubleshooting_template(self) -> str:
+        """Get interactive troubleshooting template."""
+        return self.get_template('troubleshooting')
+
 class PromptBuilder:
     """Class for building various types of prompts using the PromptLoader."""
 
