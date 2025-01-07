@@ -92,7 +92,7 @@ def grok_post_request(messages, model_name="grok-beta", max_tokens=128, temperat
 
     """
     messages=[
-    {"role": "system", "content": "You are Grok, a chatbot inspired by the Hitchhikers Guide to the Galaxy."},
+    {"role": "assistant", "content": "You are Grok, a chatbot inspired by the Hitchhikers Guide to the Galaxy."},
     {"role": "user", "content": "What is the meaning of life, the universe, and everything?"},
     ]
     """

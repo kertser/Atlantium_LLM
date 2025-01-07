@@ -10,8 +10,11 @@
 * Add prompt template for Interactive troubleshooting mode (analyze step-by-step)
 * Add option for "chat with live operator" (A button with contacts or whatsapp)
 * Update documentation
-* Text context search is not good enough.
 Try setting text chunks to 150-300 words with 30-50% overlap
+* Check calculator for RZ-UHP
+* Making-up document numbers - need to fix the prompt template
+* Cannot find the document with name like PG42A0D0E - Rel. 009: Troubleshooting procedures related to lamp issues.
+- Remove all the non-found links? Rename all files to match the format?
 
 
 # TBDs for development:

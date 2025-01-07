@@ -181,6 +181,8 @@ class EnhancedResponseFormatter:
 
     @staticmethod
     def format_response(content: str) -> str:
+        #  debug print:
+        print(f"Raw content:\n {content}")
 
         def process_document_references(text: str) -> str:
             try:
@@ -189,33 +191,76 @@ class EnhancedResponseFormatter:
                     processed_files = json.load(f)
 
                 def find_matching_path(doc_ref: str) -> str:
-                    # Remove spaces from the reference
-                    search_term = doc_ref.replace(' ', '')
-                    # logging.info(f"Looking for document reference: {search_term}")
+                    try:
+                        # Clean up the reference while preserving structure
+                        search_term = doc_ref.strip()
 
-                    for file_path in processed_files:
-                        # Normalize path separators
-                        norm_path = file_path.replace('\\', '/')
-                        clean_path = norm_path.replace(' ', '')
-                        if search_term in clean_path:
-                            # Extract path relative to Raw Documents
-                            if 'Raw Documents/' in norm_path:
-                                relative_path = norm_path.split('Raw Documents/')[1]
-                                # logging.info(f"Found matching path: {relative_path}")
-                                return relative_path
-                    # logging.info(f"No matching path found for {search_term}")
-                    return ''
+                        # Handle special cases where doc_ref includes document number
+                        doc_number = None
+                        if ':' in search_term:
+                            parts = search_term.split(':')
+                            doc_number = parts[0].strip()
+                        else:
+                            doc_number = search_term
+
+                        # Clean but preserve the document ID structure
+                        # For PG42A0D0E, we want to keep the full ID intact
+                        clean_doc_number = ''.join(c.lower() for c in doc_number if c.isalnum())
+
+                        # Also extract just the numeric part for FCO-type documents
+                        numeric_part = ''.join(c for c in doc_number if c.isdigit())
+
+                        best_match = None
+                        highest_similarity = 0
+
+                        for file_path in processed_files:
+                            path_obj = Path(file_path)
+                            try:
+                                if 'Raw Documents' in str(path_obj):
+                                    rel_path = path_obj.relative_to(CONFIG.RAW_DOCUMENTS_PATH)
+                                else:
+                                    continue
+                            except ValueError:
+                                continue
+
+                            # Clean filename for comparison
+                            clean_filename = ''.join(c.lower() for c in path_obj.stem if c.isalnum())
+
+                            # Try exact alphanumeric match first
+                            if clean_doc_number in clean_filename:
+                                print(f"Found alphanumeric match for {doc_ref}: {rel_path}")
+                                return str(rel_path).replace('\\', '/')
+
+                            # Fall back to numeric match for FCO-type documents
+                            if numeric_part and len(numeric_part) > 3:  # Only if we have a significant numeric part
+                                file_numbers = ''.join(c for c in path_obj.stem if c.isdigit())
+                                if numeric_part in file_numbers:
+                                    similarity = len(numeric_part) / len(file_numbers)
+                                    if similarity > highest_similarity:
+                                        highest_similarity = similarity
+                                        best_match = rel_path
+
+                        if best_match:
+                            print(f"Found numeric match for {doc_ref}: {best_match}")
+                            return str(best_match).replace('\\', '/')
+
+                        print(f"No match found for {doc_ref}")
+                        return ''
+
+                    except Exception as e:
+                        logging.error(f"Error in find_matching_path for {doc_ref}: {e}")
+                        return ''
 
                 # Find and replace document references
-                pattern = r'""([^"]+)""'
+                pattern = r'\[ref](.*?)\[/ref]'
 
                 def replacement(match):
                     doc_ref = match.group(1)
                     rel_path = find_matching_path(doc_ref)
                     if rel_path:
-                        # Create an onclick handler that calls openDocument
                         return f'<a href="javascript:void(0)" onclick="openDocument(\'{rel_path}\')" class="doc-link">{doc_ref}</a>'
-                    # Return just the reference text without double-double quotes if no match found
+                    # Return the original reference if no match found
+                    logging.debug(f"No match found for document: {doc_ref}")
                     return doc_ref
 
                 # Replace all document references
@@ -249,16 +294,21 @@ class EnhancedResponseFormatter:
 
         def apply_emphasis(content: str) -> str:
             # Replace **text** and *text* with HTML-like formatting
+            # First, temporarily protect [ref] tags
+            content = re.sub(r'\[ref](.*?)\[/ref]', r'PRESERVED_REF{\1}PRESERVED_REF', content)
+            # Replace **text** and *text* with HTML-like formatting
             content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', content)
             content = re.sub(r'\*(.*?)\*', r'<em>\1</em>', content)
+            # Restore [ref] tags
+            content = re.sub(r'PRESERVED_REF{(.*?)}PRESERVED_REF', r'[ref]\1[/ref]', content)
             return content
 
         def format_section(title: str, content: str) -> str:
             # Format section with consistent spacing
             formatted_content = clean_text(content)
-            formatted_content = process_document_references(formatted_content)
             formatted_content = format_lists(formatted_content)
             formatted_content = apply_emphasis(formatted_content)
+            formatted_content = process_document_references(formatted_content)
             return f"# {title}\n\n{formatted_content}"
 
         # Process the content
@@ -500,7 +550,7 @@ class RAGQueryServer:
         try:
             # Extract document references using double-double quotes pattern
             referenced_docs = set()
-            matches = re.finditer(r'""([^"]+)""', response_text)
+            matches = re.finditer(r'\[ref](.*?)\[/ref]', response_text)
 
             for match in matches:
                 doc_ref = match.group(1).strip()
@@ -620,6 +670,7 @@ class RAGQueryServer:
             if not contexts or query_type.is_general:
                 contexts = self._create_no_results_response(query_text)
 
+            # For debug:
             logging.info("query types: %s", query_type)
 
             # Get chat history with proper formatting
@@ -643,7 +694,7 @@ class RAGQueryServer:
             response = openai_post_request(
                 messages=messages,
                 model_name=CONFIG.GPT_MODEL,
-                max_tokens=CONFIG.DETAIL_MAX_TOKENS,
+                max_tokens=CONFIG.DETAIL_MAX_TOKENS, # Detail? Why not general?
                 temperature=CONFIG.TEMPERATURE,
                 api_key=self.openai_api_key
             )

@@ -571,7 +571,7 @@ class REDLibrary:
             # Use OpenAI to detect calculator content based on the template
             messages = [
                 {
-                    "role": "system",
+                    "role": "assistant",
                     "content": template['system']
                 }
             ]
@@ -707,7 +707,7 @@ class REDLibrary:
 
             # Prepare messages for OpenAI
             messages = [
-                {"role": "system", "content": system_prompt},
+                {"role": "assistant", "content": system_prompt},
                 {"role": "user", "content": query}
             ]
 

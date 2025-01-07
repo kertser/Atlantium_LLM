@@ -106,7 +106,7 @@ class ImageProcessor:
 
             messages = [
                 {
-                    "role": "system",
+                    "role": "assistant",
                     "content": self.prompt_loader.get_system_prompt('vision_assistant')
                 },
                 {
@@ -184,7 +184,7 @@ class ImageProcessor:
             try:
                 messages = [
                     {
-                        "role": "system",
+                        "role": "assistant",
                         "content": self.prompt_loader.get_system_prompt('vision_assistant')
                     },
                     {

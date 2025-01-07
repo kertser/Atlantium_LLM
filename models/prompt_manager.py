@@ -34,7 +34,7 @@ class PromptLoader:
 
     def get_system_prompt(self, key: str) -> str:
         """Get a system prompt by key."""
-        return self._prompts.get('system', {}).get(key, '')
+        return self._prompts.get('assistant', {}).get(key, '')
 
     def get_instructions(self, instruction_type: str) -> List[str]:
         """Get instructions by type."""
@@ -195,7 +195,7 @@ class PromptBuilder:
         """Build the messages list for the API request."""
         return [
             {
-                "role": "system",
+                "role": "assistant",
                 "content": self.loader.get_system_prompt('technical_assistant')
             },
             {"role": "user", "content": prompt}
@@ -207,7 +207,7 @@ class PromptBuilder:
         formatted_no_answer = no_answer_prompt.format(query=query_text)
         return [
             {
-                "role": "system",
+                "role": "assistant",
                 "content": self.loader.get_system_prompt('technical_assistant')
             },
             {"role": "user", "content": formatted_no_answer}
