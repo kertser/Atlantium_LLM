@@ -72,7 +72,7 @@ class ImageProcessor:
                 top_k=CONFIG.DEFAULT_TOP_K
             )
 
-            # Extract document references and contexts
+            # Extract document references and process similar images
             document_refs = set()
             contexts = []
             similar_images = []
@@ -84,24 +84,32 @@ class ImageProcessor:
                         similarity = 1 - (result['distance'] / 2)
 
                         if metadata.get('type') == 'image' and similarity > self.similarity_threshold:
-                            # Get image data and metadata
+                            # Process image data
                             image_id = metadata.get('image', {}).get('id')
                             if image_id:
                                 image_data = self._prepare_image_data(image_id, metadata, similarity)
                                 if image_data:
                                     similar_images.append(image_data)
+                                    # Extract document reference from image metadata
                                     source_doc = metadata.get('image', {}).get('source_doc', '')
                                     if source_doc:
-                                        document_refs.add(source_doc)
+                                        filename = os.path.basename(source_doc)
+                                        match = re.match(r'^([A-Za-z0-9]+)-', filename)
+                                        if match:
+                                            document_refs.add(match.group(1))
 
                         elif metadata.get('type') == 'text-chunk':
                             if 'get_content' in metadata:
                                 chunk_text = metadata['get_content']()
                                 if chunk_text:
                                     contexts.append(chunk_text)
+                            # Extract document reference from text chunk
                             source_path = metadata.get('path', '')
                             if source_path:
-                                document_refs.add(source_path)
+                                filename = os.path.basename(source_path)
+                                match = re.match(r'^([A-Za-z0-9]+)-', filename)
+                                if match:
+                                    document_refs.add(match.group(1))
 
             # Deduplicate similar images
             if similar_images:
@@ -110,27 +118,18 @@ class ImageProcessor:
                     self.deduplication_threshold
                 )
 
-            # Analyze technical aspects with context
-            technical_context = await self.analyze_technical_context({
-                'image': image,
-                'base64_image': base64_image
-            })
-
-            # Build query context including FAISS results
+            # Build query context including found contexts
             query_context = self.prompt_loader.format_template(
                 'image_query_with_context',
                 query_text=query_text or "Analyze this technical image",
-                image_context="\n".join([
-                    technical_context.get('analysis', ''),
-                    *contexts
-                ])
+                image_context="\n".join(contexts) if contexts else ""
             )
 
             # Process with GPT, including document references
             vision_result = await self._process_vision_request(
                 base64_image,
                 query_context,
-                list(document_refs)  # Pass document references
+                list(document_refs)
             )
 
             # Format the response
@@ -138,9 +137,8 @@ class ImageProcessor:
 
             return {
                 'response': formatted_response,
-                'technical_context': technical_context,
                 'confidence': classification_result['confidence'],
-                'related_images': similar_images,
+                'similar_images': similar_images,
                 'document_references': list(document_refs)
             }
 
@@ -239,32 +237,23 @@ class ImageProcessor:
             logging.error(f"Error getting relevant images: {e}")
             return []
 
-    async def _process_vision_request(self, base64_image: str, query_context: str, document_refs: List[str]) -> Dict:
+    async def _process_vision_request(
+            self,
+            base64_image: str,
+            query_context: str,
+            document_refs: List[str]
+    ) -> Dict:
         """Process vision request with GPT with retries and proper formatting."""
         MAX_RETRIES = 3
         BASE_WAIT = 4
 
         for attempt in range(MAX_RETRIES):
             try:
-                # Process document references to extract IDs
-                processed_refs = []
-                for doc_ref in document_refs:
-                    # Extract filename from path
-                    filename = os.path.basename(doc_ref)
-                    # Extract ID (characters before first dash)
-                    match = re.match(r'^([A-Za-z0-9]+)-', filename)
-                    if match:
-                        doc_id = match.group(1)
-                        processed_refs.append(doc_id)
-
-                # Format document references
-                doc_refs_text = "\n".join(
-                    [f"[ref]{doc_id}[/ref]" for doc_id in processed_refs]
-                )
-                doc_context = (
-                    f"\nRelevant Documentation (use document IDs in [ref] tags):\n{doc_refs_text}"
-                    if processed_refs else ""
-                )
+                # Format document references list if any exist
+                doc_context = ""
+                if document_refs:
+                    doc_refs_text = "\n".join([f"- [ref]{doc_id}[/ref]" for doc_id in document_refs])
+                    doc_context = f"\nRelevant Documentation:\n{doc_refs_text}"
 
                 messages = [
                     {
@@ -277,6 +266,7 @@ class ImageProcessor:
                             {
                                 "type": "text",
                                 "text": f"""
+                                    Analyze this technical image with the following context:
                                     {query_context}
 
                                     {doc_context}
@@ -284,8 +274,14 @@ class ImageProcessor:
                                     IMPORTANT: When referencing documents:
                                     - Use ONLY the document ID (characters before first dash)
                                     - Format as [ref]DOCUMENT_ID[/ref]
-                                    - Example: from "PE12A000E-RZ104-AIO rel 010.pdf" use [ref]PE12A000E[/ref]
                                     - Do not include paths or full filenames
+
+                                    Provide a comprehensive analysis including:
+                                    1. Component identification
+                                    2. Technical specifications visible in the image
+                                    3. Integration with UV system
+                                    4. Related documentation references
+                                    5. Any safety or maintenance considerations
                                 """
                             },
                             {
