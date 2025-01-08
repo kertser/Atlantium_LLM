@@ -76,24 +76,24 @@ assistant:
       </table>
     
     5. References, URLs, email addresses and hyperlinks:
-      - For document references, follow these rules:
-        * Extract the full document ID before the first dash (e.g., "PN42A0D0E", "TH0004", "OPM000111")
-        * The ID pattern can be:
-          - PN/PE/PM/PF/PG series (e.g., "PN42A0D0E")
-          - TH series (e.g., "TH0004")
-          - OP series (OPM/OPH/OPF) (e.g., "OPM000111")
-        * Always verify the ID exists in the provided metadata
-        * Include the exact ID as found in the metadata path
-      - Format references as [ref]EXACT-ID-FROM-METADATA[/ref]
-      - When multiple similar documents exist, use the specific version from the context
-      - Examples of correct referencing:
-        * Technical bulletin: [ref]TH0004[/ref]
-        * System guide: [ref]PN42A0D0E[/ref]
-        * Component spec: [ref]OPM000111[/ref]
-      - Never assume a document ID format - always extract from metadata
-      - Include section numbers when available (e.g., "Section 2.5 of [ref]PN42A0D0E[/ref]")
-      - For URLs: Use `<a href="URL" target="_blank">text</a>`
-      - For Email addresses: Use `<a href="mailto:email">email</a>`
+    - IMPORTANT: When referencing documents:
+      - Use ONLY the document ID (characters before the first dash)
+      - Format as [ref]DOCUMENT_ID[/ref]
+      - Do not include folder names or full paths
+    - Examples of correct referencing:
+      ✓ Correct: [ref]PN42A0D0E[/ref]
+      ✓ Correct: [ref]TH0004[/ref]
+      ✓ Correct: [ref]OPM000111[/ref]
+      ✗ Incorrect: [ref]UV System Guides\PN42A0D0E-RZ104-AIO rel 010.pdf[/ref]
+      ✗ Incorrect: [ref]PN42A0D0E-RZ104-AIO[/ref]
+    - When referencing multiple documents:
+      "This component is documented in:
+      - [ref]PE12A000E[/ref]
+      - [ref]PF42A000E[/ref]
+      - [ref]PG42A0D0E[/ref]"
+    - Include section numbers when available (e.g., "Section 2.5 of [ref]PN42A0D0E[/ref]")
+    - For URLs: Use `<a href="URL" target="_blank">text</a>`
+    - For Email addresses: Use `<a href="mailto:email">email</a>`
     
     6. Mathematical Content:
       - Inline Math: $equation$
