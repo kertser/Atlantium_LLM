@@ -54,30 +54,92 @@ class ImageProcessor:
                     'response': formatted_response
                 }
 
-            # Analyze technical aspects
+            # Get embeddings for FAISS search
+            from utils.FAISS_utils import query_with_context, load_faiss_index, load_metadata
+            index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
+            metadata = load_metadata(CONFIG.METADATA_PATH)
+
+            # Use CLIP to search for similar images
+            results = query_with_context(
+                index=index,
+                metadata=metadata,
+                model=self.model,
+                processor=self.processor,
+                device=self.device,
+                image_query=image,
+                top_k=CONFIG.DEFAULT_TOP_K
+            )
+
+            # Extract document references and contexts
+            document_refs = set()
+            contexts = []
+            similar_images = []
+
+            if results and results[0]:
+                for result_group in results:
+                    for result in result_group:
+                        metadata = result["metadata"]
+                        similarity = 1 - (result['distance'] / 2)
+
+                        if metadata.get('type') == 'image' and similarity > self.similarity_threshold:
+                            # Get image data and metadata
+                            image_id = metadata.get('image', {}).get('id')
+                            if image_id:
+                                image_data = self._prepare_image_data(image_id, metadata, similarity)
+                                if image_data:
+                                    similar_images.append(image_data)
+                                    source_doc = metadata.get('image', {}).get('source_doc', '')
+                                    if source_doc:
+                                        document_refs.add(source_doc)
+
+                        elif metadata.get('type') == 'text-chunk':
+                            if 'get_content' in metadata:
+                                chunk_text = metadata['get_content']()
+                                if chunk_text:
+                                    contexts.append(chunk_text)
+                            source_path = metadata.get('path', '')
+                            if source_path:
+                                document_refs.add(source_path)
+
+            # Deduplicate similar images
+            if similar_images:
+                similar_images = self.image_classifier.deduplicate(
+                    similar_images,
+                    self.deduplication_threshold
+                )
+
+            # Analyze technical aspects with context
             technical_context = await self.analyze_technical_context({
                 'image': image,
                 'base64_image': base64_image
             })
 
-            # Build query context
+            # Build query context including FAISS results
             query_context = self.prompt_loader.format_template(
                 'image_query_with_context',
                 query_text=query_text or "Analyze this technical image",
-                image_context=technical_context.get('analysis', '')
+                image_context="\n".join([
+                    technical_context.get('analysis', ''),
+                    *contexts
+                ])
             )
 
-            # Process with GPT
-            vision_result = await self._process_vision_request(base64_image, query_context)
+            # Process with GPT, including document references
+            vision_result = await self._process_vision_request(
+                base64_image,
+                query_context,
+                list(document_refs)  # Pass document references
+            )
 
-            # Format the response using the formatter from RAGQueryServer
+            # Format the response
             formatted_response = self.formatter.format_response(vision_result['response'])
 
             return {
                 'response': formatted_response,
                 'technical_context': technical_context,
                 'confidence': classification_result['confidence'],
-                'related_images': vision_result.get('related_images', [])
+                'related_images': similar_images,
+                'document_references': list(document_refs)
             }
 
         except Exception as e:
@@ -175,13 +237,22 @@ class ImageProcessor:
             logging.error(f"Error getting relevant images: {e}")
             return []
 
-    async def _process_vision_request(self, base64_image: str, query_context: str) -> Dict:
+    async def _process_vision_request(
+            self,
+            base64_image: str,
+            query_context: str,
+            document_refs: List[str]
+    ) -> Dict:
         """Process vision request with GPT with retries and proper formatting."""
         MAX_RETRIES = 3
         BASE_WAIT = 4
 
         for attempt in range(MAX_RETRIES):
             try:
+                # Format document references for the prompt
+                doc_refs_text = "\n".join([f"[ref]{doc}[/ref]" for doc in document_refs])
+                doc_context = f"\nRelevant Documentation:\n{doc_refs_text}" if document_refs else ""
+
                 messages = [
                     {
                         "role": "assistant",
@@ -195,10 +266,9 @@ class ImageProcessor:
                                 "text": f"""
                                     {query_context}
 
-                                    IMPORTANT: If this component appears in our documentation, 
-                                    explicitly mention that and reference the document using double quotes.
-                                    Example: This component appears in ""Document_Name"" where it is described as...
+                                    {doc_context}
 
+                                    IMPORTANT: When referencing documents, use [ref]DOCUMENT_NAME[/ref] format.
                                     Use the provided documentation context to enhance your analysis.
                                 """
                             },
@@ -219,7 +289,6 @@ class ImageProcessor:
                 if not response or not response.choices:
                     raise ValueError("Empty or invalid response from OpenAI API")
 
-                # Get the raw response
                 raw_response = response.choices[0].message.content.strip()
 
                 return {
