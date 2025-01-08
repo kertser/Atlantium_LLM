@@ -12,8 +12,7 @@
 * Update documentation
 * Try setting text chunks to 150-300 words with 30-50% overlap
 * Check calculator for RZ-UHP
-* Cannot find the document names in the search results. Fix the templates section of document_name
-- find_matching_path is wrong. Rename all files to match the format on init? May be use filenames from the metadata?
+* Cannot find the document references, close to the images
 * Attach Image on the frontend is not not loading correctly without reset, after images been founded in query
 
 
