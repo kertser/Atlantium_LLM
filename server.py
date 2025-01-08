@@ -1006,7 +1006,28 @@ async def image_query(
             raise HTTPException(status_code=400, detail="File size too large")
 
         # Process using the base method
-        return await server.process_image_query(contents, query)
+        result = await server.process_image_query(contents, query)
+
+        # Log the similar images for debugging
+        similar_images = result.get('similar_images', [])
+        logging.info(f"Similar images structure: {json.dumps([{k: '...' if k == 'image' else v for k, v in img.items()} for img in similar_images])}")
+
+        # Structure response to include similar images
+        response = {
+            "status": "success",
+            "response": {
+                "text_response": result.get('response', ''),
+                "is_technical": result.get('is_technical', False),
+                "confidence": result.get('confidence', 0),
+                "images": similar_images,  # Changed from similar_images to images to match frontend expectation
+                "document_references": result.get('document_references', [])
+            }
+        }
+
+        # Log the final response structure (excluding image data)
+        logging.info(f"Response structure: {json.dumps({**response, 'response': {**response['response'], 'images': f'[{len(similar_images)} images]'}})}")
+
+        return JSONResponse(content=response)
 
     except Exception as e:
         logging.error(f"Error processing image: {str(e)}", exc_info=True)

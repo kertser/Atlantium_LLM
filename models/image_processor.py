@@ -47,13 +47,13 @@ class ImageProcessor:
 
             classification_result = await self._classify_image(image)
             if not classification_result['is_technical']:
-                # Format non-technical response
                 formatted_response = self.formatter.format_response(
                     classification_result['response']
                 )
                 return {
                     **classification_result,
-                    'response': formatted_response
+                    'response': formatted_response,
+                    'similar_images': []  # Add empty list for consistency
                 }
 
             # Get embeddings for FAISS search
@@ -74,7 +74,7 @@ class ImageProcessor:
 
             # Extract document references and process similar images
             document_refs = set()
-            contexts = []
+            contexts = []  # This was previously unused
             similar_images = []
 
             if results and results[0]:
@@ -84,13 +84,11 @@ class ImageProcessor:
                         similarity = 1 - (result['distance'] / 2)
 
                         if metadata.get('type') == 'image' and similarity > self.similarity_threshold:
-                            # Process image data
                             image_id = metadata.get('image', {}).get('id')
                             if image_id:
                                 image_data = self._prepare_image_data(image_id, metadata, similarity)
                                 if image_data:
                                     similar_images.append(image_data)
-                                    # Extract document reference from image metadata
                                     source_doc = metadata.get('image', {}).get('source_doc', '')
                                     if source_doc:
                                         filename = os.path.basename(source_doc)
@@ -102,14 +100,7 @@ class ImageProcessor:
                             if 'get_content' in metadata:
                                 chunk_text = metadata['get_content']()
                                 if chunk_text:
-                                    contexts.append(chunk_text)
-                            # Extract document reference from text chunk
-                            source_path = metadata.get('path', '')
-                            if source_path:
-                                filename = os.path.basename(source_path)
-                                match = re.match(r'^([A-Za-z0-9]+)-', filename)
-                                if match:
-                                    document_refs.add(match.group(1))
+                                    contexts.append(chunk_text)  # Collecting text contexts
 
             # Deduplicate similar images
             if similar_images:
@@ -117,18 +108,22 @@ class ImageProcessor:
                     similar_images,
                     self.deduplication_threshold
                 )
+                logging.info(f"Found {len(similar_images)} similar images after deduplication")
 
-            # Build query context including found contexts
+            # Build query context including both technical analysis and text contexts
             query_context = self.prompt_loader.format_template(
                 'image_query_with_context',
                 query_text=query_text or "Analyze this technical image",
-                image_context="\n".join(contexts) if contexts else ""
+                image_context="\n\n".join([
+                    "Technical Documentation Context:",
+                    *contexts  # Include the collected text contexts
+                ]) if contexts else "No additional context available."
             )
 
-            # Process with GPT, including document references
+            # Process with GPT
             vision_result = await self._process_vision_request(
                 base64_image,
-                query_context,
+                query_context,  # Now includes both technical analysis and text contexts
                 list(document_refs)
             )
 
@@ -137,8 +132,17 @@ class ImageProcessor:
 
             return {
                 'response': formatted_response,
+                'is_technical': True,
                 'confidence': classification_result['confidence'],
-                'similar_images': similar_images,
+                'similar_images': [
+                    {
+                        'image': img['image'],
+                        'caption': img['caption'],
+                        'context': img['context'],
+                        'source': img['source'],
+                        'similarity': str(img['similarity'])  # Convert to string for JSON
+                    } for img in similar_images
+                ],
                 'document_references': list(document_refs)
             }
 
@@ -351,12 +355,12 @@ class ImageProcessor:
                 return None
 
             return {
-                'image': base64_image,
+                'image': base64_image,  # Base64 encoded image data
                 'image_id': image_id,
-                'caption': metadata.get('image', {}).get('caption', ''),
-                'context': metadata.get('context', ''),
+                'caption': metadata.get('image', {}).get('caption', '') or 'Similar image',
+                'context': metadata.get('context', '') or 'Related technical documentation',
                 'source': str(metadata.get('path', '')),
-                'similarity': similarity
+                'similarity': float(similarity)  # Ensure similarity is a float
             }
         except Exception as e:
             logging.error(f"Error preparing image data: {e}")
