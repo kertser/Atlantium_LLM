@@ -8,6 +8,8 @@ from typing import Dict, Optional, List
 from PIL import Image
 from openai import OpenAI
 from fastapi import HTTPException
+import os
+import re
 
 from config import CONFIG
 from utils.img_utils import ImageStore, ImageClassifier
@@ -237,21 +239,32 @@ class ImageProcessor:
             logging.error(f"Error getting relevant images: {e}")
             return []
 
-    async def _process_vision_request(
-            self,
-            base64_image: str,
-            query_context: str,
-            document_refs: List[str]
-    ) -> Dict:
+    async def _process_vision_request(self, base64_image: str, query_context: str, document_refs: List[str]) -> Dict:
         """Process vision request with GPT with retries and proper formatting."""
         MAX_RETRIES = 3
         BASE_WAIT = 4
 
         for attempt in range(MAX_RETRIES):
             try:
-                # Format document references for the prompt
-                doc_refs_text = "\n".join([f"[ref]{doc}[/ref]" for doc in document_refs])
-                doc_context = f"\nRelevant Documentation:\n{doc_refs_text}" if document_refs else ""
+                # Process document references to extract IDs
+                processed_refs = []
+                for doc_ref in document_refs:
+                    # Extract filename from path
+                    filename = os.path.basename(doc_ref)
+                    # Extract ID (characters before first dash)
+                    match = re.match(r'^([A-Za-z0-9]+)-', filename)
+                    if match:
+                        doc_id = match.group(1)
+                        processed_refs.append(doc_id)
+
+                # Format document references
+                doc_refs_text = "\n".join(
+                    [f"[ref]{doc_id}[/ref]" for doc_id in processed_refs]
+                )
+                doc_context = (
+                    f"\nRelevant Documentation (use document IDs in [ref] tags):\n{doc_refs_text}"
+                    if processed_refs else ""
+                )
 
                 messages = [
                     {
@@ -268,8 +281,11 @@ class ImageProcessor:
 
                                     {doc_context}
 
-                                    IMPORTANT: When referencing documents, use [ref]DOCUMENT_NAME[/ref] format.
-                                    Use the provided documentation context to enhance your analysis.
+                                    IMPORTANT: When referencing documents:
+                                    - Use ONLY the document ID (characters before first dash)
+                                    - Format as [ref]DOCUMENT_ID[/ref]
+                                    - Example: from "PE12A000E-RZ104-AIO rel 010.pdf" use [ref]PE12A000E[/ref]
+                                    - Do not include paths or full filenames
                                 """
                             },
                             {
