@@ -492,13 +492,29 @@ class ImageClassifier(ImageProcessor):
 
             image = self.convert_to_rgb(image)
 
-            # Prepare inputs
-            inputs = self.processor(
-                text=labels,
-                images=image,
-                return_tensors="pt",
-                padding=True
-            )
+            # Process text: truncate and clean labels
+            processed_labels = []
+            for label in labels:
+                # Clean and truncate text to a reasonable length (e.g., first 100 chars)
+                cleaned_text = ' '.join(label.split())  # Remove extra whitespace
+                truncated_text = cleaned_text[:100]  # Truncate to first 100 chars
+                processed_labels.append(truncated_text)
+
+            # Prepare inputs with processed labels
+            try:
+                inputs = self.processor(
+                    text=processed_labels,
+                    images=image,
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=True,  # Enable truncation
+                    max_length=77,  # Set maximum token length
+                )
+            except Exception as e:
+                logging.error(f"Error processing inputs: {e}", exc_info=True)
+                return "processing error", 0.0
+
+            # Move inputs to correct device
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
             # Get prediction
@@ -507,11 +523,57 @@ class ImageClassifier(ImageProcessor):
                 probs = outputs.logits_per_image.softmax(dim=1)
 
             idx = probs.argmax().item()
-            return labels[idx], probs[0, idx].item()
+            return processed_labels[idx], probs[0, idx].item()
 
         except Exception as e:
             logging.error(f"Classification error: {e}", exc_info=True)
             return "classification error", 0.0
+
+    def rank_images_by_relevance(
+            self,
+            image_store: 'ImageStore',
+            images: List[Dict],
+            query_text: str,
+            max_images: int = 12
+    ) -> List[Dict]:
+        """Rank images by their relevance to the query text."""
+        if not self.model or not self.processor:
+            raise ValueError("Model and processor required")
+
+        # Clean and prepare query text
+        clean_query = ' '.join(query_text.split())  # Remove extra whitespace
+        # Create a list of shorter segments if the text is too long
+        text_segments = [clean_query[i:i + 100] for i in range(0, len(clean_query), 100)][:3]  # Take first 3 segments
+
+        ranked_images = []
+
+        for img_info in images:
+            try:
+                image, metadata = image_store.get_image(img_info['image_id'])
+                if image is None:
+                    continue
+
+                # Get average similarity score across text segments
+                similarity_scores = []
+                for segment in text_segments:
+                    _, score = self.classify(
+                        image=image,
+                        labels=[segment]
+                    )
+                    similarity_scores.append(score)
+
+                # Use average score
+                avg_score = sum(similarity_scores) / len(similarity_scores)
+                img_info['relevance_score'] = avg_score
+                ranked_images.append(img_info)
+
+            except Exception as e:
+                logging.error(f"Error ranking image {img_info.get('image_id')}: {e}")
+                continue
+
+        # Sort by relevance score and limit
+        ranked_images.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
+        return ranked_images[:max_images]
 
     def deduplicate(
             self,

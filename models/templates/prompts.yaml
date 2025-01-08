@@ -76,25 +76,24 @@ assistant:
       </table>
     
     5. References, URLs, email addresses and hyperlinks:
-      - For any existing document ID references, they MUST be wrapped in [ref][/ref] tags.
-        Format: [ref]document_name[/ref]
-      - NEVER create or mention a document name, number, or reference that is not present in the provided context.
-        ONLY reference documents that are explicitly provided in the user context.
-      - If unsure about a document name, OMIT it completely.
-      - When referencing multiple documents, verify each one is in the provided context before including it.
-      - Document references MUST be tagged even when:
-        * Used in lists or bullet points
-        * Followed by colons and descriptions
-        * Part of a sentence
-        * Multiple documents in the same line
-      - Examples of correct formatting:
-        - [ref]ABC123 - Rel. 002[/ref]: Description...
-        - Both [ref]Doc 1133 dd v01[/ref] and [ref]Document 846 rev 2[/ref] are related
-        - According to [ref]PGTN1234E-A1[/ref], the procedure requires...
-      - For URLs: Use `<a href="URL" target="_blank">text</a>`.
-      - For Email addresses: Use `<a href="mailto:email">email</a>`.
-      - Never use Markdown-style links `[text](url)` for document references.
-      - If no valid reference exists in the context, do NOT mention any references at all.
+      - For document references, follow these rules:
+        * Extract the full document ID before the first dash (e.g., "PN42A0D0E", "TH0004", "OPM000111")
+        * The ID pattern can be:
+          - PN/PE/PM/PF/PG series (e.g., "PN42A0D0E")
+          - TH series (e.g., "TH0004")
+          - OP series (OPM/OPH/OPF) (e.g., "OPM000111")
+        * Always verify the ID exists in the provided metadata
+        * Include the exact ID as found in the metadata path
+      - Format references as [ref]EXACT-ID-FROM-METADATA[/ref]
+      - When multiple similar documents exist, use the specific version from the context
+      - Examples of correct referencing:
+        * Technical bulletin: [ref]TH0004[/ref]
+        * System guide: [ref]PN42A0D0E[/ref]
+        * Component spec: [ref]OPM000111[/ref]
+      - Never assume a document ID format - always extract from metadata
+      - Include section numbers when available (e.g., "Section 2.5 of [ref]PN42A0D0E[/ref]")
+      - For URLs: Use `<a href="URL" target="_blank">text</a>`
+      - For Email addresses: Use `<a href="mailto:email">email</a>`
     
     6. Mathematical Content:
       - Inline Math: $equation$
@@ -211,7 +210,10 @@ assistant:
     1. Identify technical components and systems in images
     2. Connect visual information with technical documentation
     3. IMPORTANT: When this component or similar components appear in our documentation, use that information to enhance your analysis
-    4. Reference specific documents using [ref][/ref] tags: [ref]document_name[/ref]
+    4. Reference documents following these rules:
+       * Extract the full document ID before the first dash (e.g., "PN42A0D0E", "TH0004", "OPM000111")
+       * Format as [ref]EXACT-ID-FROM-METADATA[/ref]
+       * Verify ID exists in metadata before referencing
     5. If the component matches our documented systems, explain its role in the larger system
     
     Analysis Framework:
@@ -236,7 +238,7 @@ assistant:
        - Safety requirements
     
     If image matches documentation:
-    "This component appears in our documentation: [ref]document_name[/ref]. According to our records..."
+    "This component appears in our documentation: [ref]EXACT-ID[/ref]. According to our records..."
     
     If image lacks sufficient detail:
     "While the image shows [description], our documentation provides additional context: [context]"
@@ -349,11 +351,11 @@ templates:
     IMPORTANT - Technical Documentation Context:
     {image_context}
     
-    If this component or similar components appear in our documentation above:
-    1. Reference the specific documents using [ref][/ref] tags: [ref]document_name[/ref]
-    2. Explain how this matches or differs from documented specifications
-    3. Describe its role in the larger UV system
-    4. Include any documented maintenance or safety requirements
+    When referencing documents:
+    1. Extract full document ID before first dash (e.g., "PN42A0D0E", "TH0004", "OPM000111")
+    2. Format as [ref]EXACT-ID-FROM-METADATA[/ref]
+    3. Always verify ID exists in metadata
+    4. Include section numbers when available
     
     Analysis Framework:
     1. Documentation Match Analysis:

@@ -53,7 +53,7 @@ from pydantic import BaseModel
 
 from config import CONFIG
 from models.prompt_manager import PromptLoader, PromptBuilder
-from models.image_processor import ImageProcessor
+from models.image_processor import ImageProcessor, ImageClassifier
 from utils.FAISS_utils import load_faiss_index, load_metadata, query_with_context
 from utils.LLM_utils import CLIP_init, openai_post_request
 from utils.document_utils import (
@@ -180,59 +180,125 @@ class EnhancedResponseFormatter:
         return self.prompt_builder.build_messages(prompt)
 
     @staticmethod
-    def format_response(content: str) -> str:
+    def format_response(content: str, chunk_metadata: List[Dict] = None) -> str:
+        """
+        Format the response text with proper styling and document references.
+
+        Args:
+            content (str): The raw content to format
+            chunk_metadata (List[Dict], optional): Metadata from text chunks containing document information
+
+        Returns:
+            str: Formatted content with proper styling and document references
+        """
 
         def process_document_references(text: str) -> str:
+            """
+            Process document references using metadata from text chunks and processed files.
+
+            Args:
+                text (str): The text containing document references
+            """
             try:
-                # Load processed files
-                with open("processed_files.json", 'r', encoding='utf-8') as f:
+                # Load processed files for fallback
+                processed_files_path = CONFIG.PROCESSED_FILES_PATH
+                if not processed_files_path.exists():
+                    logging.warning("processed_files file not found")
+                    return text
+
+                with processed_files_path.open('r', encoding='utf-8') as f:
                     processed_files = json.load(f)
 
-                def find_matching_path(doc_ref: str) -> str:
-                    # Remove spaces from the reference
-                    search_term = doc_ref.replace(' ', '')
-                    logging.info(f"Looking for document reference: {search_term}")
+                # Create document mapping from metadata
+                doc_mapping = {}
 
-                    for file_path in processed_files:
-                        # Normalize path separators
-                        norm_path = file_path.replace('\\', '/')
-                        cleaned_path = norm_path.replace(' ', '')
-                        if search_term in cleaned_path:
-                            # Extract path relative to Raw Documents
-                            if 'Raw Documents/' in norm_path:
-                                relative_path = norm_path.split('Raw Documents/')[1]
-                                # logging.info(f"Found matching path: {relative_path}")
-                                return relative_path
-                    logging.info(f"No matching path found for {search_term}")
-                    return ''
+                # First, build mapping from chunk metadata if available
+                if chunk_metadata:
+                    for meta in chunk_metadata:
+                        if isinstance(meta, dict) and 'path' in meta:
+                            # Get the full path
+                            full_path = str(meta['path'])
+                            # Extract filename
+                            filename = os.path.basename(full_path)
+                            # Extract unique document ID
+                            match = re.match(r'^([A-Za-z0-9]+)-', filename)
+                            if match:
+                                doc_id = match.group(1)
+                                # Store both ID and full path
+                                doc_mapping[doc_id] = {
+                                    'filename': filename,
+                                    'path': full_path,
+                                    'relative_path': full_path.split('Raw Documents/')[-1]
+                                    if 'Raw Documents/' in full_path
+                                    else full_path
+                                }
+                                logging.debug(f"Added document mapping from metadata: {doc_id} -> {filename}")
 
-                # Find and replace document references
-                pattern = r'\[ref](.*?)\[/ref]'
+                # Fallback to processed_files for any missing mappings
+                for file_path in processed_files:
+                    if not isinstance(file_path, str):
+                        continue
+
+                    norm_path = file_path.replace('\\', '/')
+                    filename = os.path.basename(norm_path)
+                    match = re.match(r'^([A-Za-z0-9]+)-', filename)
+                    if match:
+                        doc_id = match.group(1)
+                        if doc_id not in doc_mapping:
+                            relative_path = (norm_path.split('Raw Documents/')[1]
+                                             if 'Raw Documents/' in norm_path
+                                             else norm_path)
+                            doc_mapping[doc_id] = {
+                                'filename': filename,
+                                'path': norm_path,
+                                'relative_path': relative_path
+                            }
+                            logging.debug(f"Added document mapping from processed files: {doc_id} -> {filename}")
 
                 def replacement(match):
-                    doc_ref = match.group(1)
-                    rel_path = find_matching_path(doc_ref)
-                    if rel_path:
-                        return f'<a href="javascript:void(0)" onclick="openDocument(\'{rel_path}\')" class="doc-link">{doc_ref}</a>'
+                    doc_ref = match.group(1).strip()
+                    # Find the full path for this document ID
+                    full_path = None
+
+                    for file_path in processed_files:
+                        norm_path = file_path.replace('\\', '/')
+                        # Get filename without path
+                        filename = os.path.basename(norm_path)
+                        # Check if filename starts with the document ID
+                        if filename.startswith(f"{doc_ref}-"):
+                            if 'Raw Documents/' in norm_path:
+                                full_path = norm_path.split('Raw Documents/')[1]
+                            else:
+                                full_path = norm_path
+                            break
+
+                    if full_path:
+                        # Use the full filename in the display text
+                        display_text = os.path.basename(full_path)
+                        safe_path = full_path.replace("'", "\\'")
+                        return f'<a href="javascript:void(0)" onclick="openDocument(\'{safe_path}\')" class="doc-link">{display_text}</a>'
+
                     # Return the original reference if no match found
                     logging.debug(f"No match found for document: {doc_ref}")
                     return doc_ref
 
-                # Replace all document references
+                # Find and replace document references
+                pattern = r'\[ref](.*?)\[/ref]'
                 text = re.sub(pattern, replacement, text)
                 return text
 
             except Exception as e:
-                logging.error(f"Error processing document references: {e}")
+                logging.error(f"Error processing document references: {e}", exc_info=True)
                 return text
 
         def clean_text(text: str) -> str:
-            # Clean up excess whitespace while preserving structure
+            """Clean up excess whitespace while preserving structure."""
             text = re.sub(r'\s*\n\s*\n\s*\n+', '\n\n', text)
             text = re.sub(r'[ \t]+', ' ', text)
             return text.strip()
 
         def format_lists(content: str) -> str:
+            """Format lists with proper spacing and indentation."""
             # Add <br> before valid numbered list items
             content = re.sub(r'([^\n])\s*(\d+\.\s+(?=[A-Za-z]))', r'\1<br>\2', content)
             # Add <br> before headers
@@ -248,7 +314,7 @@ class EnhancedResponseFormatter:
             return content
 
         def apply_emphasis(content: str) -> str:
-            # Replace **text** and *text* with HTML-like formatting
+            """Apply emphasis formatting while preserving document references."""
             # First, temporarily protect [ref] tags
             content = re.sub(r'\[ref](.*?)\[/ref]', r'PRESERVED_REF{\1}PRESERVED_REF', content)
             # Replace **text** and *text* with HTML-like formatting
@@ -259,32 +325,41 @@ class EnhancedResponseFormatter:
             return content
 
         def format_section(title: str, content: str) -> str:
-            # Format section with consistent spacing
-            formatted_content = clean_text(content)
-            formatted_content = format_lists(formatted_content)
-            formatted_content = apply_emphasis(formatted_content)
-            formatted_content = process_document_references(formatted_content)
-            return f"# {title}\n\n{formatted_content}"
+            """Format a section with all necessary formatting applied."""
+            try:
+                formatted_content = clean_text(content)
+                formatted_content = format_lists(formatted_content)
+                formatted_content = apply_emphasis(formatted_content)
+                formatted_content = process_document_references(formatted_content)
+                return f"# {title}\n\n{formatted_content}"
+            except Exception as e:
+                logging.error(f"Error formatting section '{title}': {e}", exc_info=True)
+                return f"# {title}\n\n{content}"
 
-        # Process the content
-        sections = []
-        current_title = "Reply"
-        current_content = []
+        try:
+            # Process the content
+            sections = []
+            current_title = "Reply"
+            current_content = []
 
-        for line in content.split('\n'):
-            line = line.strip()
-            if line.startswith('#'):
-                if current_content:
-                    sections.append(format_section(current_title, '\n'.join(current_content)))
-                current_title = line.lstrip('#').strip()
-                current_content = []
-            elif line:
-                current_content.append(line)
+            for line in content.split('\n'):
+                line = line.strip()
+                if line.startswith('#'):
+                    if current_content:
+                        sections.append(format_section(current_title, '\n'.join(current_content)))
+                    current_title = line.lstrip('#').strip()
+                    current_content = []
+                elif line:
+                    current_content.append(line)
 
-        if current_content:
-            sections.append(format_section(current_title, '\n'.join(current_content)))
+            if current_content:
+                sections.append(format_section(current_title, '\n'.join(current_content)))
 
-        return '\n\n'.join(sections)
+            return '\n\n'.join(sections)
+
+        except Exception as e:
+            logging.error(f"Error formatting response: {e}", exc_info=True)
+            return content  # Return original content if formatting fails
 
 
 class RAGQueryServer:
@@ -318,6 +393,14 @@ class RAGQueryServer:
             device=self.device,
             formatter=self.formatter
         )
+        self.image_classifier = ImageClassifier(
+            model=self.model,
+            processor=self.processor,
+            device=self.device,
+        )
+
+        # Load processed files from metadata
+        self.processed_files = self._load_processed_files()
 
         # Initialize index and chat history
         self._initialize_index()
@@ -326,6 +409,20 @@ class RAGQueryServer:
         logging.info(
             f"Server initialized with {len([m for m in self.metadata if m.get('type') == 'image'])} images in metadata"
         )
+
+    def _load_processed_files(self) -> List[str]:
+        """Load the list of processed files from metadata."""
+        try:
+            metadata_path = CONFIG.PROCESSED_FILES_PATH  # Make sure this is defined in your config
+            if os.path.exists(metadata_path):
+                with open(metadata_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            else:
+                logging.warning(f"No processed files metadata found at {metadata_path}")
+                return []
+        except Exception as e:
+            logging.error(f"Error loading processed files metadata: {e}")
+            return []
 
     def _initialize_index(self):
         """Initialize or load existing FAISS index and metadata."""
@@ -350,9 +447,10 @@ class RAGQueryServer:
                     "content": """
                         You are the specialist, able to classify queries based on their content.
                         Analyze queries to determine their type. Consider:
-                        - Query domain (technical, summary, overview or general knowledge)
+                        - Query domain (technical question, technical summary, technical overview or general knowledge)
                         - Reply with the following types: overview, technical, summary, general
                         - Choose ONLY one, most relevant type based on the query
+                        - All non-technical questions shall be classified as "general"
                         Analyze the full semantic meaning of the query."""
                 },
                 {
@@ -527,7 +625,7 @@ class RAGQueryServer:
     async def _get_referenced_images(self, response_text: str) -> List[Dict]:
         """Get images from documents referenced in the response text."""
         try:
-            # Extract document references using double-double quotes pattern
+            # Extract document references using pattern
             referenced_docs = set()
             matches = re.finditer(r'\[ref](.*?)\[/ref]', response_text)
 
@@ -547,7 +645,7 @@ class RAGQueryServer:
                 image_metadata = json.load(f)
 
             # Get images from referenced documents
-            relevant_images = []
+            image_candidates = []
             processed_ids = set()
 
             for image_id, img_data in image_metadata.items():
@@ -573,15 +671,34 @@ class RAGQueryServer:
                                         'width': img_data.get('width'),
                                         'height': img_data.get('height')
                                     }
-                                    relevant_images.append(image_info)
+                                    image_candidates.append(image_info)
                                     processed_ids.add(image_id)
                                     logging.info(f"Added image {image_id} from document {source_doc}")
                             except Exception as e:
                                 logging.error(f"Error processing image {image_id}: {e}")
                             break
 
-            logging.info(f"Found {len(relevant_images)} images from {len(referenced_docs)} referenced documents")
-            return relevant_images
+            if not image_candidates:
+                logging.info("No images found in referenced documents")
+                return []
+
+            try:
+                # Use ImageClassifier to rank images by relevance
+                if hasattr(self, 'image_classifier'):
+                    ranked_images = self.image_classifier.rank_images_by_relevance(
+                        image_store=self.image_processor.image_store,
+                        images=image_candidates,
+                        query_text=response_text
+                    )
+                    logging.info(f"Selected {len(ranked_images)} most relevant images")
+                    return ranked_images[:13]  # Limit to 12 most relevant images
+                else:
+                    logging.info("No image classifier available, returning unranked images")
+                    return image_candidates[:13]  # Return first 12 images if no classifier
+
+            except Exception as e:
+                logging.error(f"Error ranking images: {e}", exc_info=True)
+                return image_candidates[:13]  # Fallback to first 12 images if ranking fails
 
         except Exception as e:
             logging.error(f"Error getting images from response: {e}")
@@ -643,14 +760,18 @@ class RAGQueryServer:
             # Get contexts and process special cases
             contexts, initial_images = await self.get_relevant_contexts(results, query_text)
 
+            # Extract metadata from results
+            chunk_metadata = []
+            if results and results[0]:
+                for result in results[0]:
+                    if result.get('metadata', {}).get('type') == 'text-chunk':
+                        chunk_metadata.append(result['metadata'])
+
             query_type = await self.determine_query_type(query_text)
 
-            # if no contexts or general question: return websearch results
+            # if no contexts OR general question: return websearch results
             if not contexts or query_type.is_general:
                 contexts = self._create_no_results_response(query_text)
-
-            # For debug:
-            logging.info("query types: %s", query_type)
 
             # Get chat history with proper formatting
             formatted_history = self.get_chat_history()
@@ -673,7 +794,7 @@ class RAGQueryServer:
             response = openai_post_request(
                 messages=messages,
                 model_name=CONFIG.GPT_MODEL,
-                max_tokens=CONFIG.DETAIL_MAX_TOKENS, # Detail? Why not general?
+                max_tokens=CONFIG.DETAIL_MAX_TOKENS,  # Detail? Why not general?
                 temperature=CONFIG.TEMPERATURE,
                 api_key=self.openai_api_key
             )
@@ -691,7 +812,7 @@ class RAGQueryServer:
                                                                                CONFIG.DEDUPLICATION_THRESHOLD)
 
             # Format the response text
-            formatted_response = self.formatter.format_response(text_response)
+            formatted_response = self.formatter.format_response(text_response, chunk_metadata)
 
             # Update chat history
             self.update_chat_history(query_text, formatted_response)
@@ -961,7 +1082,7 @@ async def upload_document(file: UploadFile, folder: str = Form("")):
 
 def update_processed_files(doc_paths):
     """Update the list of successfully processed files"""
-    processed_files_path = Path("processed_files.json")
+    processed_files_path = CONFIG.PROCESSED_FILES_PATH
     try:
         if processed_files_path.exists():
             with open(processed_files_path, 'r') as f:
@@ -1161,8 +1282,8 @@ async def get_documents(path: str = ""):
     """Get list of documents and folders with metadata recursively"""
     logger = logging.getLogger(__name__)
     try:
-        # Get total count from processed_files.json
-        processed_files_path = Path("processed_files.json")
+        # Get total count from processed_files
+        processed_files_path = CONFIG.PROCESSED_FILES_PATH
         total_documents = 0
         if processed_files_path.exists():
             with open(processed_files_path, 'r', encoding='utf-8') as f:
@@ -1234,7 +1355,7 @@ async def get_documents(path: str = ""):
 async def list_documents():
     try:
         # Load list of processed documents
-        processed_files_path = Path("processed_files.json")
+        processed_files_path = CONFIG.PROCESSED_FILES_PATH
         if processed_files_path.exists():
             with open(processed_files_path, 'r') as f:
                 documents = json.load(f)
