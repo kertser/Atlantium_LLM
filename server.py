@@ -173,14 +173,6 @@ class EnhancedResponseFormatter:
     def __init__(self):
         self.prompt_builder = PromptBuilder()
 
-    """
-    def prepare_prompt(self, query_text: str, contexts: List[str], query_type: QueryType, images: List[Dict]) -> str:
-        return self.prompt_builder.build_chat_prompt(query_text, contexts, images, chat_history=get_chat_history(), query_type.is_technical)
-
-    def prepare_messages(self, prompt: str) -> List[Dict[str, str]]:
-        return self.prompt_builder.build_messages(prompt)
-    """
-
     @staticmethod
     def format_response(content: str, chunk_metadata: List[Dict] = None) -> str:
         """

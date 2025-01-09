@@ -277,6 +277,7 @@ templates:
     1. Address the current query directly using available technical documentation
     2. Use current visual information if relevant
     3. Reference historical context only if it provides additional technical value
+    4. ONLY use document references that were provided in the Available Document References section
 
     {instructions}
 
@@ -286,7 +287,7 @@ templates:
     3. Related Visual Analysis (if present)
     4. Relevant Historical References (only if directly applicable)
     5. Additional Considerations
-    6. Documentation References
+    6. Documentation References (using ONLY the available document IDs)
     7. Next Steps/Recommendations
 
   no_answer_prompt: |
