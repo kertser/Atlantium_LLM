@@ -15,6 +15,7 @@
 * Attach Image on the frontend is not not loading correctly without reset, after images been founded in query
 * Try to filter the document reference images from the search results images
 * Similarity metrics is not linear. The idea is to take some stdev of the similarity scores and use it as a threshold for the search results
+* Text chunks similarity is not ideal
 
 
 # TBDs for development:

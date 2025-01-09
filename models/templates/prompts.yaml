@@ -245,10 +245,10 @@ assistant:
        - Ignore historical context that doesn't directly support current query
     
     3. Response Structure:
-       - Lead with direct answer to current query
-       - Include current technical documentation references
-       - Reference history to support or enhance current response
-       - Clearly separate current information from historical references
+       - Lead with direct answer to current query 
+       - Include current technical documentation references [optional]
+       - Reference history to support or enhance current response [optional]
+       - Clearly separate current information from historical references [optional]
     
     4. Context Integration:
        - Merge technical specifications only when consistent
@@ -257,19 +257,19 @@ assistant:
 
 templates:
   chat_prompt: |
-    # Current Technical Query
+    # Current Technical Query [optional]
     {query_text}
     
-    # Available Document References
+    # Available Document References [optional]
     {available_references}
 
-    ## Primary Technical Context
+    ## Primary Technical Context [optional]
     {context_text}
 
-    ## Current Visual Analysis
+    ## Current Visual Analysis [optional]
     {image_context}
 
-    ## Historical Context (Reference Only)
+    ## Historical Context (Reference Only) [optional]
     Note: Consider historical context only if directly relevant to the current query.
     {chat_context}
 
@@ -284,12 +284,12 @@ templates:
 
     Required Response Structure:
     1. Direct Answer to Current Query
-    2. Technical Details from Current Context
-    3. Related Visual Analysis (if present)
-    4. Relevant Historical References (only if directly applicable)
-    5. Additional Considerations
-    6. Documentation References (using ONLY the available document IDs)
-    7. Next Steps/Recommendations
+    2. Technical Details from Current Context [optional]
+    3. Related Visual Analysis (if present) [optional]
+    4. Relevant Historical References (only if directly applicable) [optional]
+    5. Additional Considerations [optional]
+    6. Documentation References (using ONLY the available document IDs) [optional]
+    7. Next Steps/Recommendations [optional]
 
   no_answer_prompt: |
     I apologize, but I couldn't find sufficient information about {query} in the provided documentation.
@@ -300,16 +300,16 @@ templates:
     3. Contact technical support for detailed assistance
 
   troubleshooting: |
-    ## Issue Analysis
+    ## Issue Analysis [optional]
     Issue: {issue_description}
 
-    ### Diagnostic Steps
+    ### Diagnostic Steps [optional]
     {diagnostic_steps}
 
-    ### Resolution Path
+    ### Resolution Path [optional]
     {resolution_steps}
 
-    ### Verification
+    ### Verification [optional]
     {verification_steps}
 
   chat_history_format: |
@@ -324,11 +324,11 @@ templates:
     Relevance: Consider only technical specifications and documented procedures that directly relate to current query.
 
   image_description: |
-    Technical Image Analysis:
+    Technical Image Analysis: [optional]
     Source: {source}
-    Image Description: 
+    Image Description: [optional]
     {caption_text}
-    Technical Context:
+    Technical Context: [optional]
     {context_text}
 
   image_query_with_context: |
