@@ -173,11 +173,13 @@ class EnhancedResponseFormatter:
     def __init__(self):
         self.prompt_builder = PromptBuilder()
 
+    """
     def prepare_prompt(self, query_text: str, contexts: List[str], query_type: QueryType, images: List[Dict]) -> str:
-        return self.prompt_builder.build_chat_prompt(query_text, contexts, images, [], query_type.is_technical)
+        return self.prompt_builder.build_chat_prompt(query_text, contexts, images, chat_history=get_chat_history(), query_type.is_technical)
 
     def prepare_messages(self, prompt: str) -> List[Dict[str, str]]:
         return self.prompt_builder.build_messages(prompt)
+    """
 
     @staticmethod
     def format_response(content: str, chunk_metadata: List[Dict] = None) -> str:
@@ -704,6 +706,17 @@ class RAGQueryServer:
             logging.error(f"Error getting images from response: {e}")
             return []
 
+    def _extract_document_references(self, chunk_metadata: List[Dict]) -> List[str]:
+        """Extract unique document IDs from chunk metadata."""
+        doc_refs = set()
+        for meta in chunk_metadata:
+            if isinstance(meta, dict) and 'path' in meta:
+                filename = os.path.basename(meta['path'])
+                match = re.match(r'^([A-Za-z0-9]+)-', filename)
+                if match:
+                    doc_refs.add(match.group(1))
+        return sorted(list(doc_refs))
+
     async def process_text_query(self, query_text: str, top_k: int = CONFIG.DEFAULT_TOP_K) -> QueryResponse:
         """Process a text query and return response with relevant images."""
         try:
@@ -760,12 +773,15 @@ class RAGQueryServer:
             # Get contexts and process special cases
             contexts, initial_images = await self.get_relevant_contexts(results, query_text)
 
-            # Extract metadata from results
+            # Extract metadata from text and images search results
             chunk_metadata = []
             if results and results[0]:
                 for result in results[0]:
                     if result.get('metadata', {}).get('type') == 'text-chunk':
                         chunk_metadata.append(result['metadata'])
+
+            # Extract document references from chunk metadata
+            available_refs = self._extract_document_references(chunk_metadata)
 
             query_type = await self.determine_query_type(query_text)
 
@@ -776,12 +792,15 @@ class RAGQueryServer:
             # Get chat history with proper formatting
             formatted_history = self.get_chat_history()
 
+            # Print available_refs for debugging
+            print(available_refs)
+
             formatted_prompt = self.formatter.prompt_builder.build_chat_prompt(
                 query_text=query_text,
                 contexts=contexts,
                 images=initial_images,
-                # chat_history=[],  # No history for this query
                 chat_history=formatted_history,
+                available_refs=available_refs,
                 is_technical=query_type.is_technical,
                 is_summary=query_type.is_summary,
                 is_overview=query_type.is_overview

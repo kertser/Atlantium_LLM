@@ -259,6 +259,8 @@ templates:
   chat_prompt: |
     # Current Technical Query
     {query_text}
+    
+    {available_references}
 
     ## Primary Technical Context
     {context_text}
