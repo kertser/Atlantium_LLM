@@ -504,15 +504,17 @@ class RAGQueryServer:
                 is_general=True  # Default fallback assumption
             )
 
-    async def get_relevant_contexts(self, results: List[Dict], query_text: str) -> Tuple[List[str], List[Dict]]:
-        """Get relevant contexts and images from search results."""
+    async def get_relevant_contexts(self, results: List[Dict], query_text: str) -> Tuple[
+        List[str], List[Dict], List[Dict]]:
+        """Get relevant contexts, images, and their metadata from search results."""
         if not results or not results[0]:
             logging.info("No results found")
-            return [], []
+            return [], [], []  # Added empty metadata list to return
 
         try:
             relevant_contexts = []
             relevant_images = []
+            relevant_metadata = []  # New list for metadata
 
             for result in results[0]:
                 metadata = result['metadata']
@@ -524,6 +526,7 @@ class RAGQueryServer:
                         chunk_text = metadata['get_content']()
                         if chunk_text:
                             relevant_contexts.append(chunk_text.strip())
+                            relevant_metadata.append(metadata)  # Store metadata for the chunk
 
                 # Process images using ImageProcessor
                 elif metadata.get('type') == 'image' and similarity > CONFIG.IMAGE_SIMILARITY_THRESHOLD:
@@ -533,11 +536,11 @@ class RAGQueryServer:
 
             relevant_images.sort(key=lambda x: x['similarity'], reverse=True)
             logging.info(f"Final results: {len(relevant_contexts)} contexts, {len(relevant_images)} images")
-            return relevant_contexts, relevant_images
+            return relevant_contexts, relevant_images, relevant_metadata
 
         except Exception as e:
             logging.error(f"Error in get_relevant_contexts: {e}", exc_info=True)
-            return [], []
+            return [], [], []
 
     async def _process_image_result(self, result: Dict, query_text: str) -> List[Dict]:
         """Process individual image search result."""
@@ -763,14 +766,7 @@ class RAGQueryServer:
                 )
 
             # Get contexts and process special cases
-            contexts, initial_images = await self.get_relevant_contexts(results, query_text)
-
-            # Extract metadata from text and images search results
-            chunk_metadata = []
-            if results and results[0]:
-                for result in results[0]:
-                    if result.get('metadata', {}).get('type') == 'text-chunk':
-                        chunk_metadata.append(result['metadata'])
+            contexts, initial_images, chunk_metadata = await self.get_relevant_contexts(results, query_text)
 
             # Extract document references from chunk metadata
             available_refs = self._extract_document_references(chunk_metadata)

@@ -12,9 +12,9 @@
 * Update documentation
 * Try setting text chunks to 150-300 words with 30-50% overlap
 * Check calculator for RZ-UHP
-* Cannot find the document references, close to the images
 * Attach Image on the frontend is not not loading correctly without reset, after images been founded in query
-* _process_vision_request from image_processor shall use methods from utils library for LLM and images
+* Try to filter the document reference images from the search results images
+* Similarity metrics is not linear. The idea is to take some stdev of the similarity scores and use it as a threshold for the search results
 
 
 # TBDs for development:
