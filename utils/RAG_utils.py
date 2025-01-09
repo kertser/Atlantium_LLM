@@ -9,6 +9,9 @@ from PIL import Image, UnidentifiedImageError
 from docx import Document
 
 import re
+import nltk
+# Download NLTK data (if not already downloaded)
+nltk.download('punkt')
 
 from config import CONFIG
 from utils.img_utils import ImageStore, ImageProcessor
@@ -407,20 +410,28 @@ def chunk_text(text: str, source_path: str, chunk_size: int = CONFIG.CHUNK_SIZE,
         r'^(?:table of contents|contents|toc).*$',
         r'^\s*(?:\d+\.)+\s+.*\s+\d+\s*$',  # TOC entries with page numbers
     ]
+    disclaimer_patterns = [
+        r'^.*(?:disclaimer|legal).*$',
+        r'^.*(?:confidential|proprietary).*$'
+    ]
 
     # Compile all patterns
-    patterns = [re.compile(p, re.IGNORECASE) for p in header_patterns + footer_patterns + toc_patterns]
+    patterns = [re.compile(p, re.IGNORECASE) for p in header_patterns + footer_patterns + toc_patterns + disclaimer_patterns]
 
     # Clean and preprocess text
     def clean_text(text: str) -> str:
+        # Remove HTML tags
+        text = re.sub(r'<.*?>', '', text)
         # Remove multiple newlines
         text = re.sub(r'\n{3,}', '\n\n', text)
         # Remove multiple spaces
         text = re.sub(r'\s+', ' ', text)
+        # Remove special characters and excessive punctuation
+        text = re.sub(r'[^\w\s.!?]', '', text)
         return text.strip()
 
     def is_meaningful_content(text: str) -> bool:
-        # Skip if matches any header/footer/TOC patterns
+        # Skip if matches any header/footer/TOC/disclaimer patterns
         if any(pattern.match(text) for pattern in patterns):
             return False
 
@@ -445,12 +456,17 @@ def chunk_text(text: str, source_path: str, chunk_size: int = CONFIG.CHUNK_SIZE,
     meaningful_paragraphs = [p for p in paragraphs if is_meaningful_content(p)]
 
     # Define sentence ending characters
-    sentence_endings = {'.', '!', '?', '\n'}
+    sentence_endings = {'.', '!', '?'}
 
-    # Process meaningful paragraphs into chunks
-    words = []
+    # Use NLTK sentence tokenizer for better sentence boundary detection
+    sentences = []
     for para in meaningful_paragraphs:
-        words.extend(para.split())
+        sentences.extend(nltk.sent_tokenize(para))
+
+    # Process meaningful sentences into chunks
+    words = []
+    for sentence in sentences:
+        words.extend(sentence.split())
 
     chunks = []
     start_idx = 0
