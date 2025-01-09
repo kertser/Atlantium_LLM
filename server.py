@@ -784,9 +784,6 @@ class RAGQueryServer:
             # Get chat history with proper formatting
             formatted_history = self.get_chat_history()
 
-            # Print available_refs for debugging
-            print(available_refs)
-
             formatted_prompt = self.formatter.prompt_builder.build_chat_prompt(
                 query_text=query_text,
                 contexts=contexts,

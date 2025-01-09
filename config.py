@@ -53,13 +53,13 @@ class Config:
     USE_GPU: bool = True
 
     # Thresholds (not percentiles)
-    SIMILARITY_THRESHOLD: float = 0.65  # Text similarity (it shall be 0.6-0.8)
+    SIMILARITY_THRESHOLD: float = 0.75  # Text similarity (it shall be 0.6-0.8)
     IMAGE_SIMILARITY_THRESHOLD: float = 0.35  # Image similarity - set to high value to avoid false positives
     TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.75  # Technical confidence
     DEDUPLICATION_THRESHOLD = 0.70  # Threshold for image deduplication
 
     # Query Configuration
-    DEFAULT_TOP_K: int = 20
+    DEFAULT_TOP_K: int = 35
     TEMPERATURE: float = 0
     GPT_MODEL: str = "gpt-4o-mini"
 
@@ -76,15 +76,15 @@ class Config:
     MAX_CHAT_HISTORY: int = 3
 
     # Token limits for completeness
-    MAX_TOKENS: int = 3000  # General setting
+    MAX_TOKENS: int = 4000  # General setting
     SUMMARY_MAX_TOKENS: int = 2000  # Setting for summaries
     DETAIL_MAX_TOKENS: int = 4000  # Setting for detailed responses
 
     # Document Processing
     BATCH_SIZE: int = 5  # Document processing in batches. For limited RAM it is 2-5. For GPU 8-16GB it is 8-16
-    CHUNK_OVERLAP: int = 50
+    CHUNK_OVERLAP: int = 100
     MIN_CHUNK_SIZE: int = 50
-    CHUNK_SIZE: int = 300  # Smaller chunks are more selective, but harder to compare
+    CHUNK_SIZE: int = 400  # Smaller chunks are more selective, but harder to compare
     SUPPORTED_EXTENSIONS: List[str] = None
     MAX_TEXT_LENGTH: int = 10000  # Maximum length of stored text chunks
     MAX_METADATA_SIZE: int = 1000000  # Maximum size in bytes
