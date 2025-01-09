@@ -8,6 +8,8 @@ import pymupdf  # PyMuPDF for PDFs
 from PIL import Image, UnidentifiedImageError
 from docx import Document
 
+import re
+
 from config import CONFIG
 from utils.img_utils import ImageStore, ImageProcessor
 
@@ -377,7 +379,7 @@ def extract_text_and_images_from_excel(excel_path):
 def chunk_text(text: str, source_path: str, chunk_size: int = CONFIG.CHUNK_SIZE,
                overlap: int = CONFIG.CHUNK_OVERLAP) -> List[Dict]:
     """
-    Split text into chunks with overlap and enhanced metadata.
+    Split text into chunks with overlap and enhanced metadata, filtering out non-meaningful content.
 
     Args:
         text: The text to be chunked
@@ -391,10 +393,65 @@ def chunk_text(text: str, source_path: str, chunk_size: int = CONFIG.CHUNK_SIZE,
     if not text or chunk_size < CONFIG.MIN_CHUNK_SIZE:
         return []
 
+    # Define patterns for filtering out non-meaningful content
+    header_patterns = [
+        r'^.*(?:header|heading).*$',
+        r'^\s*(?:page\s+\d+|p\.\s*\d+)\s*$',
+        r'^\s*(?:chapter|section)\s+\d+.*$'
+    ]
+    footer_patterns = [
+        r'^.*(?:footer|copyright|all rights reserved).*$',
+        r'^\s*\d+\s*$'  # Page numbers
+    ]
+    toc_patterns = [
+        r'^(?:table of contents|contents|toc).*$',
+        r'^\s*(?:\d+\.)+\s+.*\s+\d+\s*$',  # TOC entries with page numbers
+    ]
+
+    # Compile all patterns
+    patterns = [re.compile(p, re.IGNORECASE) for p in header_patterns + footer_patterns + toc_patterns]
+
+    # Clean and preprocess text
+    def clean_text(text: str) -> str:
+        # Remove multiple newlines
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        # Remove multiple spaces
+        text = re.sub(r'\s+', ' ', text)
+        return text.strip()
+
+    def is_meaningful_content(text: str) -> bool:
+        # Skip if matches any header/footer/TOC patterns
+        if any(pattern.match(text) for pattern in patterns):
+            return False
+
+        # Skip if too short
+        if len(text.strip()) < CONFIG.MIN_CHUNK_SIZE:
+            return False
+
+        # Skip if mostly special characters or numbers
+        text_clean = re.sub(r'[\W\d]', '', text)
+        if len(text_clean) < len(text) * 0.3:  # Less than 30% letters
+            return False
+
+        return True
+
+    # Clean the text
+    text = clean_text(text)
+
+    # Split into paragraphs first
+    paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
+
+    # Filter out non-meaningful paragraphs
+    meaningful_paragraphs = [p for p in paragraphs if is_meaningful_content(p)]
+
     # Define sentence ending characters
     sentence_endings = {'.', '!', '?', '\n'}
 
-    words = text.split()
+    # Process meaningful paragraphs into chunks
+    words = []
+    for para in meaningful_paragraphs:
+        words.extend(para.split())
+
     chunks = []
     start_idx = 0
     chunk_number = 0
@@ -403,26 +460,35 @@ def chunk_text(text: str, source_path: str, chunk_size: int = CONFIG.CHUNK_SIZE,
         end_idx = start_idx + chunk_size
         if end_idx < len(words):
             breakpoint = end_idx
+
             # Look for natural sentence endings within the overlap region
             for i in range(max(start_idx + chunk_size - overlap, start_idx), end_idx):
                 word = words[i]
                 if any(word.endswith(end) for end in sentence_endings):
+                    # Found a natural break point
                     breakpoint = i + 1
                     break
             end_idx = breakpoint
 
-        chunk = {
-            'text': ' '.join(words[start_idx:end_idx]),
-            'metadata': {
-                'source_path': source_path,
-                'chunk_number': chunk_number,
-                'start_idx': start_idx,
-                'end_idx': end_idx,
-                'relative_path': str(Path(source_path).relative_to(CONFIG.RAW_DOCUMENTS_PATH))
+        chunk_text = ' '.join(words[start_idx:end_idx])
+
+        # Only add chunk if it contains meaningful content
+        if is_meaningful_content(chunk_text):
+            chunk = {
+                'text': chunk_text,
+                'metadata': {
+                    'source_path': source_path,
+                    'chunk_number': chunk_number,
+                    'start_idx': start_idx,
+                    'end_idx': end_idx,
+                    'relative_path': str(Path(source_path).relative_to(CONFIG.RAW_DOCUMENTS_PATH)),
+                    'is_paragraph_start': start_idx == 0 or words[start_idx - 1].endswith('\n'),
+                    'is_paragraph_end': end_idx >= len(words) or words[end_idx - 1].endswith('\n')
+                }
             }
-        }
-        chunks.append(chunk)
-        chunk_number += 1
+            chunks.append(chunk)
+            chunk_number += 1
+
         start_idx = end_idx - overlap if end_idx < len(words) else end_idx
 
     return chunks
