@@ -59,12 +59,12 @@ class Config:
     DEDUPLICATION_THRESHOLD = 0.70  # Threshold for image deduplication
 
     # Query Configuration
-    DEFAULT_TOP_K: int = 30
-    TEMPERATURE: float = 0
-    GPT_MODEL: str = "gpt-4o-mini"
+    DEFAULT_TOP_K: int = 30  # Number of documents to retrieve
+    TEMPERATURE: float = 0  # Temperature for sampling
+    BASE_LLM_MODEL: str = "gpt-4o-mini"
 
     # Vision model settings
-    GPT_VISION_MODEL: str = "gpt-4o"
+    BASE_VISION_MODEL: str = "gpt-4o"
     VISION_MAX_TOKENS: int = 4096
     VISION_QUALITY: str = "auto"
 

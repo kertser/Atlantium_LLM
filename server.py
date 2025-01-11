@@ -32,6 +32,7 @@ import re
 import shutil
 import subprocess
 import sys
+import warnings
 from contextlib import asynccontextmanager
 from dataclasses import field
 from datetime import datetime
@@ -71,6 +72,9 @@ from models.agents.websearch_agent import WebSearchAgent
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
 
+# Disable the UserWarning from Flash-Attention (GPU capabilities >8.0)
+warnings.simplefilter("ignore", UserWarning)
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -85,6 +89,7 @@ logging.basicConfig(
         )
     ]
 )
+logger = logging.getLogger(__name__)
 
 
 def clean_path(path: str) -> str:
@@ -455,7 +460,7 @@ class RAGQueryServer:
 
             response = openai_post_request(
                 messages=messages,
-                model_name=CONFIG.GPT_MODEL,
+                model_name=CONFIG.BASE_LLM_MODEL,
                 max_tokens=CONFIG.SUMMARY_MAX_TOKENS,
                 temperature=0,
                 api_key=self.openai_api_key
@@ -546,6 +551,7 @@ class RAGQueryServer:
 
     async def _get_referenced_images(self, response_text: str) -> List[Dict]:
         """Get images from documents referenced in the response text."""
+        # Meanwile disabled
         try:
             # Extract document references using pattern
             referenced_docs = set()
@@ -638,7 +644,7 @@ class RAGQueryServer:
                     doc_refs.add(match.group(1))
         return sorted(list(doc_refs))
 
-    async def process_text_query(self, query_text: str, top_k: int = CONFIG.DEFAULT_TOP_K) -> QueryResponse:
+    async def process_text_query(self, query_text: str) -> QueryResponse:
         """Process a text query and return response with relevant images."""
         try:
             if not self.metadata:
@@ -734,7 +740,7 @@ class RAGQueryServer:
             # Get response from OpenAI
             response = openai_post_request(
                 messages=messages,
-                model_name=CONFIG.GPT_MODEL,
+                model_name=CONFIG.BASE_LLM_MODEL,
                 max_tokens=CONFIG.DETAIL_MAX_TOKENS,  # Detail? Why not general?
                 temperature=CONFIG.TEMPERATURE,
                 api_key=self.openai_api_key
@@ -1039,31 +1045,8 @@ async def upload_document(file: UploadFile, folder: str = Form("")):
         logging.error(f"Unexpected error during upload: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-
-def update_processed_files(doc_paths):
-    """Update the list of successfully processed files"""
-    processed_files_path = CONFIG.PROCESSED_FILES_PATH
-    try:
-        if processed_files_path.exists():
-            with open(processed_files_path, 'r') as f:
-                processed_files = set(json.load(f))
-        else:
-            processed_files = set()
-
-        # Add new files
-        processed_files.update([str(unquote(path)) for path in doc_paths])
-
-        # Save updated list
-        with open(processed_files_path, 'w') as f:
-            json.dump(list(processed_files), f)
-
-    except Exception as e:
-        logging.error(f"Error updating processed files list: {e}")
-
-
 def check_processing_status():
     """Check if all necessary files and data exist after processing"""
-    logger = logging.getLogger(__name__)
     try:
         # Check required paths
         if not CONFIG.METADATA_PATH.exists():
@@ -1105,15 +1088,12 @@ def check_processing_status():
         logger.error(f"Error checking processing status: {str(e)}")
         return False, f"Error checking processing status: {str(e)}"
 
-
-@app.post("/process/documents")
 @app.post("/process/documents")
 async def process_documents():
     """
     Process documents asynchronously while maintaining metadata persistence.
     Returns a status response indicating success or failure.
     """
-    logger = logging.getLogger(__name__)
     try:
         logger.info("Starting document processing...")
 
@@ -1240,7 +1220,6 @@ async def process_documents():
 @app.get("/get/documents")
 async def get_documents(path: str = ""):
     """Get list of documents and folders with metadata recursively"""
-    logger = logging.getLogger(__name__)
     try:
         # Get total count from processed_files
         processed_files_path = CONFIG.PROCESSED_FILES_PATH
@@ -1309,56 +1288,6 @@ async def get_documents(path: str = ""):
     except Exception as e:
         logger.error(f"Error listing documents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/documents")
-async def list_documents():
-    try:
-        # Load list of processed documents
-        processed_files_path = CONFIG.PROCESSED_FILES_PATH
-        if processed_files_path.exists():
-            with open(processed_files_path, 'r') as f:
-                documents = json.load(f)
-
-            # Get file details
-            doc_details = []
-            for doc_path in documents:
-                path = Path(doc_path)
-                if path.exists():
-                    stats = path.stat()
-                    doc_details.append({
-                        "name": path.name,
-                        "size": stats.st_size,
-                        "modified": stats.st_mtime,
-                        "type": path.suffix[1:].upper()
-                    })
-
-            return {"documents": doc_details}
-        return {"documents": []}
-    except Exception as e:
-        logging.error(f"Error listing documents: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/files/{file_path:path}")
-async def serve_file(file_path: str):
-    try:
-        # Sanitize and validate the file path
-        sanitized_path = clean_path(file_path)
-        full_path = CONFIG.RAW_DOCUMENTS_PATH / sanitized_path
-
-        # Ensure the file exists and is accessible
-        if not str(full_path).startswith(str(CONFIG.RAW_DOCUMENTS_PATH)):
-            raise HTTPException(status_code=403, detail="Access denied")
-        if not full_path.exists() or not full_path.is_file():
-            raise HTTPException(status_code=404, detail="File not found")
-
-        return FileResponse(full_path)
-
-    except Exception as e:
-        logging.error(f"Error serving file: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 @app.post("/open/document")
 async def open_document(path: str = Body(..., embed=True)):

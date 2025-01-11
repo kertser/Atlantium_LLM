@@ -213,7 +213,7 @@ class ImageProcessor:
 
             # Call GPT Vision API
             response = self.client.chat.completions.create(
-                model=CONFIG.GPT_VISION_MODEL,
+                model=CONFIG.BASE_VISION_MODEL,
                 messages=messages,
                 max_tokens=150
             )
@@ -294,7 +294,7 @@ class ImageProcessor:
                 ]
 
                 response = self.client.chat.completions.create(
-                    model=CONFIG.GPT_VISION_MODEL,
+                    model=CONFIG.BASE_VISION_MODEL,
                     messages=messages,
                     max_tokens=CONFIG.VISION_MAX_TOKENS
                 )

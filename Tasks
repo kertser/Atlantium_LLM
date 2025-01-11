@@ -35,4 +35,4 @@ This is for windows:
 download from https://github.com/bdashore3/flash-attention/releases/download/v2.7.1.post1/flash_attn-2.7.1.post1+cu124torch2.5.1cxx11abiFALSE-cp312-cp312-win_amd64.whl
 and pip install
 
-For Linux is probably just: pip install flash-attn
+For Linux is probably just: pip install flash-attn (probably with GPU only)

@@ -589,7 +589,7 @@ class REDLibrary:
 
             response = openai_post_request(
                 messages=messages,
-                model_name=CONFIG.GPT_MODEL,
+                model_name=CONFIG.BASE_LLM_MODEL,
                 temperature=0,  # Use 0 for consistent detection
                 max_tokens=150,
                 api_key=self.api_key
