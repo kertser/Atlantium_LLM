@@ -1094,6 +1094,7 @@ async def process_documents():
     Process documents asynchronously while maintaining metadata persistence.
     Returns a status response indicating success or failure.
     """
+    process = None
     try:
         logger.info("Starting document processing...")
 
@@ -1115,11 +1116,18 @@ async def process_documents():
             text=True,
             env={
                 **os.environ,
-                "PYTHONIOENCODING": "utf-8"
+                "PYTHONIOENCODING": "utf-8",
+                "PYTHONUNBUFFERED": "1"
             }
         )
 
-        stdout, stderr = process.communicate()
+        try:
+            stdout, stderr = process.communicate()
+        except Exception as e:
+            if process:
+                process.kill()
+                _, _ = process.communicate()
+            raise e
 
         # Process and log stdout
         if stdout:
@@ -1215,6 +1223,13 @@ async def process_documents():
     except Exception as e:
         logger.error(f"Error in process_documents: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Ensure process is properly cleaned up
+        if process:
+            try:
+                process.kill()
+            except:
+                pass
 
 
 @app.get("/get/documents")

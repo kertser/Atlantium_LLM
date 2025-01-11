@@ -14,6 +14,8 @@
 * Check calculator for RZ-UHP
 * Attach Image on the frontend is not not loading correctly without reset, after images been founded in query
 * Try to filter the document reference images from the search results images
+* Fix system message "localhost:9000 wants to delete" etc...
+* Add frontend check for file format XXXXX-Filename.ext
 
 * Some stored images are very much similar to each other, need to remove duplicates ??
 * Check for Excel errors (images)

@@ -634,7 +634,7 @@ def main():
         with tqdm(desc="Initializing", total=2) as init_pbar:
             # Initialize CLIP
             try:
-                clip_model, _, device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
+                clip_model, device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
                 if clip_model is None:
                     raise RuntimeError("Model initialization returned None")
 
