@@ -1,22 +1,17 @@
 # Ongoing Tasks / Errors:
-* Play with similarity scores to have more precise answers. Need to consider KPIs for the model.
-* Continue playing with prompts, top_K and chunking to reduce hallucinations. (May be achieved with more data)
-* Need to treat headers and footers of pdf/doc files form chinking/indexing - it is a garbage data. Similarly - prefaces, tables of content
-  One good idea is to keep this data with special metadata entry: 'block_type': position,  # 'header', 'footer', 'toc', 'content'
-  Then adding flags in the query processing to control whether to include this content and weight different content types differently in relevance scoring
-  It will provide more data in format_response function
+
 * Visualize the document processing with progress bar - over the "processing" button (processing batches)
-* Improve the search for the image and faiss metadata to retrieve the context from the documents, containing the images, similar to the attached.
 * Add prompt template for Interactive troubleshooting mode (analyze step-by-step)
 * Add option for "chat with live operator" (A button with contacts or whatsapp)
 * Update documentation
-* Try setting text chunks to 150-300 words with 30-50% overlap
+
 * Check calculator for RZ-UHP
 * Attach Image on the frontend is not not loading correctly without reset, after images been founded in query
 * Try to filter the document reference images from the search results images
 * Fix system message "localhost:9000 wants to delete" etc...
 * Add frontend check for file format XXXXX-Filename.ext
-
+* During the image store the images shall be saved rotated as they appear in document.
+* Resolve reloaded CLIP and FAISS on every upload. It is done at the server start and relevant values shall be passed.
 * Some stored images are very much similar to each other, need to remove duplicates ??
 * Check for Excel errors (images)
 * Update the requirements.txt for new model usage, depending on system

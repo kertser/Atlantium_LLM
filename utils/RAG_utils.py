@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional, Dict, List
 
 from config import CONFIG
-from utils.img_utils import ImageStore, ImageProcessor
+from utils.img_utils import ImageProcessor
 
 # import openpyxl  # for Excel files
 from openpyxl.reader.excel import load_workbook
@@ -400,44 +400,57 @@ def chunk_text(text: str, source_path: str, chunk_size: int = CONFIG.CHUNK_SIZE,
     if not text or chunk_size < CONFIG.MIN_CHUNK_SIZE:
         return []
 
-    # Define patterns for filtering out non-meaningful content
+    # Define patterns for filtering out non-meaningful content with more precise matching
     header_patterns = [
-        r'^.*(?:header|heading).*$',
-        r'^\s*(?:page\s+\d+|p\.\s*\d+)\s*$',
-        r'^\s*(?:chapter|section)\s+\d+.*$'
+        r'^\s*(?:header|heading)\s*$',  # Only exact matches
+        r'^\s*(?:page\s+\d+|p\.\s*\d+)\s*$',  # Only standalone page numbers
+        r'^\s*(?:chapter|section)\s+\d+\s*$'  # Only standalone chapter/section markers
     ]
+
     footer_patterns = [
-        r'^.*(?:footer|copyright|all rights reserved).*$',
-        r'^\s*\d+\s*$'  # Page numbers
+        r'^\s*(?:footer)\s*$',  # Only exact matches
+        r'^\s*copyright\s+©?\s*\d{4}',  # More specific copyright pattern
+        r'^\s*all\s+rights\s+reserved\s*$',  # Exact "all rights reserved"
+        r'^\s*\d+\s*$'  # Only standalone page numbers
     ]
+
     toc_patterns = [
-        r'^(?:table of contents|contents|toc).*$',
-        r'^\s*(?:\d+\.)+\s+.*\s+\d+\s*$',  # TOC entries with page numbers
+        r'^\s*(?:table\s+of\s+contents|contents)\s*$',  # Only exact TOC headers
+        r'^\s*(?:\d+\.){1,3}\s+[A-Za-z].*?\s+\d+\s*$'  # More specific TOC entry pattern
     ]
+
     disclaimer_patterns = [
-        r'^.*(?:disclaimer|legal).*$',
-        r'^.*(?:confidential|proprietary).*$'
+        r'^\s*disclaimer:\s*$',  # Only standalone disclaimer headers
+        r'^\s*(?:confidential|proprietary)\s+document\s*$'  # Only specific confidentiality headers
     ]
 
     # Compile all patterns
-    patterns = [re.compile(p, re.IGNORECASE) for p in header_patterns + footer_patterns + toc_patterns + disclaimer_patterns]
+    patterns = [re.compile(p, re.IGNORECASE) for p in
+                header_patterns + footer_patterns + toc_patterns + disclaimer_patterns]
 
     # Clean and preprocess text
     def clean_text(input_text: str) -> str:
+        if not input_text:
+            return ""
         # Remove HTML tags
         input_text = re.sub(r'<.*?>', '', input_text)
-        # Remove multiple newlines
+        # Remove multiple newlines but preserve paragraph breaks
         input_text = re.sub(r'\n{3,}', '\n\n', input_text)
         # Remove multiple spaces
         input_text = re.sub(r'\s+', ' ', input_text)
-        # Remove special characters and excessive punctuation
-        input_text = re.sub(r'[^\w\s.!?]', '', input_text)
+        # Preserve important punctuation while removing other special characters
+        input_text = re.sub(r'[^\w\s.!?,:;()\'\-\"]', '', input_text)
         return input_text.strip()
 
     def is_meaningful_content(content_text: str) -> bool:
-        # Skip if matches any header/footer/TOC/disclaimer patterns
-        if any(pattern.match(content_text) for pattern in patterns):
+        # Skip empty or whitespace-only content
+        if not content_text.strip():
             return False
+
+        # Only apply patterns to short lines (likely headers/footers)
+        if len(content_text.split()) < 10:
+            if any(pattern.match(content_text) for pattern in patterns):
+                return False
 
         # Skip if too short
         if len(content_text.strip()) < CONFIG.MIN_CHUNK_SIZE:
@@ -445,7 +458,7 @@ def chunk_text(text: str, source_path: str, chunk_size: int = CONFIG.CHUNK_SIZE,
 
         # Skip if mostly special characters or numbers
         text_clean = re.sub(r'[\W\d]', '', content_text)
-        if len(text_clean) < len(content_text) * 0.3:  # Less than 30% letters
+        if len(text_clean) < len(content_text) * 0.2:  # Relaxed to 20% letters
             return False
 
         return True
@@ -460,12 +473,20 @@ def chunk_text(text: str, source_path: str, chunk_size: int = CONFIG.CHUNK_SIZE,
     meaningful_paragraphs = [p for p in paragraphs if is_meaningful_content(p)]
 
     # Define sentence ending characters
-    sentence_endings = {'.', '!', '?'}
+    sentence_endings = {'.', '!', '?', ':', ';'}  # Added more sentence separators
 
     # Use NLTK sentence tokenizer for better sentence boundary detection
-    sentences = []
-    for para in meaningful_paragraphs:
-        sentences.extend(nltk.sent_tokenize(para))
+    try:
+        sentences = []
+        for para in meaningful_paragraphs:
+            sentences.extend(nltk.sent_tokenize(para))
+    except Exception as e:
+        # Fallback to simple sentence splitting if NLTK fails
+        sentences = []
+        for para in meaningful_paragraphs:
+            for sent in re.split(r'[.!?]+', para):
+                if sent.strip():
+                    sentences.append(sent.strip())
 
     # Process meaningful sentences into chunks
     words = []
@@ -503,7 +524,9 @@ def chunk_text(text: str, source_path: str, chunk_size: int = CONFIG.CHUNK_SIZE,
                     'end_idx': end_idx,
                     'relative_path': str(Path(source_path).relative_to(CONFIG.RAW_DOCUMENTS_PATH)),
                     'is_paragraph_start': start_idx == 0 or words[start_idx - 1].endswith('\n'),
-                    'is_paragraph_end': end_idx >= len(words) or words[end_idx - 1].endswith('\n')
+                    'is_paragraph_end': end_idx >= len(words) or words[end_idx - 1].endswith('\n'),
+                    'chunk_length': len(chunktext),
+                    'word_count': len(chunktext.split())
                 }
             }
             chunks.append(chunk)
