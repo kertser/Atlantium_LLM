@@ -45,17 +45,18 @@ class Config:
     RED_CALCULATOR_TEMPERATURE: float = 0.1
     RED_CALCULATOR_MAX_TOKENS: int = 2000
     RED_CALCULATOR_DEFAULT_DRIVE: float = 100
-    RED_CALCULATOR_DEFAULT_EFFICIENCY: float = 80 # May be set to 100% by default.
+    RED_CALCULATOR_DEFAULT_EFFICIENCY: float = 80  # May be set to 100% by default.
 
     # CLIP Configuration
-    CLIP_MODEL_NAME: str = "openai/clip-vit-base-patch32"
-    EMBEDDING_DIMENSION: int = 512
+    # CLIP_MODEL_NAME: str = "openai/clip-vit-base-patch32"
+    CLIP_MODEL_NAME: str = "jinaai/jina-clip-v2"
+    EMBEDDING_DIMENSION: int = 1024
     USE_GPU: bool = True
 
     # Thresholds (not percentiles)
     SIMILARITY_THRESHOLD: float = 0.75  # Text similarity (it shall be 0.6-0.8)
     IMAGE_SIMILARITY_THRESHOLD: float = 0.35  # Image similarity - set to high value to avoid false positives
-    TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.75  # Technical confidence
+    TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.6  # Technical confidence
     DEDUPLICATION_THRESHOLD = 0.70  # Threshold for image deduplication
 
     # Query Configuration
@@ -85,7 +86,6 @@ class Config:
     CHUNK_OVERLAP: int = 100
     MIN_CHUNK_SIZE: int = 50
     CHUNK_SIZE: int = 400  # Smaller chunks are more selective, but harder to compare
-    SUPPORTED_EXTENSIONS: List[str] = None
     MAX_TEXT_LENGTH: int = 10000  # Maximum length of stored text chunks
     MAX_METADATA_SIZE: int = 1000000  # Maximum size in bytes
     METADATA_TEXT_LIMIT:  int = 1500  # Maximum text length in metadata entries
@@ -93,10 +93,10 @@ class Config:
     CLEANUP_FREQUENCY = 10  # Cleanup every N batches
 
     # Image Processing
-    MIN_IMAGE_SIZE: int = 150  # Leave as is for basic filtering
-    MIN_ICON_SIZE: int = 100  # Leave as is for icon filtering
+    MIN_IMAGE_SIZE: int = 300  # Set to 150?  # Minimum image size
+    MIN_ICON_SIZE: int = 100  # Minimum icon size
     MAX_CONTEXT_RANGE: int = 100  # Leave as is for text context
-    MAX_ASPECT_RATIO: int = 5  # Maximum width/height ratio
+    MAX_ASPECT_RATIO: int = 3  # Maximum width/height ratio
 
     # Image Quality Settings
     IMAGE_DPI: Tuple[int, int] = (300, 300)  # DPI
@@ -128,42 +128,22 @@ class Config:
         return True
 
     def __post_init__(self):
-        if self.SUPPORTED_EXTENSIONS is None:
-            self.SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.xlsx']
 
         # Create directories if they don't exist
         for path in [self.RAW_DOCUMENTS_PATH, self.RAG_DATA, self.LOG_PATH,
                      self.STORED_IMAGES_PATH, self.STORED_TEXT_CHUNKS_PATH]:
             path.mkdir(parents=True, exist_ok=True)
 
-            # Fix mutable defaults using field(default_factory=...)
-            VALID_IMAGE_MODES: List[str] = field(
-                default_factory=lambda: ['RGB', 'RGBA', 'L', 'LA', 'P', '1', 'I']
-            )
+            # Ensure all paths are Path objects
+            self.RAW_DOCUMENTS_PATH = Path(self.RAW_DOCUMENTS_PATH)
+            self.RAG_DATA = Path(self.RAG_DATA)
+            self.FAISS_INDEX_PATH = Path(self.FAISS_INDEX_PATH)
+            self.METADATA_PATH = Path(self.METADATA_PATH)
+            self.IMAGE_METADATA_PATH = Path(self.IMAGE_METADATA_PATH)
+            self.STORED_IMAGES_PATH = Path(self.STORED_IMAGES_PATH)
+            self.STORED_TEXT_CHUNKS_PATH = Path(self.STORED_TEXT_CHUNKS_PATH)
+            self.LOG_PATH = Path(self.LOG_PATH)
 
-            SUPPORTED_IMAGE_FORMATS: Set[str] = field(
-                default_factory=lambda: {'PNG', 'JPEG', 'JPG', 'BMP', 'TIFF', 'GIF'}
-            )
-
-            SUPPORTED_EXTENSIONS: List[str] = field(
-                default_factory=lambda: ['.pdf', '.docx', '.xlsx']
-            )
-
-            def __post_init__(self):
-                # Create directories if they don't exist
-                for path in [self.RAW_DOCUMENTS_PATH, self.RAG_DATA, self.LOG_PATH,
-                             self.STORED_IMAGES_PATH, self.STORED_TEXT_CHUNKS_PATH]:
-                    path.mkdir(parents=True, exist_ok=True)
-
-                # Ensure all paths are Path objects
-                self.RAW_DOCUMENTS_PATH = Path(self.RAW_DOCUMENTS_PATH)
-                self.RAG_DATA = Path(self.RAG_DATA)
-                self.FAISS_INDEX_PATH = Path(self.FAISS_INDEX_PATH)
-                self.METADATA_PATH = Path(self.METADATA_PATH)
-                self.IMAGE_METADATA_PATH = Path(self.IMAGE_METADATA_PATH)
-                self.STORED_IMAGES_PATH = Path(self.STORED_IMAGES_PATH)
-                self.STORED_TEXT_CHUNKS_PATH = Path(self.STORED_TEXT_CHUNKS_PATH)
-                self.LOG_PATH = Path(self.LOG_PATH)
 
 # Create global config instance
 CONFIG = Config()

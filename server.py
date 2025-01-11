@@ -64,6 +64,7 @@ from utils.document_utils import (
     validate_folder_name,
     rescan_documents,
 )
+from utils.img_utils import ImageProcessor as ImageUtils
 from models.agents.agent_manager import AgentManager
 from models.agents.websearch_agent import WebSearchAgent
 
@@ -373,7 +374,7 @@ class RAGQueryServer:
         self.client = OpenAI(api_key=self.openai_api_key)
 
         # Initialize CLIP model
-        self.model, self.processor, self.device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
+        self.model, self.device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
 
         self.prompt_loader = PromptLoader()
         self.formatter = EnhancedResponseFormatter()
@@ -383,13 +384,11 @@ class RAGQueryServer:
         self.image_processor = ImageProcessor(
             openai_client=self.client,
             model=self.model,
-            processor=self.processor,
             device=self.device,
             formatter=self.formatter
         )
         self.image_classifier = ImageClassifier(
             model=self.model,
-            processor=self.processor,
             device=self.device,
         )
 
@@ -504,46 +503,8 @@ class RAGQueryServer:
                 is_general=True  # Default fallback assumption
             )
 
-    async def get_relevant_contexts(self, results: List[Dict], query_text: str) -> Tuple[
-        List[str], List[Dict], List[Dict]]:
-        """Get relevant contexts, images, and their metadata from search results."""
-        if not results or not results[0]:
-            logging.info("No results found")
-            return [], [], []  # Added empty metadata list to return
-
-        try:
-            relevant_contexts = []
-            relevant_images = []
-            relevant_metadata = []  # New list for metadata
-
-            for result in results[0]:
-                metadata = result['metadata']
-                similarity = 1 - (result['distance'] / 2)
-
-                # Process text chunks
-                if metadata.get('type') == 'text-chunk':
-                    if similarity > CONFIG.SIMILARITY_THRESHOLD and 'get_content' in metadata:
-                        chunk_text = metadata['get_content']()
-                        if chunk_text:
-                            relevant_contexts.append(chunk_text.strip())
-                            relevant_metadata.append(metadata)  # Store metadata for the chunk
-
-                # Process images using ImageProcessor
-                elif metadata.get('type') == 'image' and similarity > CONFIG.IMAGE_SIMILARITY_THRESHOLD:
-                    processed_images = await self._process_image_result(result, query_text)
-                    if processed_images:
-                        relevant_images.extend(processed_images)
-
-            relevant_images.sort(key=lambda x: x['similarity'], reverse=True)
-            logging.info(f"Final results: {len(relevant_contexts)} contexts, {len(relevant_images)} images")
-            return relevant_contexts, relevant_images, relevant_metadata
-
-        except Exception as e:
-            logging.error(f"Error in get_relevant_contexts: {e}", exc_info=True)
-            return [], [], []
-
     async def _process_image_result(self, result: Dict, query_text: str) -> List[Dict]:
-        """Process individual image search result."""
+        """Process individual image search result to extract basic image information."""
         try:
             metadata = result['metadata']
             image_id = (metadata.get('image', {}).get('id') or
@@ -552,24 +513,7 @@ class RAGQueryServer:
             if not image_id:
                 return []
 
-            image, img_metadata = self.image_processor.image_store.get_image(image_id)
-            if not image:
-                return []
-
-            # Calculate content similarity
-            content_similarity = await self._calculate_image_similarity(
-                image,
-                query_text,
-                result['distance']
-            )
-
-            # Get technical context through ImageProcessor
-            technical_context = await self.image_processor.analyze_technical_context({
-                'image': image,
-                'metadata': metadata
-            })
-
-            # Get base64 image
+            # Get base64 image directly
             base64_image = self.image_processor.image_store.get_base64(image_id)
             if not base64_image:
                 return []
@@ -580,9 +524,9 @@ class RAGQueryServer:
                 'caption': metadata.get('image', {}).get('caption', ''),
                 'context': query_text,
                 'source': str(metadata.get('path', '')),
-                'similarity': content_similarity['similarity'],
-                'semantic_similarity': content_similarity['semantic_similarity'],
-                'technical_details': technical_context
+                'similarity': 1.0,  # Default value since we're not calculating similarity
+                'semantic_similarity': 1.0,  # Default value since we're not calculating similarity
+                'technical_details': {}  # Empty dict since we're not analyzing technical context
             }]
 
         except Exception as e:
@@ -591,33 +535,13 @@ class RAGQueryServer:
 
     async def _calculate_image_similarity(self, image: Image.Image, query_text: str, distance: float) -> Dict:
         """Calculate image-text similarity using CLIP embeddings."""
-        try:
-            image_input = self.processor(images=image, return_tensors="pt").to(self.device)
-            image_embedding = self.model.get_image_features(**image_input)
-            image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
-
-            query_input = self.processor(
-                text=[query_text],
-                return_tensors="pt",
-                padding=True,
-                truncation=True,
-                max_length=77
-            )
-            query_input = {k: v.to(self.device) for k, v in query_input.items()}
-            query_embedding = self.model.get_text_features(**query_input)
-            query_embedding = query_embedding / query_embedding.norm(dim=-1, keepdim=True)
-
-            semantic_similarity = (query_embedding @ image_embedding.T).item()
-            content_similarity = (semantic_similarity + (1 - distance / 2)) / 2
-
-            return {
-                'similarity': content_similarity,
-                'semantic_similarity': semantic_similarity
-            }
-
-        except Exception as e:
-            logging.error(f"Error calculating image similarity: {e}")
-            return {'similarity': 0, 'semantic_similarity': 0}
+        return await ImageUtils.calculate_image_similarity(
+            image=image,
+            query_text=query_text,
+            distance=distance,
+            model=self.model,
+            device=self.device
+        )
 
     async def _get_referenced_images(self, response_text: str) -> List[Dict]:
         """Get images from documents referenced in the response text."""
@@ -753,7 +677,6 @@ class RAGQueryServer:
                 index=self.index,
                 metadata=self.metadata,
                 model=self.model,
-                processor=self.processor,
                 device=self.device,
                 text_query=query_text,
                 top_k=top_k
@@ -765,8 +688,20 @@ class RAGQueryServer:
                     images=[]
                 )
 
-            # Get contexts and process special cases
-            contexts, initial_images, chunk_metadata = await self.get_relevant_contexts(results, query_text)
+            contexts = []
+            initial_images = []
+            chunk_metadata = []
+
+            if results and results[0]:
+                for result in results[0]:
+                    metadata = result['metadata']
+                    if metadata.get('type') == 'text-chunk' and 'get_content' in metadata:
+                        contexts.append(metadata['get_content']().strip())
+                        chunk_metadata.append(metadata)
+                    elif metadata.get('type') == 'image':
+                        processed_images = await self._process_image_result(result, query_text)
+                        if processed_images:
+                            initial_images.extend(processed_images)
 
             # Extract document references from chunk metadata
             available_refs = self._extract_document_references(chunk_metadata)
@@ -776,6 +711,7 @@ class RAGQueryServer:
             # if no contexts OR general question: return websearch results
             if not contexts or query_type.is_general:
                 contexts = self._create_no_results_response(query_text)
+                initial_images = []  # Drop the images, found in RAG, they are unrelated to the websearch
 
             # Get chat history with proper formatting
             formatted_history = self.get_chat_history()
@@ -807,7 +743,9 @@ class RAGQueryServer:
             text_response = response['choices'][0]['message']['content'].strip()
 
             # Get images from referenced documents using the image processor
-            referenced_images = await self._get_referenced_images(text_response)
+            # referenced_images = await self._get_referenced_images(text_response)
+            # Meanwhile disabling this feature
+            referenced_images = []
 
             # Combine and deduplicate images using the image processor
             all_images = initial_images + referenced_images if initial_images else referenced_images
@@ -1014,7 +952,8 @@ async def image_query(
 
         # Log the similar images for debugging
         similar_images = result.get('similar_images', [])
-        logging.info(f"Similar images structure: {json.dumps([{k: '...' if k == 'image' else v for k, v in img.items()} for img in similar_images])}")
+        logging.info(
+            f"Similar images structure: {json.dumps([{k: '...' if k == 'image' else v for k, v in img.items()} for img in similar_images])}")
 
         # Structure response to include similar images
         response = {
@@ -1029,7 +968,8 @@ async def image_query(
         }
 
         # Log the final response structure (excluding image data)
-        logging.info(f"Response structure: {json.dumps({**response, 'response': {**response['response'], 'images': f'[{len(similar_images)} images]'}})}")
+        logging.info(
+            f"Response structure: {json.dumps({**response, 'response': {**response['response'], 'images': f'[{len(similar_images)} images]'}})}")
 
         return JSONResponse(content=response)
 

@@ -8,6 +8,7 @@ from typing import Tuple, List, Dict, Optional, Union, Any, Generator
 import logging
 import pymupdf
 from contextlib import contextmanager
+from utils.LLM_utils import encode_with_clip
 
 import imagehash
 import torch
@@ -85,6 +86,74 @@ class ImageProcessor:
 
         except Exception:
             return False
+
+    @staticmethod
+    async def calculate_image_similarity(
+            image: Image.Image,
+            query_text: str,
+            distance: float,
+            model: Any,
+            device: str
+    ) -> Dict:
+        """
+        Calculate image-text similarity using CLIP embeddings.
+
+        Args:
+            image: PIL Image to compare
+            query_text: Text to compare against
+            distance: Distance metric from previous calculations
+            model: CLIP model instance
+            device: Device to run calculations on ('cuda' or 'cpu')
+
+        Returns:
+            Dictionary containing similarity scores
+        """
+        try:
+            # Ensure image is in RGB format
+            if image.mode != "RGB":
+                image = ImageProcessor.convert_to_rgb(image)
+
+            with torch.no_grad():
+                # Get image embeddings using encode_with_clip
+                _, image_embeddings = encode_with_clip(
+                    texts=None,
+                    images=[image],
+                    model=model,
+                    device=device
+                )
+                if image_embeddings is None:
+                    raise RuntimeError("Failed to generate image embeddings")
+
+                # Get text embeddings
+                text_embeddings, _ = encode_with_clip(
+                    texts=[query_text],
+                    images=None,
+                    model=model,
+                    device=device
+                )
+                if text_embeddings is None:
+                    raise RuntimeError("Failed to generate text embeddings")
+
+                # Convert numpy arrays to tensors
+                image_embedding = torch.from_numpy(image_embeddings).to(device)
+                query_embedding = torch.from_numpy(text_embeddings).to(device)
+
+                # Calculate similarities
+                semantic_similarity = (query_embedding @ image_embedding.T).item()
+                content_similarity = (semantic_similarity + (1 - distance / 2)) / 2
+
+                logging.debug(
+                    f"Calculated similarities - semantic: {semantic_similarity:.4f}, content: {content_similarity:.4f}")
+
+                return {
+                    'similarity': content_similarity,
+                    'semantic_similarity': semantic_similarity
+                }
+
+        except Exception as e:
+            logging.error(f"Error calculating image similarity: {e}")
+            logging.error("Full traceback:", exc_info=True)
+            return {'similarity': 0, 'semantic_similarity': 0}
 
     @staticmethod
     def handle_pdf_image(image_bytes: bytes, page: Any) -> Optional[Image.Image]:
@@ -449,14 +518,13 @@ class ImageStore(ImageProcessor):
 class ImageClassifier(ImageProcessor):
     """Handles zero-shot image classification using CLIP."""
 
-    def __init__(self, model=None, processor=None, device='cuda'):
-        """Initialize with CLIP model and processor."""
+    def __init__(self, model=None, device='cuda'):
+        """Initialize with CLIP model."""
         super().__init__()
         self.model = model
-        self.processor = processor
         self.device = device
 
-        if self.model and self.model.device.type != device:
+        if self.model and str(self.model.device) != device:
             self.model = self.model.to(device)
 
     def cleanup(self):
@@ -465,8 +533,6 @@ class ImageClassifier(ImageProcessor):
             if self.model is not None:
                 self.model.cpu()
                 del self.model
-            if hasattr(self, 'processor'):
-                del self.processor
             import gc
             gc.collect()
             if torch.cuda.is_available():
@@ -480,8 +546,8 @@ class ImageClassifier(ImageProcessor):
             labels: List[str],
     ) -> Tuple[str, float]:
         """Perform zero-shot classification."""
-        if not self.model or not self.processor:
-            raise ValueError("Model and processor required")
+        if not self.model:
+            raise ValueError("Model required")
 
         try:
             # Process image
@@ -495,35 +561,40 @@ class ImageClassifier(ImageProcessor):
             # Process text: truncate and clean labels
             processed_labels = []
             for label in labels:
-                # Clean and truncate text to a reasonable length (e.g., first 100 chars)
                 cleaned_text = ' '.join(label.split())  # Remove extra whitespace
                 truncated_text = cleaned_text[:100]  # Truncate to first 100 chars
                 processed_labels.append(truncated_text)
 
-            # Prepare inputs with processed labels
-            try:
-                inputs = self.processor(
-                    text=processed_labels,
-                    images=image,
-                    return_tensors="pt",
-                    padding=True,
-                    truncation=True,  # Enable truncation
-                    max_length=77,  # Set maximum token length
-                )
-            except Exception as e:
-                logging.error(f"Error processing inputs: {e}", exc_info=True)
-                return "processing error", 0.0
-
-            # Move inputs to correct device
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
-
-            # Get prediction
             with torch.no_grad():
-                outputs = self.model(**inputs)
-                probs = outputs.logits_per_image.softmax(dim=1)
+                # Get image embeddings using encode_with_clip
+                _, image_embeddings = encode_with_clip(
+                    texts=None,
+                    images=[image],
+                    model=self.model,
+                    device=self.device
+                )
 
-            idx = probs.argmax().item()
-            return processed_labels[idx], probs[0, idx].item()
+                # Get text embeddings for labels
+                text_embeddings, _ = encode_with_clip(
+                    texts=processed_labels,
+                    images=None,
+                    model=self.model,
+                    device=self.device
+                )
+
+                if image_embeddings is None or text_embeddings is None:
+                    raise RuntimeError("Failed to generate embeddings")
+
+                # Convert to tensors
+                image_embeddings = torch.from_numpy(image_embeddings).to(self.device)
+                text_embeddings = torch.from_numpy(text_embeddings).to(self.device)
+
+                # Calculate similarity scores
+                similarity = (100.0 * image_embeddings @ text_embeddings.T).softmax(dim=-1)
+                probs = similarity[0].cpu().numpy()
+
+                idx = probs.argmax().item()
+                return processed_labels[idx], float(probs[idx])
 
         except Exception as e:
             logging.error(f"Classification error: {e}", exc_info=True)
@@ -537,13 +608,24 @@ class ImageClassifier(ImageProcessor):
             max_images: int = 12
     ) -> List[Dict]:
         """Rank images by their relevance to the query text."""
-        if not self.model or not self.processor:
-            raise ValueError("Model and processor required")
+        if not self.model:
+            raise ValueError("Model required")
 
         # Clean and prepare query text
-        clean_query = ' '.join(query_text.split())  # Remove extra whitespace
-        # Create a list of shorter segments if the text is too long
-        text_segments = [clean_query[i:i + 100] for i in range(0, len(clean_query), 100)][:3]  # Take first 3 segments
+        clean_query = ' '.join(query_text.split())
+        text_segments = [clean_query[i:i + 100] for i in range(0, len(clean_query), 100)][:3]
+
+        # Get text embeddings for all segments at once
+        with torch.no_grad():
+            text_embeddings, _ = encode_with_clip(
+                texts=text_segments,
+                images=None,
+                model=self.model,
+                device=self.device
+            )
+            if text_embeddings is None:
+                raise RuntimeError("Failed to generate text embeddings")
+            text_embeddings = torch.from_numpy(text_embeddings).to(self.device)
 
         ranked_images = []
 
@@ -553,19 +635,25 @@ class ImageClassifier(ImageProcessor):
                 if image is None:
                     continue
 
-                # Get average similarity score across text segments
-                similarity_scores = []
-                for segment in text_segments:
-                    _, score = self.classify(
-                        image=image,
-                        labels=[segment]
+                # Get image embeddings
+                with torch.no_grad():
+                    _, image_embeddings = encode_with_clip(
+                        texts=None,
+                        images=[image],
+                        model=self.model,
+                        device=self.device
                     )
-                    similarity_scores.append(score)
+                    if image_embeddings is None:
+                        continue
 
-                # Use average score
-                avg_score = sum(similarity_scores) / len(similarity_scores)
-                img_info['relevance_score'] = avg_score
-                ranked_images.append(img_info)
+                    image_embeddings = torch.from_numpy(image_embeddings).to(self.device)
+
+                    # Calculate similarity with all text segments at once
+                    similarities = (100.0 * image_embeddings @ text_embeddings.T)[0]
+                    avg_score = similarities.mean().item()
+
+                    img_info['relevance_score'] = avg_score
+                    ranked_images.append(img_info)
 
             except Exception as e:
                 logging.error(f"Error ranking image {img_info.get('image_id')}: {e}")

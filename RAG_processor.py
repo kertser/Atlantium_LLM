@@ -30,66 +30,133 @@ from utils.RAG_utils import (
     extract_text_and_images_from_excel,
     chunk_text,
 )
-# Updated import: combine image utilities into one module
-from utils.img_utils import ImageStore, ImageClassifier, ImageProcessor
+from utils.img_utils import ImageStore, ImageProcessor
 
 # Setup logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s: %(message)s',
+    level=logging.INFO,  # Changed from DEBUG to INFO
+    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
     handlers=[
-        logging.FileHandler(CONFIG.LOG_PATH / "system.log")
+        logging.FileHandler(CONFIG.LOG_PATH / "system.log"),
+        # logging.StreamHandler()  # to show logs in console
     ]
 )
 
-def filter_technical_images(images_data, model, processor, device, source_doc):
-    filtered_images = []
-    classifier = ImageClassifier(model=model, processor=processor, device=device)
-    labels = ["a technical image", "a non-technical image"]
 
-    logging.info(f"Processing {len(images_data)} images for technical content")  # Added logging
+def filter_technical_images(images_data, model, source_doc):
+    """
+    Filter technical images using CLIP model.
+    Identifies technical drawings, diagrams, schematics, and device images
+    while filtering out logos, banners, and decorative elements.
+    """
+    filtered_images = []
+    logging.info(f"Processing {len(images_data)} images for technical content")
+
+    # Define classification prompts
+    technical_text = [
+        "a detailed technical diagram",
+        "an engineering schematic",
+        "a technical drawing of a device or part",
+        "a mechanical assembly drawing",
+        "an industrial equipment diagram"
+    ]
+    non_technical_text = [
+        "a company logo",
+        "a decorative banner",
+        "a marketing image",
+        "an icon",
+        "a decorative header image"
+    ]
+
+    try:
+        # Pre-encode the classification text prompts
+        with torch.no_grad():
+            tech_embedding = model.encode_text(technical_text)
+            non_tech_embedding = model.encode_text(non_technical_text)
+
+            if isinstance(tech_embedding, torch.Tensor):
+                tech_embedding = tech_embedding.cpu().numpy()
+            if isinstance(non_tech_embedding, torch.Tensor):
+                non_tech_embedding = non_tech_embedding.cpu().numpy()
+    except Exception as e:
+        logging.error(f"Error encoding classification prompts: {e}")
+        return filtered_images
 
     for img_data in images_data:
         try:
             image = img_data['image']
-            logging.info(f"Image size: {image.size}, mode: {image.mode}")  # Added logging
+            logging.info(f"Image size: {image.size}, mode: {image.mode}")
 
-            # Validate image before processing - silently skip invalid images
+            # Skip small images that are likely icons or logos
+            if image.width < CONFIG.MIN_IMAGE_SIZE or image.height < CONFIG.MIN_IMAGE_SIZE:
+                logging.debug(f"Skipping small image: {image.width}x{image.height}")
+                continue
+
+            # Skip images with extreme aspect ratios (likely banners or headers)
+            aspect_ratio = image.width / image.height
+            if aspect_ratio > 3 or aspect_ratio < 0.33:
+                logging.debug(f"Skipping image with extreme aspect ratio: {aspect_ratio:.2f}")
+                continue
+
+            # Validate and convert image
             if not ImageProcessor.validate_image_data(image):
                 continue
 
-            # Convert to RGB safely
             try:
                 image = ImageProcessor.convert_to_rgb(image)
             except Exception as e:
-                logger.debug(f"Error converting image format: {e}")  # Changed to debug
+                logging.debug(f"Error converting image format: {e}")
                 continue
 
-            # Perform classification
+            # Classify image
             try:
-                predicted_label, confidence = classifier.classify(
-                    image=image,
-                    labels=labels
-                )
+                with torch.no_grad():
+                    # Encode image
+                    image_embedding = model.encode_image([image])
+                    if isinstance(image_embedding, torch.Tensor):
+                        image_embedding = image_embedding.cpu().numpy()
+
+                    # Calculate similarities with each prompt
+                    tech_similarities = np.dot(image_embedding, tech_embedding.T)[0]
+                    non_tech_similarities = np.dot(image_embedding, non_tech_embedding.T)[0]
+
+                    # Use max similarity for each category
+                    tech_score = np.max(tech_similarities)
+                    non_tech_score = np.max(non_tech_similarities)
+
+                    # Calculate confidence score
+                    total = tech_score + non_tech_score
+                    if total > 0:
+                        tech_confidence = tech_score / total
+                    else:
+                        tech_confidence = 0.5
+
+                    if tech_confidence > CONFIG.TECHNICAL_CONFIDENCE_THRESHOLD:
+                        img_data['technical_similarity'] = float(tech_confidence)
+                        img_data['technical_score'] = float(tech_score)
+                        filtered_images.append(img_data)
+                        logging.info(
+                            f"Technical image found in {source_doc} "
+                            f"(confidence: {tech_confidence:.4f}, "
+                            f"size: {image.width}x{image.height})"
+                        )
+                    else:
+                        logging.debug(
+                            f"Non-technical image filtered out: "
+                            f"confidence {tech_confidence:.4f}, "
+                            f"size: {image.width}x{image.height}"
+                        )
+
             except Exception as e:
-                logger.debug(f"Classification error: {e}")  # Changed to debug
+                logging.debug(f"Classification error: {str(e)}")
                 continue
-
-            similarity = confidence if predicted_label == "a technical image" else 1 - confidence
-
-            if similarity > CONFIG.TECHNICAL_CONFIDENCE_THRESHOLD:
-                img_data['technical_similarity'] = similarity
-                filtered_images.append(img_data)
-                logger.debug(  # Changed to debug
-                    f"Technical image found in {source_doc} "
-                    f"(similarity: {similarity:.4f})"
-                )
 
         except Exception as e:
-            logger.debug(f"Error processing image from {source_doc}: {e}")  # Changed to debug
+            logging.debug(f"Error processing image from {source_doc}: {str(e)}")
             continue
 
+    logging.info(f"Found {len(filtered_images)} technical images out of {len(images_data)} total images")
     return filtered_images
 
 
@@ -180,27 +247,8 @@ def cleanup_metadata(metadata, index):
     return cleaned_metadata, index
 
 
-def process_incrementally(docs: List[Path], batch_size: int = CONFIG.BATCH_SIZE) -> None:
-    """Process documents incrementally and save progress"""
-    for i in range(0, len(docs), batch_size):
-        batch = docs[i:i + batch_size]
-        try:
-            # Process batch
-            process_documents(batch)
-            # Save progress
-            update_processed_files(batch)
-            # Cleanup after each batch
-            metadata, index = cleanup_metadata(load_metadata(), load_faiss_index())
-            save_metadata(metadata)
-            save_faiss_index(index)
-        except Exception as e:
-            logging.error(f"Error processing batch {i // batch_size}: {e}")
-            continue
-
-
 def process_documents(
     model: Any,
-    processor: Any,
     device: str,
     index: Any,
     metadata: List[Dict],
@@ -259,7 +307,7 @@ def process_documents(
                         text_chunks = chunk_text(text, str(doc_path))
                         if text_chunks:
                             chunk_texts = [chunk['text'] for chunk in text_chunks]
-                            text_embeddings, _ = encode_with_clip(chunk_texts, [], model, processor, device)
+                            text_embeddings, _ = encode_with_clip(chunk_texts, [], model, device)
 
                             for chunk_idx, embedding in enumerate(text_embeddings):
                                 if embedding is not None:
@@ -293,14 +341,15 @@ def process_documents(
                     # Filter and process images
                     if images_data:
                         logging.info(f"Processing {len(images_data)} images from {doc_path}")
-                        # Add size check before classification
                         images_data = [
                             img for img in images_data
                             if img['image'].width >= CONFIG.MIN_IMAGE_SIZE
                                and img['image'].height >= CONFIG.MIN_IMAGE_SIZE
                         ]
                         filtered_images = filter_technical_images(
-                            images_data, model, processor, device, str(doc_path)
+                            images_data=images_data,
+                            model=model,
+                            source_doc=str(doc_path)
                         )
 
                         for img_data in filtered_images:
@@ -320,7 +369,7 @@ def process_documents(
                                     # Generate image embedding
                                     text_embeddings, image_embeddings = encode_with_clip(
                                         [], [img_data['image']],
-                                        model, processor, device
+                                        model, device
                                     )
 
                                     # Process image embeddings if available
@@ -559,7 +608,6 @@ def validate_metadata_and_index(metadata: list, index: Any, image_store: ImageSt
 def main():
     """Main function with progress bars for batch processing and optimized memory management."""
     clip_model = None
-    clip_processor = None
     index = None
     metadata = []
 
@@ -588,37 +636,54 @@ def main():
         # Initialize CLIP and FAISS
         with tqdm(desc="Initializing", total=2) as init_pbar:
             # Initialize CLIP
-            clip_model, clip_processor, device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
-            if not clip_model or not clip_processor:
-                raise RuntimeError("Failed to initialize CLIP model")
-            init_pbar.update(1)
+            try:
+                clip_model, _, device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
+                if clip_model is None:
+                    raise RuntimeError("Model initialization returned None")
+
+                # Test the model
+                with torch.no_grad():
+                    test_embedding = clip_model.encode_text(["Test text"])
+                    if test_embedding is None or test_embedding.shape[1] != CONFIG.EMBEDDING_DIMENSION:
+                        raise RuntimeError(
+                            f"Invalid embedding dimension. Expected {CONFIG.EMBEDDING_DIMENSION}, got {test_embedding.shape[1] if test_embedding is not None else None}")
+
+                logging.info("CLIP model initialized and tested successfully")
+                init_pbar.update(1)
+            except Exception as e:
+                logging.error(f"CLIP initialization error: {e}", exc_info=True)
+                raise RuntimeError(f"Failed to initialize CLIP model: {str(e)}")
 
             # Initialize FAISS
-            CONFIG.RAG_DATA.mkdir(parents=True, exist_ok=True)
+            try:
+                CONFIG.RAG_DATA.mkdir(parents=True, exist_ok=True)
 
-            # Load or create FAISS index
-            if CONFIG.FAISS_INDEX_PATH.exists():
-                try:
-                    index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
-                    metadata = load_metadata(CONFIG.METADATA_PATH)
+                # Load or create FAISS index
+                if CONFIG.FAISS_INDEX_PATH.exists():
+                    try:
+                        index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
+                        metadata = load_metadata(CONFIG.METADATA_PATH)
 
-                    # Validate and cleanup existing metadata
-                    metadata, index = cleanup_metadata(metadata, index)
-                    metadata = compress_metadata(metadata)
-                    index, metadata = optimize_faiss_index(index, metadata)
-                    logging.info("Loaded and optimized existing FAISS index and metadata")
-                except Exception as e:
-                    logging.warning(f"Failed to load existing index: {e}")
-                    index = None
+                        # Validate and cleanup existing metadata
+                        metadata, index = cleanup_metadata(metadata, index)
+                        metadata = compress_metadata(metadata)
+                        index, metadata = optimize_faiss_index(index, metadata)
+                        logging.info("Loaded and optimized existing FAISS index and metadata")
+                    except Exception as e:
+                        logging.warning(f"Failed to load existing index: {e}")
+                        index = None
 
-            if index is None:
-                logging.info("Creating new FAISS index")
-                index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
-                metadata = []
-                save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
-                save_metadata(metadata, CONFIG.METADATA_PATH)
+                if index is None:
+                    logging.info(f"Creating new FAISS index with dimension {CONFIG.EMBEDDING_DIMENSION}")
+                    index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
+                    metadata = []
+                    save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
+                    save_metadata(metadata, CONFIG.METADATA_PATH)
 
-            init_pbar.update(1)
+                init_pbar.update(1)
+            except Exception as e:
+                logging.error(f"FAISS initialization error: {e}", exc_info=True)
+                raise
 
         # Process documents in batches
         batch_size = CONFIG.BATCH_SIZE
@@ -636,7 +701,6 @@ def main():
                     try:
                         updated_index, new_metadata = process_documents(
                             model=clip_model,
-                            processor=clip_processor,
                             device=device,
                             index=index,
                             metadata=metadata,
@@ -685,11 +749,10 @@ def main():
         try:
             if 'image_store' in locals() and image_store is not None:
                 image_store.cleanup()
-            if clip_model is not None and hasattr(clip_model, 'cpu'):
-                clip_model.cpu()
+            if clip_model is not None:
+                if hasattr(clip_model, 'cpu'):
+                    clip_model.cpu()
                 del clip_model
-            if clip_processor is not None:
-                del clip_processor
             if index is not None:
                 del index
             # Cleanup temporary files
@@ -706,6 +769,7 @@ def main():
 
         except Exception as e:
             logging.error(f"Error during cleanup: {e}", exc_info=True)
+
 
 if __name__ == "__main__":
     try:

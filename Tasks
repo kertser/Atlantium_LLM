@@ -14,8 +14,10 @@
 * Check calculator for RZ-UHP
 * Attach Image on the frontend is not not loading correctly without reset, after images been founded in query
 * Try to filter the document reference images from the search results images
-* Similarity metrics is not linear. The idea is to take some stdev of the similarity scores and use it as a threshold for the search results
-* Text chunks similarity is not ideal
+
+* Some stored images are very much similar to each other, need to remove duplicates
+* Check for Excel errors (images)
+
 
 
 # TBDs for development:
@@ -25,3 +27,8 @@
 * Offline and fine-tuned LLMs (TBD)
 * Multimodal Input - Connect audio model (TBD)
 * Adaptive retrieval thresholds (TBD)
+
+pip3 install -U xformers --index-url https://download.pytorch.org/whl/cu124
+pip install ninja
+download from https://github.com/bdashore3/flash-attention/releases/download/v2.7.1.post1/flash_attn-2.7.1.post1+cu124torch2.5.1cxx11abiFALSE-cp312-cp312-win_amd64.whl
+and pip install

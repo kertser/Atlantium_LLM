@@ -19,16 +19,14 @@ from models.prompt_manager import PromptLoader
 class ImageProcessor:
     """Handles image processing and analysis for the RAG system."""
 
-    def __init__(self, openai_client: OpenAI, model, processor, device, formatter):
+    def __init__(self, openai_client: OpenAI, model, device, formatter):
         """Initialize the image processor with necessary components."""
         self.client = openai_client
         self.model = model
-        self.processor = processor
         self.device = device
         self.image_store = ImageStore()
         self.image_classifier = ImageClassifier(
             model=model,
-            processor=processor,
             device=device
         )
         self.prompt_loader = PromptLoader()
@@ -66,7 +64,6 @@ class ImageProcessor:
                 index=index,
                 metadata=metadata,
                 model=self.model,
-                processor=self.processor,
                 device=self.device,
                 image_query=image,
                 top_k=CONFIG.DEFAULT_TOP_K
@@ -166,10 +163,33 @@ class ImageProcessor:
         }
 
     async def analyze_technical_context(self, image_data: Dict) -> Dict:
-        """Extract and analyze technical context from image."""
-        try:
-            base64_image = image_data.get('base64_image') or self._convert_to_base64(image_data['image'])
+        """
+        Extract and analyze technical context from image using GPT Vision model.
 
+        Args:
+            image_data: Dictionary containing either:
+                - 'base64_image': Base64 encoded image string
+                - 'image': PIL Image object
+
+        Returns:
+            Dict containing:
+                - system_category: Type of system (e.g., "UV Water Treatment System")
+                - components_list: List of identified components
+                - documentation_refs: Related documentation references
+                - maintenance_notes: Any maintenance considerations
+                - analysis: Detailed analysis from GPT Vision
+        """
+        try:
+            # Handle image input and convert to base64 if needed
+            if 'base64_image' in image_data:
+                base64_image = image_data['base64_image']
+            else:
+                image = image_data.get('image')
+                if not isinstance(image, Image.Image):
+                    raise ValueError("Invalid image format")
+                base64_image = self._convert_to_base64(image)
+
+            # Prepare the message for GPT Vision API
             messages = [
                 {
                     "role": "assistant",
@@ -192,12 +212,14 @@ class ImageProcessor:
                 }
             ]
 
+            # Call GPT Vision API
             response = self.client.chat.completions.create(
                 model=CONFIG.GPT_VISION_MODEL,
                 messages=messages,
                 max_tokens=150
             )
 
+            # Return structured analysis
             return {
                 "system_category": "UV Water Treatment System",
                 "components_list": "",
@@ -208,6 +230,7 @@ class ImageProcessor:
 
         except Exception as e:
             logging.error(f"Error in analyze_technical_context: {e}")
+            logging.error("Full traceback:", exc_info=True)
             return {
                 "system_category": "Unknown",
                 "components_list": "",
@@ -342,10 +365,29 @@ class ImageProcessor:
             raise
 
     def _convert_to_base64(self, image: Image.Image) -> str:
-        """Convert PIL Image to base64 string."""
-        buffered = BytesIO()
-        image.save(buffered, format="JPEG", quality=95)
-        return base64.b64encode(buffered.getvalue()).decode('utf-8')
+        """
+        Convert PIL Image to base64 string.
+        Handles RGBA and other image modes by converting to RGB with white background.
+        """
+        try:
+            # Handle RGBA images
+            if image.mode == 'RGBA':
+                # Create a white background
+                background = Image.new('RGB', image.size, (255, 255, 255))
+                # Paste using alpha channel as mask
+                background.paste(image, mask=image.split()[3])
+                image = background
+            # Handle other non-RGB modes
+            elif image.mode != 'RGB':
+                image = image.convert('RGB')
+
+            # Convert to base64
+            buffered = BytesIO()
+            image.save(buffered, format="JPEG", quality=95)
+            return base64.b64encode(buffered.getvalue()).decode('utf-8')
+        except Exception as e:
+            logging.error(f"Error converting image to base64: {e}")
+            raise
 
     def _prepare_image_data(self, image_id: str, metadata: Dict, similarity: float) -> Optional[Dict]:
         """Prepare image data from metadata."""
@@ -365,3 +407,4 @@ class ImageProcessor:
         except Exception as e:
             logging.error(f"Error preparing image data: {e}")
             return None
+

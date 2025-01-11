@@ -3,6 +3,7 @@ import json
 import logging
 from pathlib import Path
 from typing import List, Dict, Union, Any, Set
+from utils.LLM_utils import encode_with_clip
 
 import faiss
 import numpy as np
@@ -369,26 +370,25 @@ def query_faiss(index, metadata, query_embeddings, top_k):
         return []
 
 
-def query_with_context(index, metadata, model, processor, device="cpu", text_query=None, image_query=None, top_k=5):
+def query_with_context(index, metadata, model, device="cpu", text_query=None, image_query=None, top_k=5):
     """Query FAISS with improved context handling"""
     query_embeddings = []
 
     # Process text query
     if text_query:
-        query_input = processor(text=[text_query], return_tensors="pt", padding=True, truncation=True)
-        query_input = {k: v.to(device) for k, v in query_input.items()}
-        text_embedding = model.get_text_features(**query_input)
-        text_embedding = text_embedding / text_embedding.norm(dim=-1, keepdim=True)
-        query_embeddings.append(text_embedding.cpu().detach().numpy())
+        # Use encode_with_clip for text
+        text_embeddings, _ = encode_with_clip(texts=[text_query], images=None, model=model, device=device)
+        if text_embeddings is not None:
+            query_embeddings.append(text_embeddings)
 
     # Process image query
     if image_query:
         if image_query.mode != "RGB":
             image_query = image_query.convert("RGB")
-        image_input = processor(images=image_query, return_tensors="pt").to(device)
-        image_embedding = model.get_image_features(**image_input)
-        image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
-        query_embeddings.append(image_embedding.cpu().detach().numpy())
+        # Use encode_with_clip for image
+        _, image_embeddings = encode_with_clip(texts=None, images=[image_query], model=model, device=device)
+        if image_embeddings is not None:
+            query_embeddings.append(image_embeddings)
 
     if not query_embeddings:
         raise ValueError("At least one of text_query or image_query must be provided")

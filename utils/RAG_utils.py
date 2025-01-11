@@ -3,7 +3,11 @@ from io import BytesIO
 from pathlib import Path
 from typing import Optional, Dict, List
 
-import openpyxl  # for Excel files
+from config import CONFIG
+from utils.img_utils import ImageStore, ImageProcessor
+
+# import openpyxl  # for Excel files
+from openpyxl.reader.excel import load_workbook
 import pymupdf  # PyMuPDF for PDFs
 from PIL import Image, UnidentifiedImageError
 from docx import Document
@@ -12,9 +16,6 @@ import re
 import nltk
 # Download NLTK data (if not already downloaded)
 nltk.download('punkt')
-
-from config import CONFIG
-from utils.img_utils import ImageStore, ImageProcessor
 
 # Suppress MuPDF warnings
 logging.getLogger("fitz").setLevel(logging.CRITICAL)
@@ -337,39 +338,87 @@ def extract_text_and_images_from_word(doc_path):
 def extract_text_and_images_from_excel(excel_path):
     """
     Extract text and images from an Excel file.
+
+    Args:
+        excel_path (str or Path): Path to the Excel file
+
+    Returns:
+        tuple: (extracted_text, list of image_data dictionaries)
     """
+
+    workbook = None
+
     try:
-        workbook = openpyxl.load_workbook(excel_path, read_only=True)
+        workbook = load_workbook(excel_path, data_only=True)
         doc_name = Path(excel_path).name
         logger.info(f"Processing Excel document: {doc_name}")
 
         text = ""
         images = []
 
-        for sheet in workbook.worksheets:
-            # Extract text from cells
-            for row in sheet.iter_rows(values_only=True):
-                text += " ".join([str(cell) if cell is not None else "" for cell in row]) + "\n"
+        for sheet_name in workbook.sheetnames:
+            try:
+                worksheet = workbook[sheet_name]
 
-            # Extract images
-            for image in sheet._images:
-                try:
-                    if hasattr(image, '_data'):
-                        img_data = image._data()
-                        img = Image.open(BytesIO(img_data))
+                # Extract text from cells
+                for row in worksheet.iter_rows(values_only=True):
+                    row_text = " ".join([str(cell) if cell else "" for cell in row]).strip()
+                    if row_text:
+                        text += row_text + "\n"
+
+                # Extract images
+                for image in getattr(worksheet, '_images', []):
+                    try:
+                        img_content = getattr(image, 'ref', None)
+                        if not img_content or not hasattr(img_content.image, 'content'):
+                            continue
+
+                        img = Image.open(BytesIO(img_content.image.content))
+                        width, height = img.size
+
+                        # Skip small images
+                        if width < CONFIG.MIN_IMAGE_SIZE or height < CONFIG.MIN_IMAGE_SIZE:
+                            logger.debug(f"Skipping small image ({width}x{height}) in {sheet_name}")
+                            continue
+
                         if img.mode != 'RGB':
                             img = img.convert('RGB')
 
+                        anchor = getattr(image, 'anchor', None)
+                        cell_ref = str(anchor) if anchor else "Unknown"
+
+                        # Extract context
+                        context = "No context available"
+                        if anchor and hasattr(anchor, '_from'):
+                            try:
+                                row, col = anchor._from.row, anchor._from.col
+                                context = " ".join(
+                                    str(worksheet.cell(r, c).value or "").strip()
+                                    for r in range(max(1, row - 1), row + 2)
+                                    for c in range(max(1, col - 1), col + 2)
+                                )
+                            except Exception:
+                                logger.debug(f"Error extracting context for image in {sheet_name}")
+
                         images.append({
                             'image': img,
-                            'context': '',
+                            'context': context.strip(),
                             'page_num': 1,
-                            'caption': f"Image from {doc_name} - Sheet: {sheet.title}"
+                            'caption': f"Image from {doc_name} - Sheet: {sheet_name} (Cell: {cell_ref})",
+                            'dimensions': f"{width}x{height}",
+                            'sheet': sheet_name,
+                            'cell_reference': cell_ref,
+                            'source_document': str(excel_path)
                         })
-                        logger.info(f"Processed image from sheet {sheet.title}")
-                except Exception as e:
-                    logger.error(f"Error processing image in Excel sheet {sheet.title}: {e}")
-                    continue
+                        logger.info(f"Processed image ({width}x{height}) in {sheet_name}")
+
+                    except UnidentifiedImageError:
+                        logger.debug(f"Unidentified image format in {sheet_name}")
+                    except Exception as e:
+                        logger.error(f"Error processing image in {sheet_name}: {e}")
+
+            except Exception as e:
+                logger.error(f"Error processing sheet {sheet_name}: {e}")
 
         logger.info(f"Completed processing {doc_name}: {len(images)} images extracted")
         return text, images
@@ -377,6 +426,13 @@ def extract_text_and_images_from_excel(excel_path):
     except Exception as e:
         logger.error(f"Error processing Excel file {excel_path}: {e}")
         return "", []
+
+    finally:
+        if workbook:
+            try:
+                workbook.close()
+            except Exception as e:
+                logger.debug(f"Error closing workbook: {e}")
 
 
 def chunk_text(text: str, source_path: str, chunk_size: int = CONFIG.CHUNK_SIZE,
