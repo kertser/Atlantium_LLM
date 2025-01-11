@@ -9,12 +9,23 @@
 * Attach Image on the frontend is not not loading correctly without reset, after images been founded in query
 * Try to filter the document reference images from the search results images
 * Fix system message "localhost:9000 wants to delete" etc...
-* Add frontend check for file format XXXXX-Filename.ext
+* Add frontend check for file format XXXXX-Filename.ext. If not existent - add some generated (time-based)
 * During the image store the images shall be saved rotated as they appear in document.
-* Resolve reloaded CLIP and FAISS on every upload. It is done at the server start and relevant values shall be passed.
+* Resolve reloaded CLIP and FAISS on every batch processing. It is done at the server start and relevant values shall be passed.
 * Some stored images are very much similar to each other, need to remove duplicates ??
 * Check for Excel errors (images)
 * Update the requirements.txt for new model usage, depending on system
+* Make the file processing more informative in CLI, as it was in previous version
+
+Long upload and no focus on window:
+2025-01-11 22:25:34,951 - ERROR - Exception in callback _ProactorBasePipeTransport._call_connection_lost(None)
+handle: <Handle _ProactorBasePipeTransport._call_connection_lost(None)>
+Traceback (most recent call last):
+  File "C:\Users\kerts\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+  File "C:\Users\kerts\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 165, in _call_connection_lost
+    self._sock.shutdown(socket.SHUT_RDWR)
+ConnectionResetError: [WinError 10054] An existing connection was forcibly closed by the remote host
 
 
 # TBDs for development:
@@ -33,3 +44,43 @@ download from https://github.com/bdashore3/flash-attention/releases/download/v2.
 and pip install
 
 For Linux is probably just: pip install flash-attn (probably with GPU only)
+
+
+
+def chunk_text(text: str, source_path: str, chunk_size=CONFIG.CHUNK_SIZE, overlap=CONFIG.CHUNK_OVERLAP):
+    """
+    Split text into chunks with overlap and enhanced metadata.
+    """
+    if not text or chunk_size < CONFIG.MIN_CHUNK_SIZE:
+        return []
+
+    words = text.split()
+    chunks = []
+    start_idx = 0
+    chunk_number = 0
+
+    while start_idx < len(words):
+        end_idx = start_idx + chunk_size
+        if end_idx < len(words):
+            breakpoint = end_idx
+            for i in range(max(start_idx + chunk_size - overlap, start_idx), end_idx):
+                if words[i].endswith('.') or words[i].endswith('\n'):
+                    breakpoint = i + 1
+                    break
+            end_idx = breakpoint
+
+        chunk = {
+            'text': ' '.join(words[start_idx:end_idx]),
+            'metadata': {
+                'source_path': source_path,
+                'chunk_number': chunk_number,
+                'start_idx': start_idx,
+                'end_idx': end_idx,
+                'relative_path': str(Path(source_path).relative_to(CONFIG.RAW_DOCUMENTS_PATH))
+            }
+        }
+        chunks.append(chunk)
+        chunk_number += 1
+        start_idx = end_idx - overlap if end_idx < len(words) else end_idx
+
+    return chunks

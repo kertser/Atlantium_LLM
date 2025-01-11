@@ -382,113 +382,193 @@ def extract_text_and_images_from_excel(excel_path):
             except Exception as e:
                 logger.debug(f"Error closing workbook: {e}")
 
-
-def chunk_text(text: str, source_path: str, chunk_size: int = CONFIG.CHUNK_SIZE,
+def chunk_text(text: str, source_path: str,
+               chunk_size: int = CONFIG.CHUNK_SIZE,
                overlap: int = CONFIG.CHUNK_OVERLAP) -> List[Dict]:
     """
-    Split text into chunks with overlap and enhanced metadata, filtering out non-meaningful content.
+    Splits text into chunks with overlap and enhanced metadata,
+    filtering out non-meaningful content (headers, footers, TOC, etc.).
 
     Args:
-        text: The text to be chunked
-        source_path: Path to the source document
-        chunk_size: Size of each chunk (default: from CONFIG)
-        overlap: Number of words to overlap between chunks (default: from CONFIG)
+        text: The text to be chunked (e.g., extracted from PDF/Word/Excel).
+        source_path: Path to the source document.
+        chunk_size: Number of words in each chunk (default from CONFIG).
+        overlap: Number of words overlapped between consecutive chunks.
 
     Returns:
-        List of dictionaries containing chunks and their metadata
+        List of dictionaries, each containing:
+         - 'text': the chunk text
+         - 'metadata': relevant information such as start_idx, end_idx, etc.
     """
+    # -------------------------------------------------------------------------
+    # 0. Quick exit if no text or invalid chunk_size
+    # -------------------------------------------------------------------------
     if not text or chunk_size < CONFIG.MIN_CHUNK_SIZE:
         return []
 
-    # Define patterns for filtering out non-meaningful content with more precise matching
+    # -------------------------------------------------------------------------
+    # 1. Compile Regex Patterns
+    # -------------------------------------------------------------------------
+    # Header-like patterns
     header_patterns = [
-        r'^\s*(?:header|heading)\s*$',  # Only exact matches
-        r'^\s*(?:page\s+\d+|p\.\s*\d+)\s*$',  # Only standalone page numbers
-        r'^\s*(?:chapter|section)\s+\d+\s*$'  # Only standalone chapter/section markers
+        r'^\s*(?:header|heading)\s*$',  # e.g., "header" alone
+        r'^\s*(?:page\s+\d+|p\.\s*\d+)\s*$',  # e.g., "page 12" alone
+        r'^\s*(?:chapter|section)\s+\d+\s*$'  # e.g., "chapter 2"
     ]
 
+    # Footer-like patterns
     footer_patterns = [
-        r'^\s*(?:footer)\s*$',  # Only exact matches
-        r'^\s*copyright\s+©?\s*\d{4}',  # More specific copyright pattern
-        r'^\s*all\s+rights\s+reserved\s*$',  # Exact "all rights reserved"
-        r'^\s*\d+\s*$'  # Only standalone page numbers
+        r'^\s*(?:footer)\s*$',
+        r'^\s*copyright\s+©?\s*\d{4}',
+        r'^\s*all\s+rights\s+reserved\s*$',
     ]
 
+    # Table-of-contents patterns
     toc_patterns = [
-        r'^\s*(?:table\s+of\s+contents|contents)\s*$',  # Only exact TOC headers
-        r'^\s*(?:\d+\.){1,3}\s+[A-Za-z].*?\s+\d+\s*$'  # More specific TOC entry pattern
+        r'^\s*(?:table\s+of\s+contents|contents)\s*$',  # "table of contents"
+        r'^.*?\.{3,}.*?\d+(?:-\d+)?$',  # e.g., "Topic ... 12" or "Topic ... 12-34"
+        r'(?:\.{3,}\s*\d+(?:-\d+)?){2,}',  # multiple segments of "... 6-22 ... 6-23"
     ]
 
+    # Disclaimers
     disclaimer_patterns = [
-        r'^\s*disclaimer:\s*$',  # Only standalone disclaimer headers
-        r'^\s*(?:confidential|proprietary)\s+document\s*$'  # Only specific confidentiality headers
+        r'^\s*disclaimer:\s*$',
+        r'^\s*(?:confidential|proprietary)\s+document\s*$'
     ]
 
-    # Compile all patterns
-    patterns = [re.compile(p, re.IGNORECASE) for p in
-                header_patterns + footer_patterns + toc_patterns + disclaimer_patterns]
+    # Combine everything into one set of filters
+    all_filters = header_patterns + footer_patterns + toc_patterns + disclaimer_patterns
+    compiled_filters = [re.compile(p, re.IGNORECASE) for p in all_filters]
 
-    # Clean and preprocess text
+    # -------------------------------------------------------------------------
+    # 2. Text Cleaning
+    # -------------------------------------------------------------------------
     def clean_text(input_text: str) -> str:
+        """Remove HTML, extra newlines, repeated spaces, and unwanted symbols."""
         if not input_text:
             return ""
-        # Remove HTML tags
-        input_text = re.sub(r'<.*?>', '', input_text)
-        # Remove multiple newlines but preserve paragraph breaks
-        input_text = re.sub(r'\n{3,}', '\n\n', input_text)
-        # Remove multiple spaces
-        input_text = re.sub(r'\s+', ' ', input_text)
-        # Preserve important punctuation while removing other special characters
-        input_text = re.sub(r'[^\w\s.!?,:;()\'\-\"]', '', input_text)
-        return input_text.strip()
+        # Remove any HTML tags
+        text_no_html = re.sub(r'<.*?>', '', input_text)
+        # Collapse 3+ newlines to double newlines
+        text_no_extra_newlines = re.sub(r'\n{3,}', '\n\n', text_no_html)
+        # Collapse multiple spaces
+        text_single_spaced = re.sub(r'\s+', ' ', text_no_extra_newlines)
+        # Whitelist: keep letters, digits, underscores, certain punctuation
+        text_clean = re.sub(r'[^-\w\s.,!?;:()\'"]', '', text_single_spaced)
+        return text_clean.strip()
 
-    def is_meaningful_content(content_text: str) -> bool:
-        # Skip empty or whitespace-only content
-        if not content_text.strip():
+    text = clean_text(text)
+
+    # -------------------------------------------------------------------------
+    # 3. Line-Based Filtering
+    #    - If line is suspicious, remove it before forming paragraphs
+    #    - We also track line repetition to remove repeated short lines
+    # -------------------------------------------------------------------------
+    line_freq = {}
+
+    def is_filter_line(line: str) -> bool:
+        """
+        Returns True if the line should be filtered out
+        (e.g., matches known header/footer/TOC patterns, is repeated too often, etc.)
+        """
+        line_stripped = line.strip()
+        if not line_stripped:
+            return True  # blank lines -> skip
+
+        # Frequency-based approach for short lines
+        # (like repeated "Chapter 2" at top/bottom of pages)
+        short_alnum = re.sub(r'[\W\d_]+', '', line_stripped)  # remove digits & symbols
+        if len(short_alnum) < 3:
+            # This line is mostly digits/punctuation or extremely short
+            line_freq[line_stripped] = line_freq.get(line_stripped, 0) + 1
+            # Filter if it repeats 3+ times
+            if line_freq[line_stripped] >= 3:
+                return True
+
+        # Check compiled patterns (headers, footers, disclaimers, etc.)
+        for pattern in compiled_filters:
+            # .search() instead of .match() so we find patterns anywhere in line
+            if pattern.search(line_stripped):
+                return True
+
+        # Additional check: if line has 2+ "dot+pageNumber" combos,
+        # or if it has multiple "..." clusters, it's likely a TOC line
+        if re.search(r'(?:\.{3,}\s*\d+(?:-\d+)?){2,}', line_stripped):
+            return True
+
+        # If line has 3+ sets of "..." => likely a TOC or junk
+        if len(re.findall(r'\.{3,}', line_stripped)) >= 3:
+            return True
+
+        # Otherwise, it's okay
+        return False
+
+    # Split text by newline and filter line-by-line
+    raw_lines = text.split('\n')
+    filtered_lines = []
+    for ln in raw_lines:
+        if not is_filter_line(ln):
+            filtered_lines.append(ln)
+
+    # -------------------------------------------------------------------------
+    # 4. Reconstruct Paragraphs After Filtering
+    # -------------------------------------------------------------------------
+    paragraphs = []
+    paragraph_buffer = []
+    for line in filtered_lines:
+        stripped = line.strip()
+        if stripped:
+            paragraph_buffer.append(stripped)
+        else:
+            # A blank line ends a paragraph
+            if paragraph_buffer:
+                paragraphs.append(' '.join(paragraph_buffer))
+                paragraph_buffer = []
+    # Add last paragraph if we ended with text
+    if paragraph_buffer:
+        paragraphs.append(' '.join(paragraph_buffer))
+
+    # -------------------------------------------------------------------------
+    # 5. Paragraph-Level Filtering (Optional)
+    #    - If a paragraph is too short or mostly dots, skip it
+    # -------------------------------------------------------------------------
+    def is_meaningful_paragraph(p: str) -> bool:
+        # Remove non-alphanumerics for length check
+        p_alnum = re.sub(r'[\W_]+', '', p)
+        if len(p_alnum) < CONFIG.MIN_CHUNK_SIZE:
             return False
 
-        # Only apply patterns to short lines (likely headers/footers)
-        if len(content_text.split()) < 10:
-            if any(pattern.match(content_text) for pattern in patterns):
-                return False
-
-        # Skip if too short
-        if len(content_text.strip()) < CONFIG.MIN_CHUNK_SIZE:
-            return False
-
-        # Skip if mostly special characters or numbers
-        text_clean = re.sub(r'[\W\d]', '', content_text)
-        if len(text_clean) < len(content_text) * 0.2:  # Relaxed to 20% letters
+        # Check for too many "..." lines inside the paragraph
+        dot_lines = sum(1 for line in p.split('\n') if '...' in line)
+        if dot_lines > 1:
             return False
 
         return True
 
-    # Clean the text
-    text = clean_text(text)
+    meaningful_paragraphs = [p for p in paragraphs if is_meaningful_paragraph(p)]
 
-    # Split into paragraphs first
-    paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
-
-    # Filter out non-meaningful paragraphs
-    meaningful_paragraphs = [p for p in paragraphs if is_meaningful_content(p)]
-
-    # Define sentence ending characters
-    sentence_endings = {'.', '!', '?', ':', ';'}  # Added more sentence separators
-
-    # Use NLTK sentence tokenizer for better sentence boundary detection
+    # -------------------------------------------------------------------------
+    # 6. Sentence Splitting with NLTK
+    # -------------------------------------------------------------------------
+    sentences = []
     try:
-        sentences = []
         for para in meaningful_paragraphs:
-            sentences.extend(nltk.sent_tokenize(para))
-    except Exception as e:
-        # Fallback to simple sentence splitting if NLTK fails
-        sentences = []
+            # Use nltk's sentence tokenizer for better accuracy
+            para_sents = nltk.sent_tokenize(para)
+            # Clean each sentence (optional)
+            para_sents = [clean_text(s) for s in para_sents if s.strip()]
+            sentences.extend(para_sents)
+    except Exception:
+        # Fallback: naive split if nltk is unavailable
         for para in meaningful_paragraphs:
             for sent in re.split(r'[.!?]+', para):
-                if sent.strip():
-                    sentences.append(sent.strip())
+                cleaned = clean_text(sent)
+                if cleaned:
+                    sentences.append(cleaned)
 
-    # Process meaningful sentences into chunks
+    # -------------------------------------------------------------------------
+    # 7. Build Overlapping Chunks
+    # -------------------------------------------------------------------------
     words = []
     for sentence in sentences:
         words.extend(sentence.split())
@@ -496,42 +576,47 @@ def chunk_text(text: str, source_path: str, chunk_size: int = CONFIG.CHUNK_SIZE,
     chunks = []
     start_idx = 0
     chunk_number = 0
+    sentence_endings = {'.', '!', '?', ':', ';'}
 
     while start_idx < len(words):
         end_idx = start_idx + chunk_size
-        if end_idx < len(words):
-            chunk_breakpoint = end_idx
-
-            # Look for natural sentence endings within the overlap region
-            for i in range(max(start_idx + chunk_size - overlap, start_idx), end_idx):
-                word = words[i]
-                if any(word.endswith(end) for end in sentence_endings):
-                    # Found a natural break point
-                    chunk_breakpoint = i + 1
+        if end_idx >= len(words):
+            end_idx = len(words)
+        else:
+            # Look for a natural sentence break going backward
+            # within the overlap region
+            natural_break = None
+            search_start = max(start_idx, end_idx - overlap)
+            for i in range(end_idx - 1, search_start - 1, -1):
+                if any(words[i].endswith(se) for se in sentence_endings):
+                    natural_break = i + 1
                     break
-            end_idx = chunk_breakpoint
+            if natural_break:
+                end_idx = natural_break
 
-        chunktext = ' '.join(words[start_idx:end_idx])
+        chunk_text = ' '.join(words[start_idx:end_idx]).strip()
 
-        # Only add chunk if it contains meaningful content
-        if is_meaningful_content(chunktext):
+        # Check if this chunk is meaningful
+        alnum_len = len(re.sub(r'[\W_]+', '', chunk_text))
+        if alnum_len >= CONFIG.MIN_CHUNK_SIZE:
             chunk = {
-                'text': chunktext,
+                'text': chunk_text,
                 'metadata': {
                     'source_path': source_path,
                     'chunk_number': chunk_number,
                     'start_idx': start_idx,
                     'end_idx': end_idx,
                     'relative_path': str(Path(source_path).relative_to(CONFIG.RAW_DOCUMENTS_PATH)),
-                    'is_paragraph_start': start_idx == 0 or words[start_idx - 1].endswith('\n'),
-                    'is_paragraph_end': end_idx >= len(words) or words[end_idx - 1].endswith('\n'),
-                    'chunk_length': len(chunktext),
-                    'word_count': len(chunktext.split())
+                    'chunk_length': len(chunk_text),
+                    'word_count': len(chunk_text.split())
                 }
             }
             chunks.append(chunk)
             chunk_number += 1
 
-        start_idx = end_idx - overlap if end_idx < len(words) else end_idx
+        if end_idx >= len(words):
+            break
+        # Overlap
+        start_idx = end_idx - overlap
 
     return chunks
