@@ -53,8 +53,7 @@ def sanitize_filename(filepath: Path) -> Tuple[Path, bool]:
     return original_path, False
 
 
-def compare_and_update_rag(raw_docs_path: Path, processed_files: Set[str], supported_extensions: Set[str]) -> Tuple[
-    List[Path], List[Path]]:
+def compare_and_update_rag(raw_docs_path: Path, processed_files: Set[str], supported_extensions: Set[str]):
     """
     Compare raw documents with processed files and identify new and removed documents.
 
@@ -151,7 +150,7 @@ def rescan_documents(config: CONFIG) -> tuple[bool, str]:
                 try:
                     index = load_faiss_index(config.FAISS_INDEX_PATH)
                     metadata = load_metadata(config.METADATA_PATH)
-                except:
+                except Exception:
                     index = initialize_faiss_index(config.EMBEDDING_DIMENSION, config.USE_GPU)
                     metadata = []
 

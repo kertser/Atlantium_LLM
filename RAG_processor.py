@@ -79,8 +79,8 @@ def filter_technical_images(images_data, model, source_doc):
                 tech_embedding = tech_embedding.cpu().numpy()
             if isinstance(non_tech_embedding, torch.Tensor):
                 non_tech_embedding = non_tech_embedding.cpu().numpy()
-    except Exception as e:
-        logging.error(f"Error encoding classification prompts: {e}")
+    except Exception as err:
+        logging.error(f"Error encoding classification prompts: {err}")
         return filtered_images
 
     for img_data in images_data:
@@ -105,8 +105,8 @@ def filter_technical_images(images_data, model, source_doc):
 
             try:
                 image = ImageProcessor.convert_to_rgb(image)
-            except Exception as e:
-                logging.debug(f"Error converting image format: {e}")
+            except Exception as err:
+                logging.debug(f"Error converting image format: {err}")
                 continue
 
             # Classify image
@@ -148,17 +148,16 @@ def filter_technical_images(images_data, model, source_doc):
                             f"size: {image.width}x{image.height}"
                         )
 
-            except Exception as e:
-                logging.debug(f"Classification error: {str(e)}")
+            except Exception as err:
+                logging.debug(f"Classification error: {str(err)}")
                 continue
 
-        except Exception as e:
-            logging.debug(f"Error processing image from {source_doc}: {str(e)}")
+        except Exception as err:
+            logging.debug(f"Error processing image from {source_doc}: {str(err)}")
             continue
 
     logging.info(f"Found {len(filtered_images)} technical images out of {len(images_data)} total images")
     return filtered_images
-
 
 
 def compress_metadata(metadata: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -229,8 +228,8 @@ def cleanup_metadata(metadata, index):
                     seen_hashes.add(content_hash)
                     cleaned_metadata.append(entry)
                     valid_indices.append(idx)
-        except Exception as e:
-            logging.warning(f"Error processing metadata entry {idx}: {e}")
+        except Exception as err:
+            logging.warning(f"Error processing metadata entry {idx}: {err}")
             continue
 
     # Rebuild index with only valid entries
@@ -240,20 +239,20 @@ def cleanup_metadata(metadata, index):
             vectors = np.vstack([index.reconstruct(idx) for idx in valid_indices])
             new_index.add(vectors)
             return cleaned_metadata, new_index
-    except Exception as e:
-        logging.error(f"Error rebuilding index: {e}")
+    except Exception as err:
+        logging.error(f"Error rebuilding index: {err}")
         return cleaned_metadata, index
 
     return cleaned_metadata, index
 
 
 def process_documents(
-    model: Any,
-    device: str,
-    index: Any,
-    metadata: List[Dict],
-    image_store: ImageStore,
-    doc_paths: Optional[List[str]] = None
+        model: Any,
+        device: str,
+        index: Any,
+        metadata: List[Dict],
+        image_store: ImageStore,
+        doc_paths: Optional[List[str]] = None
 ) -> Tuple[Any, List[Dict]]:
     """
     Process documents to extract text and technical images, generate embeddings,
@@ -271,8 +270,8 @@ def process_documents(
                 with open(CONFIG.METADATA_PATH, 'r', encoding='utf-8') as f:
                     metadata = json.load(f)
                 logging.info(f"Loaded {len(metadata)} existing metadata entries")
-            except Exception as e:
-                logging.warning(f"Could not load existing metadata: {e}")
+            except Exception as err:
+                logging.warning(f"Could not load existing metadata: {err}")
                 metadata = []
 
         if doc_paths is None:
@@ -343,8 +342,7 @@ def process_documents(
                         logging.info(f"Processing {len(images_data)} images from {doc_path}")
                         images_data = [
                             img for img in images_data
-                            if img['image'].width >= CONFIG.MIN_IMAGE_SIZE
-                               and img['image'].height >= CONFIG.MIN_IMAGE_SIZE
+                            if img['image'].width >= CONFIG.MIN_IMAGE_SIZE and img['image'].height >= CONFIG.MIN_IMAGE_SIZE
                         ]
                         filtered_images = filter_technical_images(
                             images_data=images_data,
@@ -398,14 +396,14 @@ def process_documents(
                                     else:
                                         logging.error(f"Failed to generate embedding for image {image_id}")
 
-                            except Exception as e:
-                                logging.error(f"Error processing image from {doc_path}: {str(e)}")
+                            except Exception as err:
+                                logging.error(f"Error processing image from {doc_path}: {str(err)}")
                                 continue
 
                     pbar.update(1)
 
-                except Exception as e:
-                    logging.error(f"Error processing document {doc_path}: {str(e)}")
+                except Exception as err:
+                    logging.error(f"Error processing document {doc_path}: {str(err)}")
                     continue
 
         # Save index and metadata if any embeddings were added
@@ -417,14 +415,14 @@ def process_documents(
         update_processed_files(doc_paths)
         return index, metadata
 
-    except Exception as e:
-        logging.error(f"Error during document processing: {str(e)}")
+    except Exception as err:
+        logging.error(f"Error during document processing: {str(err)}")
         raise
 
 
 def get_all_documents(
-    base_path: Path = CONFIG.RAW_DOCUMENTS_PATH,
-    extensions: List[str] = CONFIG.SUPPORTED_EXTENSIONS
+        base_path: Path = CONFIG.RAW_DOCUMENTS_PATH,
+        extensions: List[str] = CONFIG.SUPPORTED_EXTENSIONS
 ) -> List[Path]:
     """
     Recursively fetch all documents with specified extensions from the base path.
@@ -474,8 +472,7 @@ def check_stored_images():
             faiss_metadata = json.load(f)
             image_entries = [
                 m for m in faiss_metadata
-                if m.get('type') == 'image' and isinstance(m.get('content'), dict)
-                   and m['content'].get('image_id')
+                if m.get('type') == 'image' and isinstance(m.get('content'), dict) and m['content'].get('image_id')
             ]
             print(f"Found {len(image_entries)} image entries in FAISS metadata")
             for entry in image_entries:
@@ -503,8 +500,8 @@ def update_processed_files(doc_paths: List[Union[str, Path]]) -> None:
 
         logging.info(f"Updated processed files list with {len(doc_paths)} new documents")
 
-    except Exception as e:
-        logging.error(f"Error updating processed files list: {e}")
+    except Exception as err:
+        logging.error(f"Error updating processed files list: {err}")
         raise
 
 
@@ -527,8 +524,8 @@ def get_unprocessed_documents():
                        if str(Path(doc).absolute()) not in processed_files]
 
         return unprocessed
-    except Exception as e:
-        logging.error(f"Error getting unprocessed documents: {e}")
+    except Exception as err:
+        logging.error(f"Error getting unprocessed documents: {err}")
         return []
 
 
@@ -540,8 +537,8 @@ def get_processed_files():
             with open(processed_files_path, 'r', encoding='utf-8') as f:
                 return set(json.load(f))
         return set()
-    except Exception as e:
-        logging.error(f"Error loading processed files list: {e}")
+    except Exception as err:
+        logging.error(f"Error loading processed files list: {err}")
         return set()
 
 
@@ -650,9 +647,9 @@ def main():
 
                 logging.info("CLIP model initialized and tested successfully")
                 init_pbar.update(1)
-            except Exception as e:
-                logging.error(f"CLIP initialization error: {e}", exc_info=True)
-                raise RuntimeError(f"Failed to initialize CLIP model: {str(e)}")
+            except Exception as err:
+                logging.error(f"CLIP initialization error: {err}", exc_info=True)
+                raise RuntimeError(f"Failed to initialize CLIP model: {str(err)}")
 
             # Initialize FAISS
             try:
@@ -669,8 +666,8 @@ def main():
                         metadata = compress_metadata(metadata)
                         index, metadata = optimize_faiss_index(index, metadata)
                         logging.info("Loaded and optimized existing FAISS index and metadata")
-                    except Exception as e:
-                        logging.warning(f"Failed to load existing index: {e}")
+                    except Exception as err:
+                        logging.warning(f"Failed to load existing index: {err}")
                         index = None
 
                 if index is None:
@@ -681,8 +678,8 @@ def main():
                     save_metadata(metadata, CONFIG.METADATA_PATH)
 
                 init_pbar.update(1)
-            except Exception as e:
-                logging.error(f"FAISS initialization error: {e}", exc_info=True)
+            except Exception as err:
+                logging.error(f"FAISS initialization error: {err}", exc_info=True)
                 raise
 
         # Process documents in batches
@@ -730,8 +727,8 @@ def main():
                                 save_metadata(metadata, CONFIG.METADATA_PATH)
                                 update_processed_files(batch_docs)
 
-                    except Exception as e:
-                        logging.error(f"Error processing batch {current_batch}: {e}", exc_info=True)
+                    except Exception as err:
+                        logging.error(f"Error processing batch {current_batch}: {err}", exc_info=True)
                         continue
                     finally:
                         batch_pbar.update(1)
@@ -740,8 +737,8 @@ def main():
         logging.info("Processing completed successfully")
         return 0
 
-    except Exception as e:
-        logging.error(f"Critical error during processing: {e}", exc_info=True)
+    except Exception as err:
+        logging.error(f"Critical error during processing: {err}", exc_info=True)
         return 1
 
     finally:
@@ -760,15 +757,15 @@ def main():
             for tmp_file in tmp_files:
                 try:
                     tmp_file.unlink()
-                except Exception as e:
-                    logging.error(f"Error removing temporary file {tmp_file}: {e}")
+                except Exception as err:
+                    logging.error(f"Error removing temporary file {tmp_file}: {err}")
             gc.collect()
 
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-        except Exception as e:
-            logging.error(f"Error during cleanup: {e}", exc_info=True)
+        except Exception as err:
+            logging.error(f"Error during cleanup: {err}", exc_info=True)
 
 
 if __name__ == "__main__":

@@ -347,7 +347,8 @@ class ImageProcessor:
                     detail=f"Vision request failed after {MAX_RETRIES} attempts: {str(e)}"
                 )
 
-    def _preprocess_image(self, image_data: bytes) -> Image.Image:
+    @staticmethod
+    def _preprocess_image(image_data: bytes) -> Image.Image:
         """Preprocess image data into PIL Image."""
         try:
             image = Image.open(BytesIO(image_data))
@@ -364,7 +365,8 @@ class ImageProcessor:
             logging.error(f"Error preprocessing image: {e}")
             raise
 
-    def _convert_to_base64(self, image: Image.Image) -> str:
+    @staticmethod
+    def _convert_to_base64(image: Image.Image) -> str:
         """
         Convert PIL Image to base64 string.
         Handles RGBA and other image modes by converting to RGB with white background.
@@ -407,4 +409,3 @@ class ImageProcessor:
         except Exception as e:
             logging.error(f"Error preparing image data: {e}")
             return None
-

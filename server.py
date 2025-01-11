@@ -250,27 +250,27 @@ class EnhancedResponseFormatter:
                             }
                             logging.debug(f"Added document mapping from processed files: {doc_id} -> {filename}")
 
-                def replacement(match):
-                    doc_ref = match.group(1).strip()
+                def replacement(ref_match):
+                    doc_ref = ref_match.group(1).strip()
                     # Find the full path for this document ID
-                    full_path = None
+                    fullpath = None
 
-                    for file_path in processed_files:
-                        norm_path = file_path.replace('\\', '/')
+                    for filepath in processed_files:
+                        normpath = filepath.replace('\\', '/')
                         # Get filename without path
-                        filename = os.path.basename(norm_path)
+                        file_name = os.path.basename(normpath)
                         # Check if filename starts with the document ID
-                        if filename.startswith(f"{doc_ref}-"):
-                            if 'Raw Documents/' in norm_path:
-                                full_path = norm_path.split('Raw Documents/')[1]
+                        if file_name.startswith(f"{doc_ref}-"):
+                            if 'Raw Documents/' in normpath:
+                                fullpath = normpath.split('Raw Documents/')[1]
                             else:
-                                full_path = norm_path
+                                fullpath = normpath
                             break
 
-                    if full_path:
+                    if fullpath:
                         # Use the full filename in the display text
-                        display_text = os.path.basename(full_path)
-                        safe_path = full_path.replace("'", "\\'")
+                        display_text = os.path.basename(fullpath)
+                        safe_path = fullpath.replace("'", "\\'")
                         return f'<a href="javascript:void(0)" onclick="openDocument(\'{safe_path}\')" class="doc-link">{display_text}</a>'
 
                     # Return the original reference if no match found
@@ -282,8 +282,8 @@ class EnhancedResponseFormatter:
                 text = re.sub(pattern, replacement, text)
                 return text
 
-            except Exception as e:
-                logging.error(f"Error processing document references: {e}", exc_info=True)
+            except Exception as err:
+                logging.error(f"Error processing document references: {err}", exc_info=True)
                 return text
 
         def clean_text(text: str) -> str:
@@ -292,44 +292,44 @@ class EnhancedResponseFormatter:
             text = re.sub(r'[ \t]+', ' ', text)
             return text.strip()
 
-        def format_lists(content: str) -> str:
+        def format_lists(list_content: str) -> str:
             """Format lists with proper spacing and indentation."""
             # Add <br> before valid numbered list items
-            content = re.sub(r'([^\n])\s*(\d+\.\s+(?=[A-Za-z]))', r'\1<br>\2', content)
+            list_content = re.sub(r'([^\n])\s*(\d+\.\s+(?=[A-Za-z]))', r'\1<br>\2', list_content)
             # Add <br> before headers
-            content = re.sub(r'([^\n])\s*(#{2,3}\s+)', r'\1<br>\2', content)
+            list_content = re.sub(r'([^\n])\s*(#{2,3}\s+)', r'\1<br>\2', list_content)
             # Format bullet points with proper indentation
-            content = re.sub(r'(?m)^[•\-]\s*', r'  • ', content)
+            list_content = re.sub(r'(?m)^[•\-]\s*', r'  • ', list_content)
             # Remove bullet points from bold text items with bullets
-            content = re.sub(r'\*\*\s*•\s*', r'• ', content)
+            list_content = re.sub(r'\*\*\s*•\s*', r'• ', list_content)
             # Format numbered lists with proper indentation
-            content = re.sub(r'(?m)^(\d+\.\s+)(\*\*.*?\*\*)', r'    \1\2', content)
+            list_content = re.sub(r'(?m)^(\d+\.\s+)(\*\*.*?\*\*)', r'    \1\2', list_content)
             # Ensure line breaks between list items
-            content = re.sub(r'(?<!<br>)(\d+\.\s+)(\*\*.*?\*\*)', r'<br>\1\2', content)
-            return content
+            list_content = re.sub(r'(?<!<br>)(\d+\.\s+)(\*\*.*?\*\*)', r'<br>\1\2', list_content)
+            return list_content
 
-        def apply_emphasis(content: str) -> str:
+        def apply_emphasis(emphasis_content: str) -> str:
             """Apply emphasis formatting while preserving document references."""
             # First, temporarily protect [ref] tags
-            content = re.sub(r'\[ref](.*?)\[/ref]', r'PRESERVED_REF{\1}PRESERVED_REF', content)
+            emphasis_content = re.sub(r'\[ref](.*?)\[/ref]', r'PRESERVED_REF{\1}PRESERVED_REF', emphasis_content)
             # Replace **text** and *text* with HTML-like formatting
-            content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', content)
-            content = re.sub(r'\*(.*?)\*', r'<em>\1</em>', content)
+            emphasis_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', emphasis_content)
+            emphasis_content = re.sub(r'\*(.*?)\*', r'<em>\1</em>', emphasis_content)
             # Restore [ref] tags
-            content = re.sub(r'PRESERVED_REF{(.*?)}PRESERVED_REF', r'[ref]\1[/ref]', content)
-            return content
+            emphasis_content = re.sub(r'PRESERVED_REF{(.*?)}PRESERVED_REF', r'[ref]\1[/ref]', emphasis_content)
+            return emphasis_content
 
-        def format_section(title: str, content: str) -> str:
+        def format_section(title: str, section_content: str) -> str:
             """Format a section with all necessary formatting applied."""
             try:
-                formatted_content = clean_text(content)
+                formatted_content = clean_text(section_content)
                 formatted_content = format_lists(formatted_content)
                 formatted_content = apply_emphasis(formatted_content)
                 formatted_content = process_document_references(formatted_content)
                 return f"# {title}\n\n{formatted_content}"
-            except Exception as e:
-                logging.error(f"Error formatting section '{title}': {e}", exc_info=True)
-                return f"# {title}\n\n{content}"
+            except Exception as err:
+                logging.error(f"Error formatting section '{title}': {err}", exc_info=True)
+                return f"# {title}\n\n{section_content}"
 
         try:
             # Process the content
@@ -403,7 +403,8 @@ class RAGQueryServer:
             f"Server initialized with {len([m for m in self.metadata if m.get('type') == 'image'])} images in metadata"
         )
 
-    def _load_processed_files(self) -> List[str]:
+    @staticmethod
+    def _load_processed_files() -> List[str]:
         """Load the list of processed files from metadata."""
         try:
             metadata_path = CONFIG.PROCESSED_FILES_PATH  # Make sure this is defined in your config
@@ -625,7 +626,8 @@ class RAGQueryServer:
             logging.error(f"Error getting images from response: {e}")
             return []
 
-    def _extract_document_references(self, chunk_metadata: List[Dict]) -> List[str]:
+    @staticmethod
+    def _extract_document_references(chunk_metadata: List[Dict]) -> List[str]:
         """Extract unique document IDs from chunk metadata."""
         doc_refs = set()
         for meta in chunk_metadata:
@@ -952,8 +954,6 @@ async def image_query(
 
         # Log the similar images for debugging
         similar_images = result.get('similar_images', [])
-        logging.info(
-            f"Similar images structure: {json.dumps([{k: '...' if k == 'image' else v for k, v in img.items()} for img in similar_images])}")
 
         # Structure response to include similar images
         response = {
@@ -966,10 +966,6 @@ async def image_query(
                 "document_references": result.get('document_references', [])
             }
         }
-
-        # Log the final response structure (excluding image data)
-        logging.info(
-            f"Response structure: {json.dumps({**response, 'response': {**response['response'], 'images': f'[{len(similar_images)} images]'}})}")
 
         return JSONResponse(content=response)
 
@@ -1181,13 +1177,13 @@ async def process_documents():
                 new_metadata = json.load(f)
 
             # Helper function to generate unique key for metadata entry
-            def get_entry_key(entry):
-                if entry.get('type') == 'image':
-                    return f"image_{entry.get('image', {}).get('id')}"
-                elif entry.get('type') == 'text-chunk':
-                    return f"chunk_{entry.get('path')}_{entry.get('chunk')}"
+            def get_entry_key(element_entry):
+                if element_entry.get('type') == 'image':
+                    return f"image_{element_entry.get('image', {}).get('id')}"
+                elif element_entry.get('type') == 'text-chunk':
+                    return f"chunk_{element_entry.get('path')}_{element_entry.get('chunk')}"
                 else:
-                    content_str = json.dumps(entry.get('content', {}), sort_keys=True)
+                    content_str = json.dumps(element_entry.get('content', {}), sort_keys=True)
                     return f"other_{hashlib.md5(content_str.encode()).hexdigest()}"
 
             # Use dictionary for O(1) lookups

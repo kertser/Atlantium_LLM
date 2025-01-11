@@ -35,6 +35,7 @@ def create_required_directories() -> Dict[str, bool]:
     }
 
     logging.info("Starting directory creation process...")
+    abs_dir = None
 
     for name, directory in directories.items():
         try:

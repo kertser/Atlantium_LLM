@@ -51,7 +51,7 @@ class ImageProcessor:
                 try:
                     image_bytes = base64.b64decode(image)
                     image = Image.open(BytesIO(image_bytes))
-                except:
+                except Exception:
                     image = Image.open(image)
             elif isinstance(image, bytes):
                 image = Image.open(BytesIO(image))
@@ -165,7 +165,7 @@ class ImageProcessor:
             except Exception as e:
                 logging.debug(f"Direct conversion failed: {e}")
 
-            # Try PyMuPDF's alternative extraction
+            # Try PyMuPDF alternative extraction
             try:
                 pix = page.get_pixmap(matrix=pymupdf.Matrix(1, 1))
                 return Image.frombytes(
@@ -282,7 +282,8 @@ class ImageStore(ImageProcessor):
             self._save_metadata()
             logging.info(f"Removed {len(to_remove)} invalid entries")
 
-    def _generate_id(self, image: Image.Image, source: str, page: int) -> str:
+    @staticmethod
+    def _generate_id(image: Image.Image, source: str, page: int) -> str:
         """Generate unique image ID based on content and source."""
         try:
             buffer = BytesIO()
@@ -501,7 +502,8 @@ class ImageStore(ImageProcessor):
         self._save_metadata()
         logging.info("Deduplication complete")
 
-    def merge_metadata(self, primary: Dict, secondary: Dict) -> Dict:
+    @staticmethod
+    def merge_metadata(primary: Dict, secondary: Dict) -> Dict:
         """Merge metadata from two images."""
         merged = primary.copy()
 

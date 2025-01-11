@@ -31,7 +31,7 @@ class Config:
     LOG_BACKUP_COUNT: int = 5  # Maximum log backups
     MAX_LOG_SIZE: int = 10000
 
-    # Aggegator Configuration
+    # Aggregator Configuration
     AGGREGATOR_MODEL: str = "gpt-4o-mini"
     AGGREGATOR_TEMPERATURE: float = 0.1
     AGGREGATOR_MAX_TOKENS: int = 2000

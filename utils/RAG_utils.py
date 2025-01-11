@@ -475,29 +475,29 @@ def chunk_text(text: str, source_path: str, chunk_size: int = CONFIG.CHUNK_SIZE,
     patterns = [re.compile(p, re.IGNORECASE) for p in header_patterns + footer_patterns + toc_patterns + disclaimer_patterns]
 
     # Clean and preprocess text
-    def clean_text(text: str) -> str:
+    def clean_text(input_text: str) -> str:
         # Remove HTML tags
-        text = re.sub(r'<.*?>', '', text)
+        input_text = re.sub(r'<.*?>', '', input_text)
         # Remove multiple newlines
-        text = re.sub(r'\n{3,}', '\n\n', text)
+        input_text = re.sub(r'\n{3,}', '\n\n', input_text)
         # Remove multiple spaces
-        text = re.sub(r'\s+', ' ', text)
+        input_text = re.sub(r'\s+', ' ', input_text)
         # Remove special characters and excessive punctuation
-        text = re.sub(r'[^\w\s.!?]', '', text)
-        return text.strip()
+        input_text = re.sub(r'[^\w\s.!?]', '', input_text)
+        return input_text.strip()
 
-    def is_meaningful_content(text: str) -> bool:
+    def is_meaningful_content(content_text: str) -> bool:
         # Skip if matches any header/footer/TOC/disclaimer patterns
-        if any(pattern.match(text) for pattern in patterns):
+        if any(pattern.match(content_text) for pattern in patterns):
             return False
 
         # Skip if too short
-        if len(text.strip()) < CONFIG.MIN_CHUNK_SIZE:
+        if len(content_text.strip()) < CONFIG.MIN_CHUNK_SIZE:
             return False
 
         # Skip if mostly special characters or numbers
-        text_clean = re.sub(r'[\W\d]', '', text)
-        if len(text_clean) < len(text) * 0.3:  # Less than 30% letters
+        text_clean = re.sub(r'[\W\d]', '', content_text)
+        if len(text_clean) < len(content_text) * 0.3:  # Less than 30% letters
             return False
 
         return True
@@ -531,23 +531,23 @@ def chunk_text(text: str, source_path: str, chunk_size: int = CONFIG.CHUNK_SIZE,
     while start_idx < len(words):
         end_idx = start_idx + chunk_size
         if end_idx < len(words):
-            breakpoint = end_idx
+            chunk_breakpoint = end_idx
 
             # Look for natural sentence endings within the overlap region
             for i in range(max(start_idx + chunk_size - overlap, start_idx), end_idx):
                 word = words[i]
                 if any(word.endswith(end) for end in sentence_endings):
                     # Found a natural break point
-                    breakpoint = i + 1
+                    chunk_breakpoint = i + 1
                     break
-            end_idx = breakpoint
+            end_idx = chunk_breakpoint
 
-        chunk_text = ' '.join(words[start_idx:end_idx])
+        chunktext = ' '.join(words[start_idx:end_idx])
 
         # Only add chunk if it contains meaningful content
-        if is_meaningful_content(chunk_text):
+        if is_meaningful_content(chunktext):
             chunk = {
-                'text': chunk_text,
+                'text': chunktext,
                 'metadata': {
                     'source_path': source_path,
                     'chunk_number': chunk_number,
