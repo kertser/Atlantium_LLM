@@ -681,7 +681,6 @@ class RAGQueryServer:
                 model=self.model,
                 device=self.device,
                 text_query=query_text,
-                top_k=top_k
             )
 
             if not results:

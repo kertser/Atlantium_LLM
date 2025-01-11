@@ -54,8 +54,7 @@ class Config:
     USE_GPU: bool = True
 
     # Thresholds (not percentiles)
-    SIMILARITY_THRESHOLD: float = 0.3  # Text similarity for text query
-    IMAGE_SIMILARITY_THRESHOLD: float = 0.3  # Image similarity for image query
+    IMAGE_SIMILARITY_THRESHOLD: float = 0.3  # Similarity between images
     TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.6  # Technical confidence
     DEDUPLICATION_THRESHOLD = 0.70  # Threshold for image deduplication
 

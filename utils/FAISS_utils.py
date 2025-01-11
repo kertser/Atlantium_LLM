@@ -1,12 +1,12 @@
 import hashlib
 import json
-import logging
 from pathlib import Path
 from typing import List, Dict, Union, Any, Set
 from utils.LLM_utils import encode_with_clip
-
-import faiss
+import logging
 import numpy as np
+import traceback
+import faiss
 
 from config import CONFIG
 
@@ -291,22 +291,9 @@ def add_to_faiss(embedding, source_file_name, content_type, content, index, meta
         logging.error(f"Error adding {content_type} to FAISS: {e}")
         raise
 
-
-def query_with_context(index, metadata, model, device="cpu", text_query=None, image_query=None, top_k=5):
+def query_with_context(index, metadata, model, device="cpu", text_query=None, image_query=None):
     """
-    Query FAISS with improved context handling and separate thresholds for text and images.
-
-    Args:
-        index: FAISS index instance
-        metadata: List of metadata entries
-        model: CLIP model instance
-        device: Device to run on ("cpu" or "cuda")
-        text_query: Optional text query
-        image_query: Optional image query
-        top_k: Number of top results to return for each type
-
-    Returns:
-        List of processed results meeting their respective thresholds
+    Query FAISS with adaptive thresholding and dynamic top_k based on corpus size.
     """
     try:
         if not metadata:
@@ -314,6 +301,8 @@ def query_with_context(index, metadata, model, device="cpu", text_query=None, im
             return []
 
         query_embeddings = []
+        is_text_query = text_query is not None
+        is_image_query = image_query is not None
 
         # Process text query
         if text_query:
@@ -332,76 +321,142 @@ def query_with_context(index, metadata, model, device="cpu", text_query=None, im
         if not query_embeddings:
             raise ValueError("At least one of text_query or image_query must be provided")
 
-        # Combine and normalize embeddings
         query_embeddings = np.vstack(query_embeddings)
 
         # Get indices for text and images
         text_indices = [i for i, m in enumerate(metadata) if m.get('type') == 'text-chunk']
-        image_indices = [i for i, m in enumerate(metadata) if m.get('type') == 'image']
+        image_indices = set(i for i, m in enumerate(metadata) if m.get('type') == 'image')
 
-        logging.info(f"Metadata contains {len(image_indices)} images and {len(text_indices)} text chunks")
+        logging.info(f"Found {len(image_indices)} images and {len(text_indices)} text chunks in metadata")
 
-        # Initial search - get more results to account for threshold filtering
-        k = min(len(metadata), top_k * 2)
+        def calculate_adaptive_k(total_items, base_percentage=0.05, min_k=2, max_k=30):
+            if total_items == 0:
+                return 0
+            top_k = max(min_k, min(max_k, int(total_items * base_percentage)))
+            if total_items < 20:
+                top_k = min(top_k, total_items)
+            return top_k
+
+        text_top_k = calculate_adaptive_k(
+            len(text_indices),
+            base_percentage=0.08,
+            min_k=3,
+            max_k=30
+        )
+
+        image_top_k = calculate_adaptive_k(
+            len(image_indices),
+            base_percentage=0.05,
+            min_k=2,
+            max_k=20
+        )
+
+        logging.info(f"Adaptive top_k values - Text: {text_top_k}, Image: {image_top_k}")
+
+        k = min(len(metadata), max(text_top_k + image_top_k, 50))
         distances, indices = index.search(query_embeddings, k)
+        similarities = 1 - (distances[0] / 2)
 
-        # Separate results by type with appropriate thresholds
+        text_similarities = []
+        image_similarities = []
+
+        for idx, sim in zip(indices[0], similarities):
+            if idx >= len(metadata):
+                continue
+            if idx in text_indices:
+                text_similarities.append(sim)
+            elif idx in image_indices:
+                image_similarities.append(sim)
+
+        def calculate_adaptive_threshold(sims, content_type):
+            if len(sims) == 0:
+                return 0.3 if content_type == 'text' else 0.05
+
+            mean = np.mean(sims)
+            std = np.std(sims)
+            q75, q25 = np.percentile(sims, [75, 25])
+            iqr = q75 - q25
+
+            if content_type == 'text':
+                base_multiplier = 0.6
+                min_threshold = 0.3
+            else:
+                base_multiplier = 0.15
+                min_threshold = 0.05
+
+            if std > 0.1:
+                threshold = mean + base_multiplier * std
+            else:
+                threshold = q75 - base_multiplier * iqr
+
+            if content_type == 'image':
+                threshold = max(min(threshold, mean * 0.8), min_threshold)
+            else:
+                threshold = max(min(threshold, mean), q25, min_threshold)
+
+            return threshold
+
+        text_threshold = calculate_adaptive_threshold(text_similarities, 'text')
+        image_threshold = calculate_adaptive_threshold(image_similarities, 'image')
+
+        if is_text_query and not is_image_query:
+            image_threshold *= 1.2
+        elif is_image_query and not is_text_query:
+            image_threshold *= 0.5
+        else:
+            image_threshold *= 0.8
+
+        logging.info(f"Final thresholds - Text: {text_threshold:.3f}, Image: {image_threshold:.3f}")
+
         text_results = []
         image_results = []
         seen_indices = set()
 
-        # Process all results with type-specific thresholds
-        for idx, distance in zip(indices[0], distances[0]):
+        for idx, sim in zip(indices[0], similarities):
             if idx >= len(metadata):
                 continue
-
-            # Convert distance to similarity score
-            similarity = 1 - (distance / 2)
 
             result = {
                 "idx": int(idx),
                 "metadata": metadata[idx],
-                "distance": float(distance),
-                "similarity": float(similarity)
+                "distance": float(1 - sim),
+                "similarity": float(sim)
             }
 
-            # Apply different thresholds based on content type
-            if idx in text_indices and similarity >= CONFIG.SIMILARITY_THRESHOLD:
+            if idx in text_indices and sim >= text_threshold:
                 text_results.append(result)
                 seen_indices.add(idx)
-            elif idx in image_indices and similarity >= CONFIG.IMAGE_SIMILARITY_THRESHOLD:
+            elif idx in image_indices and sim >= image_threshold:
                 image_results.append(result)
                 seen_indices.add(idx)
 
-        # Additional image search if needed
-        if len(image_results) < top_k and image_indices:
-            mask = np.zeros(len(metadata), dtype=bool)
-            mask[image_indices] = True
-            D, I = index.search(query_embeddings, len(image_indices))
+        if len(image_results) < image_top_k and image_indices:
+            extra_k = min(len(metadata), 200)
+            image_distances, image_idx = index.search(query_embeddings, extra_k)
 
-            for idx, distance in zip(I[0], D[0]):
-                similarity = 1 - (distance / 2)
-                if (similarity >= CONFIG.IMAGE_SIMILARITY_THRESHOLD and
-                        idx in image_indices and
-                        idx not in seen_indices):
-                    result = {
-                        "idx": int(idx),
-                        "metadata": metadata[idx],
-                        "distance": float(distance),
-                        "similarity": float(similarity)
-                    }
-                    image_results.append(result)
-                    if len(image_results) >= top_k:
-                        break
+            lenient_threshold = max(0.03, image_threshold * 0.3)
 
-        # Sort results by similarity (descending)
+            for idx, distance in zip(image_idx[0], image_distances[0]):
+                if idx in image_indices and idx not in seen_indices:
+                    sim = 1 - (distance / 2)
+                    if sim >= lenient_threshold:
+                        result = {
+                            "idx": int(idx),
+                            "metadata": metadata[idx],
+                            "distance": float(distance),
+                            "similarity": float(sim)
+                        }
+                        image_results.append(result)
+                        seen_indices.add(idx)
+
+                        if len(image_results) >= image_top_k:
+                            break
+
         text_results.sort(key=lambda x: x['similarity'], reverse=True)
         image_results.sort(key=lambda x: x['similarity'], reverse=True)
 
-        # Take top_k of each type
-        final_results = text_results[:top_k] + image_results[:top_k]
+        final_results = text_results[:text_top_k] + image_results[:image_top_k]
 
-        # Process results with content retrieval
         processed_results = []
         for result in final_results:
             processed_result = {
@@ -419,16 +474,16 @@ def query_with_context(index, metadata, model, device="cpu", text_query=None, im
             processed_results.append(processed_result)
 
         logging.info(
-            f"Returning {len(text_results[:top_k])} text results (threshold: {CONFIG.SIMILARITY_THRESHOLD}) and "
-            f"{len(image_results[:top_k])} image results (threshold: {CONFIG.IMAGE_SIMILARITY_THRESHOLD})"
+            f"Returning {len(text_results[:text_top_k])} text results (threshold: {text_threshold:.3f}) and "
+            f"{len(image_results[:image_top_k])} image results (threshold: {image_threshold:.3f})"
         )
 
-        return [processed_results]  # Maintain expected return format
+        return [processed_results]
 
     except Exception as e:
-        logging.error(f"Error in query_with_context: {e}")
+        logging.error(f"Error in query_with_context: {str(e)}")
+        logging.error(traceback.format_exc())
         return []
-
 
 def optimize_faiss_index(index, metadata):
     """Optimize FAISS index for memory efficiency"""

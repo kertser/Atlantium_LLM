@@ -17,8 +17,7 @@
 
 * Some stored images are very much similar to each other, need to remove duplicates ??
 * Check for Excel errors (images)
-* update the requirements.txt for new model usage
-* Make adaptive thresholds for the retrieval, based on the distances statistics
+* Update the requirements.txt for new model usage, depending on system
 
 
 # TBDs for development:

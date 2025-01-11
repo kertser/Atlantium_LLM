@@ -66,7 +66,6 @@ class ImageProcessor:
                 model=self.model,
                 device=self.device,
                 image_query=image,
-                top_k=CONFIG.DEFAULT_TOP_K
             )
 
             # Extract document references and process similar images
