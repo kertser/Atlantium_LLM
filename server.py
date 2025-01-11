@@ -37,7 +37,7 @@ from dataclasses import field
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Optional, List, Dict, Tuple, Any
+from typing import Optional, List, Dict, Any
 from urllib.parse import unquote
 
 import faiss

@@ -17,7 +17,7 @@
 
 * Some stored images are very much similar to each other, need to remove duplicates
 * Check for Excel errors (images)
-
+* update the requirements.txt for new model usage
 
 
 # TBDs for development:
@@ -30,5 +30,9 @@
 
 pip3 install -U xformers --index-url https://download.pytorch.org/whl/cu124
 pip install ninja
+
+This is for windows:
 download from https://github.com/bdashore3/flash-attention/releases/download/v2.7.1.post1/flash_attn-2.7.1.post1+cu124torch2.5.1cxx11abiFALSE-cp312-cp312-win_amd64.whl
 and pip install
+
+For Linux is probably just: pip install flash-attn

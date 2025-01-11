@@ -53,30 +53,6 @@ def sanitize_filename(filepath: Path) -> Tuple[Path, bool]:
     return original_path, False
 
 
-def sanitize_uploaded_file(file_path: Path) -> Path:
-    """
-    Sanitize an uploaded file's name before saving.
-
-    Args:
-        file_path: Path object of the uploaded file
-
-    Returns:
-        Path object with sanitized name
-    """
-    parent = file_path.parent
-    filename = file_path.name
-
-    # Split filename and extension
-    name_parts = filename.rsplit('.', 1)
-    if len(name_parts) == 2:
-        name, ext = name_parts
-        sanitized_name = f"{name.strip()}.{ext.strip()}"
-    else:
-        sanitized_name = filename.strip()
-
-    return parent / sanitized_name
-
-
 def compare_and_update_rag(raw_docs_path: Path, processed_files: Set[str], supported_extensions: Set[str]) -> Tuple[
     List[Path], List[Path]]:
     """
@@ -185,7 +161,6 @@ def rescan_documents(config: CONFIG) -> tuple[bool, str]:
                 # Process documents with all required arguments
                 success = process_documents(
                     model=model,
-                    processor=processor,
                     device=device,
                     index=index,
                     metadata=metadata,
@@ -217,7 +192,7 @@ def rescan_documents(config: CONFIG) -> tuple[bool, str]:
         if not cleanup_success:
             logger.warning(f"Chunk cleanup warning: {cleanup_msg}")
 
-        total_changes = len(new_files) + len(removed_files)
+        # total_changes = len(new_files) + len(removed_files)
         success_msg = f"Rescan completed: {len(new_files)} new documents processed, {len(removed_files)} documents removed"
         if cleanup_success:
             success_msg += f". {cleanup_msg}"
