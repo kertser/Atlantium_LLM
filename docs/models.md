@@ -117,7 +117,7 @@ VISION_MAX_TOKENS: int = 4096
 ### Thresholds
 ```python
 SIMILARITY_THRESHOLD: float = 0.75      # Text similarity
-IMAGE_SIMILARITY_THRESHOLD: float = 0.2  # Image similarity
+IMAGE_SIMILARITY_THRESHOLD: float = 0.35  # Image similarity
 TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.75
 DEDUPLICATION_THRESHOLD: float = 0.70
 ```

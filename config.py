@@ -54,13 +54,13 @@ class Config:
     USE_GPU: bool = True
 
     # Thresholds (not percentiles)
-    SIMILARITY_THRESHOLD: float = 0.75  # Text similarity (it shall be 0.6-0.8)
-    IMAGE_SIMILARITY_THRESHOLD: float = 0.35  # Image similarity - set to high value to avoid false positives
+    SIMILARITY_THRESHOLD: float = 0.3  # Text similarity for text query
+    IMAGE_SIMILARITY_THRESHOLD: float = 0.3  # Image similarity for image query
     TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.6  # Technical confidence
     DEDUPLICATION_THRESHOLD = 0.70  # Threshold for image deduplication
 
     # Query Configuration
-    DEFAULT_TOP_K: int = 20
+    DEFAULT_TOP_K: int = 30
     TEMPERATURE: float = 0
     GPT_MODEL: str = "gpt-4o-mini"
 

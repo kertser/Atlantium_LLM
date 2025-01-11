@@ -85,58 +85,6 @@ def extract_text_around_image(page, image_bbox, context_range=CONFIG.MAX_CONTEXT
         logger.error(f"Error extracting text context: {e}")
         return ""
 
-
-def get_relevant_images(query_context: str, image_store: ImageStore, threshold: float = 0.3):
-    """
-    Get images relevant to the query with improved matching.
-
-    Args:
-        query_context: A string containing the query or context to match.
-        image_store: An ImageStore instance for getting images and metadata.
-        threshold: Minimum overlap-to-query-terms ratio for relevance.
-
-    Returns:
-        A list of dictionaries, each containing image ID, base64 data, caption,
-        context, and similarity score.
-    """
-    relevant_images = []
-    query_terms = set(query_context.lower().split())
-
-    if not query_terms:
-        logger.warning("Empty query terms, cannot calculate relevance")
-        return []
-
-    for img_id, metadata in image_store.metadata.items():
-        try:
-            context = metadata.get("context", "").lower()
-            caption = metadata.get("caption", "").lower()
-            source = metadata.get("source_document", "").lower()
-
-            context_terms = set(context.split())
-            caption_terms = set(caption.split())
-            source_terms = set(source.split())
-
-            term_overlap = len(query_terms & (context_terms | caption_terms | source_terms))
-            if term_overlap > 0:
-                score = term_overlap / len(query_terms)
-                if score >= threshold:
-                    base64_img = image_store.get_base64(img_id)
-                    if base64_img:
-                        relevant_images.append({
-                            "id": img_id,
-                            "base64": base64_img,
-                            "caption": metadata.get("caption", "No caption available"),
-                            "context": metadata.get("context", ""),
-                            "similarity": score
-                        })
-        except Exception as e:
-            logger.error(f"Error processing image {img_id}: {e}")
-            continue
-
-    relevant_images.sort(key=lambda x: x['similarity'], reverse=True)
-    return relevant_images[:5]  # Return up to 5 most relevant images
-
-
 def extract_text_and_images_from_pdf(pdf_path):
     """Extracts text and images with their context from a PDF file."""
     text = ""

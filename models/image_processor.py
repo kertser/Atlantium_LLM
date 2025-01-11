@@ -239,31 +239,6 @@ class ImageProcessor:
                 "analysis": ""
             }
 
-    def get_relevant_images(self, results: List[Dict]) -> List[Dict]:
-        """Get and process relevant images from search results."""
-        relevant_images = []
-        try:
-            for result in results:
-                metadata = result['metadata']
-                similarity = 1 - (result['distance'] / 2)
-
-                if metadata.get('type') == 'image' and similarity > self.similarity_threshold:
-                    image_id = (metadata.get('image', {}).get('id') or
-                                metadata.get('content', {}).get('image_id'))
-
-                    if not image_id:
-                        continue
-
-                    image_data = self._prepare_image_data(image_id, metadata, similarity)
-                    if image_data:
-                        relevant_images.append(image_data)
-
-            return self.image_classifier.deduplicate(relevant_images, self.deduplication_threshold)
-
-        except Exception as e:
-            logging.error(f"Error getting relevant images: {e}")
-            return []
-
     async def _process_vision_request(
             self,
             base64_image: str,
