@@ -1,23 +1,17 @@
 # Ongoing Tasks / Errors:
 
 * Visualize the document processing with progress bar - over the "processing" button (processing batches)
-* Add prompt template for Interactive troubleshooting mode (analyze step-by-step)
 * Add option for "chat with live operator" (A button with contacts or whatsapp)
-* Update documentation
+
 
 * Check calculator for RZ-UHP
 * Attach Image on the frontend is not not loading correctly without reset, after images been founded in query
 * Try to filter the document reference images from the search results images
 * Fix system message "localhost:9000 wants to delete" etc...
-* Add frontend check for file format XXXXX-Filename.ext. If not existent - add some generated (time-based)
 * During the image store the images shall be saved rotated as they appear in document.
-* Resolve reloaded CLIP and FAISS on every batch processing. It is done at the server start and relevant values shall be passed.
-* Some stored images are very much similar to each other, need to remove duplicates ??
-* Check for Excel errors (images)
+* Check for Excel file upload errors (images)
 * Update the requirements.txt for new model usage, depending on system
-* Move processed_files to RAG_Data
-* jina clip v2 can take images of 512x512. I think that larger image processing is slowing it down
-
+* Update documentation
 
 # TBDs for development:
 * Add complicated reasoning (SMoA) to the model (TBD)
@@ -30,7 +24,7 @@
 pip3 install -U xformers --index-url https://download.pytorch.org/whl/cu124
 pip install ninja
 
-This is for windows:
+This is for windows: (will be available at setup_files/windows/flash_attn-2.7.1.post1+cu124torch2.5.1cxx11abiFALSE-cp312-cp312-win_amd64.whl)
 download from https://github.com/bdashore3/flash-attention/releases/download/v2.7.1.post1/flash_attn-2.7.1.post1+cu124torch2.5.1cxx11abiFALSE-cp312-cp312-win_amd64.whl
 and pip install
 
@@ -55,42 +49,46 @@ For Linux is probably just: pip install flash-attn (probably with GPU only)
 
 
 
-# Primitive chunking:
+pip install semchunk
+import semchunk
+from transformers import AutoTokenizer
+from pathlib import Path
+
 
 def chunk_text(text: str, source_path: str, chunk_size=CONFIG.CHUNK_SIZE, overlap=CONFIG.CHUNK_OVERLAP):
     """
-    Split text into chunks with overlap and enhanced metadata.
+    Split text into semantically meaningful chunks with overlap and enhanced metadata.
     """
     if not text or chunk_size < CONFIG.MIN_CHUNK_SIZE:
         return []
 
-    words = text.split()
-    chunks = []
-    start_idx = 0
-    chunk_number = 0
+    # Initialize the tokenizer; adjust the model name as needed
+    tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
 
-    while start_idx < len(words):
-        end_idx = start_idx + chunk_size
-        if end_idx < len(words):
-            breakpoint = end_idx
-            for i in range(max(start_idx + chunk_size - overlap, start_idx), end_idx):
-                if words[i].endswith('.') or words[i].endswith('\n'):
-                    breakpoint = i + 1
-                    break
-            end_idx = breakpoint
+    # Create a chunker with the specified chunk size
+    chunker = semchunk.chunkerify(tokenizer, chunk_size)
 
-        chunk = {
-            'text': ' '.join(words[start_idx:end_idx]),
+    # Calculate the overlap in tokens
+    overlap_tokens = int(chunk_size * overlap) if overlap < 1 else overlap
+
+    # Obtain chunks and their offsets
+    chunks, offsets = chunker(text, offsets=True, overlap=overlap_tokens)
+
+    # Prepare the list of chunks with metadata
+    chunked_data = []
+    relative_path = str(Path(source_path).relative_to(CONFIG.RAW_DOCUMENTS_PATH))
+
+    for chunk_number, (chunk_text, (start_idx, end_idx)) in enumerate(zip(chunks, offsets)):
+        chunk_info = {
+            'text': chunk_text,
             'metadata': {
                 'source_path': source_path,
                 'chunk_number': chunk_number,
                 'start_idx': start_idx,
                 'end_idx': end_idx,
-                'relative_path': str(Path(source_path).relative_to(CONFIG.RAW_DOCUMENTS_PATH))
+                'relative_path': relative_path
             }
         }
-        chunks.append(chunk)
-        chunk_number += 1
-        start_idx = end_idx - overlap if end_idx < len(words) else end_idx
+        chunked_data.append(chunk_info)
 
-    return chunks
+    return chunked_data

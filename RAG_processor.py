@@ -33,20 +33,24 @@ from utils.RAG_utils import (
 from utils.img_utils import ImageStore, ImageProcessor
 from contextlib import contextmanager
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s: %(message)s',
-    handlers=[
-        logging.FileHandler(CONFIG.LOG_PATH / "system.log")
-    ]
-)
 
-# Create a separate console handler for critical/final information
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setLevel(logging.WARNING)  # Only WARNING and above go to console
-console_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
-logging.getLogger().addHandler(console_handler)
+def setup_logger():
+    """
+    Setup logging configuration
+    """
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s: %(message)s',
+        handlers=[
+            logging.FileHandler(CONFIG.LOG_PATH / "system.log")
+        ]
+    )
+
+    # Create a separate console handler for critical/final information
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.WARNING)  # Only WARNING and above go to console
+    console_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+    logging.getLogger().addHandler(console_handler)
 
 
 @contextmanager
@@ -63,6 +67,7 @@ def silent_tqdm():
         yield
     finally:
         tqdm.__init__ = original_init
+
 
 def filter_technical_images(images_data, model, source_doc):
     """
@@ -368,7 +373,8 @@ def process_documents(
                         logging.info(f"Processing {len(images_data)} images from {doc_path}")
                         images_data = [
                             img for img in images_data
-                            if img['image'].width >= CONFIG.MIN_IMAGE_SIZE and img['image'].height >= CONFIG.MIN_IMAGE_SIZE
+                            if
+                            img['image'].width >= CONFIG.MIN_IMAGE_SIZE and img['image'].height >= CONFIG.MIN_IMAGE_SIZE
                         ]
                         filtered_images = filter_technical_images(
                             images_data=images_data,
@@ -629,12 +635,66 @@ def validate_metadata_and_index(metadata: list, index: Any, image_store: ImageSt
     return valid_metadata, new_index
 
 
-def main():
-    """Main function with progress bars for batch processing and optimized memory management."""
-    clip_model = None
-    index = None
-    metadata = []
+def init_CLIP_model():
+    # Initialize CLIP
+    try:
+        clip_model, device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
+        if clip_model is None:
+            raise RuntimeError("Model initialization returned None")
 
+        # Test the model
+        with torch.no_grad():
+            test_embedding = clip_model.encode_text(["Test text"])
+            if test_embedding is None or test_embedding.shape[1] != CONFIG.EMBEDDING_DIMENSION:
+                raise RuntimeError(
+                    f"Invalid embedding dimension. Expected {CONFIG.EMBEDDING_DIMENSION}, got {test_embedding.shape[1] if test_embedding is not None else None}")
+
+        logging.info("CLIP model initialized and tested successfully")
+        return clip_model, device
+    except Exception as err:
+        logging.error(f"CLIP initialization error: {err}", exc_info=True)
+        raise RuntimeError(f"Failed to initialize CLIP model: {str(err)}")
+
+
+def init_FAISS_model():
+    # Initialize FAISS
+    try:
+        CONFIG.RAG_DATA.mkdir(parents=True, exist_ok=True)
+        index = None
+        metadata = []
+        # Load or create FAISS index
+        if CONFIG.FAISS_INDEX_PATH.exists():
+            try:
+                index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
+                metadata = load_metadata(CONFIG.METADATA_PATH)
+
+                # Validate and cleanup existing metadata
+                metadata, index = cleanup_metadata(metadata, index)
+                metadata = compress_metadata(metadata)
+                index, metadata = optimize_faiss_index(index, metadata)
+                logging.info("Loaded and optimized existing FAISS index and metadata")
+            except Exception as err:
+                logging.warning(f"Failed to load existing index: {err}")
+                index = None
+
+        if index is None:
+            logging.info(f"Creating new FAISS index with dimension {CONFIG.EMBEDDING_DIMENSION}")
+            index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
+            metadata = []
+            save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
+            save_metadata(metadata, CONFIG.METADATA_PATH)
+
+        return index, metadata
+
+    except Exception as err:
+        logging.error(f"FAISS initialization error: {err}", exc_info=True)
+        raise
+
+
+def document_processing_sequence(clip_model=None, index=None, metadata=None):
+    """Main function with progress bars for batch processing and optimized memory management."""
+    if metadata is None:
+        metadata = []
     try:
         load_dotenv()
 
@@ -657,57 +717,14 @@ def main():
 
         logging.info(f"Found {len(new_docs)} new documents to process")
 
-        # Initialize CLIP and FAISS
-        with tqdm(desc="Initializing", total=2) as init_pbar:
-            # Initialize CLIP
-            try:
-                clip_model, device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
-                if clip_model is None:
-                    raise RuntimeError("Model initialization returned None")
-
-                # Test the model
-                with torch.no_grad():
-                    test_embedding = clip_model.encode_text(["Test text"])
-                    if test_embedding is None or test_embedding.shape[1] != CONFIG.EMBEDDING_DIMENSION:
-                        raise RuntimeError(
-                            f"Invalid embedding dimension. Expected {CONFIG.EMBEDDING_DIMENSION}, got {test_embedding.shape[1] if test_embedding is not None else None}")
-
-                logging.info("CLIP model initialized and tested successfully")
-                init_pbar.update(1)
-            except Exception as err:
-                logging.error(f"CLIP initialization error: {err}", exc_info=True)
-                raise RuntimeError(f"Failed to initialize CLIP model: {str(err)}")
-
-            # Initialize FAISS
-            try:
-                CONFIG.RAG_DATA.mkdir(parents=True, exist_ok=True)
-
-                # Load or create FAISS index
-                if CONFIG.FAISS_INDEX_PATH.exists():
-                    try:
-                        index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
-                        metadata = load_metadata(CONFIG.METADATA_PATH)
-
-                        # Validate and cleanup existing metadata
-                        metadata, index = cleanup_metadata(metadata, index)
-                        metadata = compress_metadata(metadata)
-                        index, metadata = optimize_faiss_index(index, metadata)
-                        logging.info("Loaded and optimized existing FAISS index and metadata")
-                    except Exception as err:
-                        logging.warning(f"Failed to load existing index: {err}")
-                        index = None
-
-                if index is None:
-                    logging.info(f"Creating new FAISS index with dimension {CONFIG.EMBEDDING_DIMENSION}")
-                    index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
-                    metadata = []
-                    save_faiss_index(index, CONFIG.FAISS_INDEX_PATH)
-                    save_metadata(metadata, CONFIG.METADATA_PATH)
-
-                init_pbar.update(1)
-            except Exception as err:
-                logging.error(f"FAISS initialization error: {err}", exc_info=True)
-                raise
+        # Initialize CLIP model
+        if clip_model is None:
+            clip_model, device = init_CLIP_model()
+        else:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        # Initialize FAISS index
+        if index is None or metadata is None:
+            index, metadata = init_FAISS_model()
 
         # Process documents in batches
         batch_size = CONFIG.BATCH_SIZE
@@ -796,8 +813,9 @@ def main():
 
 
 if __name__ == "__main__":
+    setup_logger()
     try:
-        result = main()
+        result = document_processing_sequence()
         sys.exit(result)
     except Exception as e:
         logging.error(f"Fatal error: {str(e)}", exc_info=True)

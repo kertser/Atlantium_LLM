@@ -30,7 +30,6 @@ import logging
 import os
 import re
 import shutil
-import subprocess
 import sys
 import warnings
 from contextlib import asynccontextmanager
@@ -68,6 +67,7 @@ from utils.document_utils import (
 from utils.img_utils import ImageProcessor as ImageUtils
 from models.agents.agent_manager import AgentManager
 from models.agents.websearch_agent import WebSearchAgent
+from RAG_processor import document_processing_sequence
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
@@ -1042,6 +1042,9 @@ async def upload_document(file: UploadFile, folder: str = Form("")):
         # Create full path for the file
         dest_path = target_dir / sanitized_filename
 
+        # Rename the file if necessary, to keep the proper format
+        dest_path = validate_and_update_path(str(dest_path))
+
         # Avoid overwriting existing files
         if dest_path.exists():
             raise HTTPException(status_code=409, detail="File already exists")
@@ -1121,11 +1124,16 @@ async def process_documents():
     Process documents asynchronously while maintaining metadata persistence.
     Returns a status response indicating success or failure.
     """
-    process = None
     try:
         logger.info("Starting document processing...")
 
-        # Load existing metadata before processing
+        # Load existing index and metadata before processing
+        if CONFIG.FAISS_INDEX_PATH.exists():
+            server.index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
+            logger.info(f"Loaded FAISS index with {server.index.ntotal} vectors")
+        else:
+            logger.warning("No existing FAISS index found")
+
         existing_metadata = []
         if CONFIG.METADATA_PATH.exists():
             try:
@@ -1136,17 +1144,7 @@ async def process_documents():
                 logger.warning(f"Could not load existing metadata: {e}")
 
         # Run RAG_processor.py with proper encoding environment variable
-        process = subprocess.Popen(
-            [sys.executable, 'RAG_processor.py'],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env={
-                **os.environ,
-                "PYTHONIOENCODING": "utf-8",
-                "PYTHONUNBUFFERED": "1"
-            }
-        )
+        process = document_processing_sequence(clip_model=CONFIG.CLIP_MODEL_NAME, index=server.index, metadata=existing_metadata)
 
         try:
             stdout, stderr = process.communicate()
@@ -1245,18 +1243,9 @@ async def process_documents():
         logger.info("Document processing completed successfully")
         return {"status": "success"}
 
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Error in process_documents: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # Ensure process is properly cleaned up
-        if process:
-            try:
-                process.kill()
-            except:
-                pass
 
 
 @app.get("/get/documents")
