@@ -44,6 +44,25 @@ class ImageProcessor:
         return image.convert('RGB')
 
     @staticmethod
+    def resize_image(image: Image.Image, max_size: Tuple[int, int] = (512, 512)) -> Image.Image:
+        """
+        Resize the image if its dimensions exceed the maximum size while maintaining the aspect ratio.
+
+        Args:
+            image (Image.Image): The image to resize.
+            max_size (Tuple[int, int]): Maximum allowable dimensions (width, height). Default is (512, 512).
+
+        Returns:
+            Image.Image: The resized image or the original if no resizing is needed.
+        """
+        if image.width <= max_size[0] and image.height <= max_size[1]:
+            return image  # No resizing needed
+
+        # Resize image while maintaining aspect ratio
+        image.thumbnail(max_size, Image.Resampling.LANCZOS)
+        return image
+
+    @staticmethod
     def calculate_hash(image: Union[Image.Image, str, bytes]) -> Optional[str]:
         """Calculate perceptual hash for various image formats."""
         try:

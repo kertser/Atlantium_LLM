@@ -92,6 +92,7 @@ class Config:
     CLEANUP_FREQUENCY = 10  # Cleanup every N batches
 
     # Image Processing
+    MAX_IMAGE_SIZE: int = 1024  # jina CLIP v2 can process tiles of 512x512, otherwise dividing them
     MIN_IMAGE_SIZE: int = 300  # Set to 150?  # Minimum image size
     MIN_ICON_SIZE: int = 100  # Minimum icon size
     MAX_CONTEXT_RANGE: int = 100  # Leave as is for text context

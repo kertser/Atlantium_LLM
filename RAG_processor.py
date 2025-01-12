@@ -120,6 +120,9 @@ def filter_technical_images(images_data, model, source_doc):
                 logging.debug(f"Skipping image with extreme aspect ratio: {aspect_ratio:.2f}")
                 continue
 
+            # Resize image if it's too large
+            image = ImageProcessor.resize_image(image, max_size=(CONFIG.MAX_IMAGE_SIZE, CONFIG.MAX_IMAGE_SIZE))
+
             # Validate and convert image
             if not ImageProcessor.validate_image_data(image):
                 continue
