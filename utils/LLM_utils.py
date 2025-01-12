@@ -6,6 +6,7 @@ import torch
 from fastapi import HTTPException
 from openai import OpenAI
 from transformers import AutoModel
+from tqdm import tqdm
 from config import CONFIG
 
 
@@ -185,7 +186,7 @@ def CLIP_init(model_name="jinaai/jina-clip-v2"):
         return None, None
 
 
-def encode_with_clip(texts, images, model, device):
+def encode_with_clip(texts, images, model, device, disable_tqdm=False):
     """
     Encode texts and images using Jina-CLIP.
     """
@@ -197,16 +198,14 @@ def encode_with_clip(texts, images, model, device):
         try:
             with torch.no_grad():
                 try:
-                    # Try direct encode_text method first
-                    text_embeddings = model.encode_text(texts)
+                    text_embeddings = model.encode_text(tqdm(texts, disable=disable_tqdm))
                 except AttributeError:
-                    # Fall back to get_text_features
                     inputs = model.tokenizer(
-                        texts,
+                        tqdm(texts, disable=disable_tqdm),
                         return_tensors="pt",
                         padding=True,
                         truncation=True,
-                        max_length=77
+                        max_length=CONFIG.CHUNK_SIZE
                     ).to(device)
                     text_features = model.get_text_features(**inputs)
                     text_features = text_features / text_features.norm(dim=-1, keepdim=True)
@@ -227,7 +226,7 @@ def encode_with_clip(texts, images, model, device):
         try:
             with torch.no_grad():
                 try:
-                    image_embeddings = model.encode_image(images)
+                    image_embeddings = model.encode_image(tqdm(images, disable=disable_tqdm))
                 except AttributeError as e:
                     logging.error(f"Error encoding images: {str(e)}")
 

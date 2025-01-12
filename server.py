@@ -983,14 +983,39 @@ async def image_query(
 async def upload_document(file: UploadFile, folder: str = Form("")):
     """
     Handles uploading of documents to a specified folder on the server.
-
-    Args:
-        file (UploadFile): The file to be uploaded.
-        folder (str): The target folder for the upload.
-
-    Returns:
-        dict: A success status and the relative path of the saved file.
     """
+
+    def validate_and_update_path(file_path, prefix: str = "DOC"):
+        """
+        Helper function - Validates if the file name matches the format XXXXXX-filename.extension.
+        If not, assigns a new unique ID based on the current date-time and returns the updated path.
+
+        :param file_path: str - Original file path
+        :param prefix: str - Filename Prefix
+        :return: str - Updated file path if the original didn't match the format; otherwise, the original path
+        """
+        # Extract directory, file name, and extension
+        directory, full_filename = os.path.split(file_path)
+        filename, extension = os.path.splitext(full_filename)
+
+        # Define the regex pattern for validation
+        pattern = r"^[a-zA-Z0-9]{6}-.+\..+$"
+
+        # Check if the file name matches the pattern
+        if re.match(pattern, full_filename):
+            return file_path  # Return the original path if it matches
+
+        # Generate a new unique ID
+        unique_id = prefix + datetime.now().strftime("%d%m%y%H%M")
+
+        # Create the new file name
+        new_filename = f"{unique_id}-{filename}{extension}"
+
+        # Construct the updated path
+        updated_path = os.path.join(directory, new_filename)
+
+        return updated_path
+
     try:
         # Clean and decode the folder path
         clean_folder = clean_path(folder)
@@ -1045,6 +1070,7 @@ async def upload_document(file: UploadFile, folder: str = Form("")):
         logging.error(f"Unexpected error during upload: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
+
 def check_processing_status():
     """Check if all necessary files and data exist after processing"""
     try:
@@ -1087,6 +1113,7 @@ def check_processing_status():
     except Exception as e:
         logger.error(f"Error checking processing status: {str(e)}")
         return False, f"Error checking processing status: {str(e)}"
+
 
 @app.post("/process/documents")
 async def process_documents():
@@ -1303,6 +1330,7 @@ async def get_documents(path: str = ""):
     except Exception as e:
         logger.error(f"Error listing documents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/open/document")
 async def open_document(path: str = Body(..., embed=True)):

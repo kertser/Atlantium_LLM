@@ -16,6 +16,7 @@
 * Check for Excel errors (images)
 * Update the requirements.txt for new model usage, depending on system
 * Make the file processing more informative in CLI, as it was in previous version
+* Move processed_files to RAG_Data
 
 Long upload and no focus on window:
 2025-01-11 22:25:34,951 - ERROR - Exception in callback _ProactorBasePipeTransport._call_connection_lost(None)
@@ -46,6 +47,25 @@ and pip install
 For Linux is probably just: pip install flash-attn (probably with GPU only)
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Primitive chunking:
 
 def chunk_text(text: str, source_path: str, chunk_size=CONFIG.CHUNK_SIZE, overlap=CONFIG.CHUNK_OVERLAP):
     """

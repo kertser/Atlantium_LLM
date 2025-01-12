@@ -306,7 +306,7 @@ def process_documents(
                         text_chunks = chunk_text(text, str(doc_path))
                         if text_chunks:
                             chunk_texts = [chunk['text'] for chunk in text_chunks]
-                            text_embeddings, _ = encode_with_clip(chunk_texts, [], model, device)
+                            text_embeddings, _ = encode_with_clip(chunk_texts, [], model, device, disable_tqdm=True)
 
                             for chunk_idx, embedding in enumerate(text_embeddings):
                                 if embedding is not None:
@@ -367,7 +367,8 @@ def process_documents(
                                     # Generate image embedding
                                     text_embeddings, image_embeddings = encode_with_clip(
                                         [], [img_data['image']],
-                                        model, device
+                                        model, device,
+                                        disable_tqdm=True
                                     )
 
                                     # Process image embeddings if available

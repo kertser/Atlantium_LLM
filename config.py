@@ -82,9 +82,9 @@ class Config:
 
     # Document Processing
     BATCH_SIZE: int = 5  # Document processing in batches. For limited RAM it is 2-5. For GPU 8-16GB it is 8-16
-    CHUNK_OVERLAP: int = 100
-    MIN_CHUNK_SIZE: int = 50
-    CHUNK_SIZE: int = 400  # Smaller chunks are more selective, but harder to compare
+    CHUNK_OVERLAP: int = 100  # The number of words overlapped between consecutive chunks
+    MIN_CHUNK_SIZE: int = 50  # The minimum number of words required in a chunk for it to be considered meaningful
+    CHUNK_SIZE: int = 400  # The default number of words in each chunk
     MAX_TEXT_LENGTH: int = 10000  # Maximum length of stored text chunks
     MAX_METADATA_SIZE: int = 1000000  # Maximum size in bytes
     METADATA_TEXT_LIMIT:  int = 1500  # Maximum text length in metadata entries
