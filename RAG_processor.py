@@ -31,18 +31,38 @@ from utils.RAG_utils import (
     chunk_text,
 )
 from utils.img_utils import ImageStore, ImageProcessor
+from contextlib import contextmanager
 
 # Setup logging
-logger = logging.getLogger(__name__)
 logging.basicConfig(
-    level=logging.INFO,  # Changed from DEBUG to INFO
-    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s: %(message)s',
     handlers=[
-        logging.FileHandler(CONFIG.LOG_PATH / "system.log"),
-        # logging.StreamHandler()  # to show logs in console
+        logging.FileHandler(CONFIG.LOG_PATH / "system.log")
     ]
 )
 
+# Create a separate console handler for critical/final information
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setLevel(logging.WARNING)  # Only WARNING and above go to console
+console_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+logging.getLogger().addHandler(console_handler)
+
+
+@contextmanager
+def silent_tqdm():
+    """Temporarily disable all tqdm progress bars"""
+    original_init = tqdm.__init__
+
+    def silent_init(self, *args, **kwargs):
+        kwargs['disable'] = True
+        original_init(self, *args, **kwargs)
+
+    tqdm.__init__ = silent_init
+    try:
+        yield
+    finally:
+        tqdm.__init__ = original_init
 
 def filter_technical_images(images_data, model, source_doc):
     """
@@ -72,8 +92,9 @@ def filter_technical_images(images_data, model, source_doc):
     try:
         # Pre-encode the classification text prompts
         with torch.no_grad():
-            tech_embedding = model.encode_text(technical_text)
-            non_tech_embedding = model.encode_text(non_technical_text)
+            with silent_tqdm():
+                tech_embedding = model.encode_text(technical_text)
+                non_tech_embedding = model.encode_text(non_technical_text)
 
             if isinstance(tech_embedding, torch.Tensor):
                 tech_embedding = tech_embedding.cpu().numpy()
@@ -113,7 +134,8 @@ def filter_technical_images(images_data, model, source_doc):
             try:
                 with torch.no_grad():
                     # Encode image
-                    image_embedding = model.encode_image([image])
+                    with silent_tqdm():
+                        image_embedding = model.encode_image([image])
                     if isinstance(image_embedding, torch.Tensor):
                         image_embedding = image_embedding.cpu().numpy()
 
@@ -306,7 +328,8 @@ def process_documents(
                         text_chunks = chunk_text(text, str(doc_path))
                         if text_chunks:
                             chunk_texts = [chunk['text'] for chunk in text_chunks]
-                            text_embeddings, _ = encode_with_clip(chunk_texts, [], model, device, disable_tqdm=True)
+                            with silent_tqdm():
+                                text_embeddings, _ = encode_with_clip(chunk_texts, [], model, device)
 
                             for chunk_idx, embedding in enumerate(text_embeddings):
                                 if embedding is not None:
@@ -365,11 +388,11 @@ def process_documents(
                                     processed_image_ids.add(image_id)
 
                                     # Generate image embedding
-                                    text_embeddings, image_embeddings = encode_with_clip(
-                                        [], [img_data['image']],
-                                        model, device,
-                                        disable_tqdm=True
-                                    )
+                                    with silent_tqdm():
+                                        text_embeddings, image_embeddings = encode_with_clip(
+                                            [], [img_data['image']],
+                                            model, device
+                                        )
 
                                     # Process image embeddings if available
                                     if image_embeddings is not None and len(image_embeddings) > 0:
@@ -687,7 +710,7 @@ def main():
         batch_size = CONFIG.BATCH_SIZE
         num_batches = (len(new_docs) + batch_size - 1) // batch_size
         with ImageStore() as image_store:
-            with tqdm(total=num_batches, desc="Processing batches", unit="batch") as batch_pbar:
+            with tqdm(total=num_batches, desc="Processing batches", unit="batch", position=0, leave=True) as batch_pbar:
                 for i in range(0, len(new_docs), batch_size):
                     batch_docs = new_docs[i:i + batch_size]
                     current_batch = (i // batch_size) + 1
