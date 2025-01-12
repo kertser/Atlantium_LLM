@@ -3,7 +3,6 @@
 * Visualize the document processing with progress bar - over the "processing" button (processing batches)
 * Add option for "chat with live operator" (A button with contacts or whatsapp)
 
-
 * Check calculator for RZ-UHP
 * Attach Image on the frontend is not not loading correctly without reset, after images been founded in query
 * Try to filter the document reference images from the search results images
@@ -11,6 +10,7 @@
 * During the image store the images shall be saved rotated as they appear in document.
 * Check for Excel file upload errors (images)
 * Update the requirements.txt for new model usage, depending on system
+* Make "Backup" and "Restore" RAG_Data and processed files
 * Update documentation
 
 # TBDs for development:
