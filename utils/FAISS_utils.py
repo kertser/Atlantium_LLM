@@ -295,7 +295,8 @@ def add_to_faiss(embedding, source_file_name, content_type, content, index, meta
 def query_with_context(index, metadata, model, device="cpu", text_query=None, image_query=None):
     """
     Query FAISS with separated image and text search logic.
-    Returns 30 most similar text chunks and 10 most similar images relative to the query.
+    First stage: Gets 1% closest text chunks (max 100) and 5% closest images (max 12)
+    Second stage: Filters images based on their similarity to the retrieved text content
     """
     try:
         if not metadata:
@@ -310,7 +311,12 @@ def query_with_context(index, metadata, model, device="cpu", text_query=None, im
             logging.info("No content found in metadata")
             return []
 
+        # Calculate quantile limits
+        text_limit = min(100, max(1, int(len(text_indices) * 0.01)))  # 1% of texts, max 100
+        image_limit = min(12, max(1, int(len(image_indices) * 0.05)))  # 5% of images, max 12
+
         logging.info(f"Found {len(image_indices)} images and {len(text_indices)} text chunks in metadata")
+        logging.info(f"Will return up to {text_limit} text chunks (1%) and {image_limit} images (5%)")
 
         # 2. Generate query embedding
         query_embedding = None
@@ -331,7 +337,7 @@ def query_with_context(index, metadata, model, device="cpu", text_query=None, im
         # 3. Perform search with FAISS
         k = len(metadata)  # Get all results initially
         distances, indices = index.search(query_embedding, k)
-        similarities = 1 - (distances[0] / 2)
+        similarities = 1 - (np.square(distances[0]) / 2)  # Correct cosine similarity calculation
 
         # 4. Separate and process results
         text_results = []
@@ -344,7 +350,7 @@ def query_with_context(index, metadata, model, device="cpu", text_query=None, im
             result = {
                 "idx": int(idx),
                 "metadata": metadata[idx],
-                "distance": float(1 - sim),
+                "distance": float(distances[0][idx]),
                 "similarity": float(sim)
             }
 
@@ -357,11 +363,53 @@ def query_with_context(index, metadata, model, device="cpu", text_query=None, im
         text_results.sort(key=lambda x: x['similarity'], reverse=True)
         image_results.sort(key=lambda x: x['similarity'], reverse=True)
 
-        # 6. Take top results (30 text chunks, 10 images)
-        final_text_results = text_results[:30]
-        final_image_results = image_results[:10]
+        # 6. Take top results by quantile
+        final_text_results = text_results[:text_limit]
 
-        # 7. Process results for return
+        # 7. Generate embedding from text results for second-stage image filtering
+        if final_text_results:
+            # Collect text content
+            text_contents = []
+            for result in final_text_results:
+                if 'metadata' in result and 'chunk' in result['metadata']:
+                    content = get_chunk_text(result['metadata']['chunk'])
+                    if content:
+                        text_contents.append(content)
+
+            if text_contents:
+                # Create context embedding from text results
+                context_text = " ".join(text_contents)
+                context_embedding, _ = encode_with_clip(texts=[context_text], images=None, model=model, device=device)
+
+                if context_embedding is not None:
+                    # Search images using the context embedding
+                    img_distances, img_indices = index.search(context_embedding, k)
+                    img_similarities = 1 - (np.square(img_distances[0]) / 2)
+
+                    # Filter images based on similarity to text context
+                    refined_image_results = []
+                    for idx, sim in zip(img_indices[0], img_similarities):
+                        if idx >= len(metadata) or idx not in image_indices:
+                            continue
+
+                        result = {
+                            "idx": int(idx),
+                            "metadata": metadata[idx],
+                            "distance": float(img_distances[0][idx]),
+                            "similarity": float(sim)
+                        }
+                        refined_image_results.append(result)
+
+                    refined_image_results.sort(key=lambda x: x['similarity'], reverse=True)
+                    final_image_results = refined_image_results[:image_limit]
+                else:
+                    final_image_results = image_results[:image_limit]
+            else:
+                final_image_results = image_results[:image_limit]
+        else:
+            final_image_results = image_results[:image_limit]
+
+        # 8. Process results for return
         processed_results = []
 
         # Process text results
@@ -373,7 +421,6 @@ def query_with_context(index, metadata, model, device="cpu", text_query=None, im
                 "metadata": result["metadata"].copy()
             }
 
-            # Add content retrieval function for text chunks
             chunk_path = result['metadata'].get('chunk')
             if chunk_path:
                 processed_result['metadata']['get_content'] = lambda p=chunk_path: get_chunk_text(p)
