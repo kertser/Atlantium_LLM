@@ -12,6 +12,7 @@
 * Update the requirements.txt for new model usage, depending on system
 * Make "Backup" and "Restore" RAG_Data and processed files
 * Update documentation
+* Maybe processing chunks and images asynchronously?
 
 # TBDs for development:
 * Add complicated reasoning (SMoA) to the model (TBD)

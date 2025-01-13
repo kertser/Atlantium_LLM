@@ -146,7 +146,7 @@ def CLIP_init(model_name="jinaai/jina-clip-v2"):
         # Set model to evaluation mode
         model.eval()
 
-        # Test encoding
+        """ Debug test encoding code
         test_text = ["Test text"]
         with torch.no_grad():
             try:
@@ -167,6 +167,7 @@ def CLIP_init(model_name="jinaai/jina-clip-v2"):
                 test_embedding = test_embedding / test_embedding.norm(dim=-1, keepdim=True)
                 test_embedding = test_embedding.cpu().numpy()
                 logging.debug(f"Test encoding successful using get_text_features. Shape: {test_embedding.shape}")
+                
 
             # Log the embedding dimension
             embedding_dim = test_embedding.shape[1]
@@ -175,6 +176,7 @@ def CLIP_init(model_name="jinaai/jina-clip-v2"):
                 logging.warning(
                     f"Updating CONFIG.EMBEDDING_DIMENSION from {CONFIG.EMBEDDING_DIMENSION} to {embedding_dim}")
                 CONFIG.EMBEDDING_DIMENSION = embedding_dim
+        """
 
         logging.info("CLIP model initialized successfully")
         return model, device

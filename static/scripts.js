@@ -161,23 +161,29 @@ function createContextMenu(e, fileName, filePath) {
                     const authenticated = await createAuthModal();
                     if (!authenticated) return;
                 }
-                if (confirm('Are you sure you want to delete this file?')) {
-                    try {
-                        const response = await fetch(`/delete/document?path=${encodeURIComponent(filePath)}`, {
-                            method: 'DELETE'
-                        });
 
-                        if (!response.ok) {
-                            const error = await response.json();
-                            throw new Error(error.detail);
+                // Replace confirm() with createModal
+                createModal(
+                    'Delete File',
+                    `<p>Are you sure you want to delete this file?</p>`,
+                    async () => {
+                        try {
+                            const response = await fetch(`/delete/document?path=${encodeURIComponent(filePath)}`, {
+                                method: 'DELETE'
+                            });
+
+                            if (!response.ok) {
+                                const error = await response.json();
+                                throw new Error(error.detail);
+                            }
+
+                            await loadDocuments(currentFolderPath);
+                        } catch (error) {
+                            console.error('Delete file error:', error);
+                            alert(error.message || 'Failed to delete file');
                         }
-
-                        await loadDocuments(currentFolderPath);
-                    } catch (error) {
-                        console.error('Delete file error:', error);
-                        alert(error.message || 'Failed to delete file');
                     }
-                }
+                );
             }
         }
     );

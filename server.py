@@ -31,6 +31,7 @@ import os
 import re
 import shutil
 import sys
+import asyncio
 import warnings
 from contextlib import asynccontextmanager
 from dataclasses import field
@@ -41,6 +42,7 @@ from typing import Optional, List, Dict, Any
 from urllib.parse import unquote
 
 import faiss
+import torch
 from PIL import Image
 from dotenv import load_dotenv
 from fastapi import Body
@@ -110,6 +112,37 @@ def clean_path(path: str) -> str:
     # Normalize path separators
     normalized = cleaned.replace('\\', os.path.sep).replace('/', os.path.sep)
     return normalized
+
+
+def validate_and_update_path(file_path, prefix: str = "DOC"):
+    """
+    Helper function - Validates if the file name matches the format XXXXXX-filename.extension.
+    If not, assigns a new unique ID based on the current date-time and returns the updated path.
+    """
+    # Convert to Path object for consistent handling
+    path = Path(file_path)
+    directory = path.parent
+    filename = path.stem
+    extension = path.suffix
+    full_filename = path.name
+
+    # Define the regex pattern for validation
+    pattern = r"^[a-zA-Z0-9]{6}-.+\..+$"
+
+    # Check if the file name matches the pattern
+    if re.match(pattern, full_filename):
+        return str(path)
+
+    # Generate a new unique ID
+    unique_id = prefix + datetime.now().strftime("%d%m%y%H%M")
+
+    # Create the new file name
+    new_filename = f"{unique_id}-{filename}{extension}"
+
+    # Construct the updated path
+    updated_path = directory / new_filename
+
+    return str(updated_path)
 
 
 class NoCacheStaticFiles(StaticFiles):
@@ -444,13 +477,16 @@ class RAGQueryServer:
                 {
                     "role": "system",
                     "content": """
-                        You are the specialist, able to classify queries based on their content.
-                        Analyze queries to determine their type. Consider:
-                        - Query domain (technical question, technical summary, technical overview or general knowledge)
-                        - Reply with the following types: overview, technical, summary, general
-                        - Choose ONLY one, most relevant type based on the query
-                        - All non-technical questions shall be classified as "general"
-                        Analyze the full semantic meaning of the query."""
+                        You are a classification specialist trained to identify the nature of queries.
+                        Analyze each query thoroughly based on its semantic content and classify it into one of the following categories:
+                        - "technical" for detailed technical questions or issues
+                        - "summary" for requests to summarize technical topics
+                        - "overview" for high-level descriptions of technical concepts or specifications
+                        - "general" for non-technical or unrelated questions
+
+                        Always select the single most appropriate category. Only classify a query as "general" if it is clearly unrelated to the other types.
+                        Ensure your decision is based on the query's full meaning and context.
+                    """
                 },
                 {
                     "role": "user",
@@ -850,7 +886,26 @@ async def lifespan(app: FastAPI):
     # Shutdown logic
     logging.info("Shutting down RAG Query Server...")
 
+# ------------------------------
+# FASTAPI init:
+# -------------------------------
 
+# Configure event loop policy before any async operations
+if sys.platform == 'win32':
+    try:
+        from asyncio import WindowsSelectorEventLoopPolicy, WindowsProactorEventLoopPolicy
+
+        # Try to use the Selector event loop policy first
+        if hasattr(asyncio, 'WindowsSelectorEventLoopPolicy'):
+            asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())
+        else:
+            # Fallback to Proactor but with modified pipe implementation
+            policy = WindowsProactorEventLoopPolicy()
+            asyncio.set_event_loop_policy(policy)
+
+        logger.info("Windows event loop policy configured successfully")
+    except Exception as e:
+        logger.warning(f"Failed to set Windows event loop policy: {e}")
 # Initialize FastAPI app
 app = FastAPI(lifespan=lifespan, title="Atlantium RAG API")
 
@@ -984,44 +1039,12 @@ async def upload_document(file: UploadFile, folder: str = Form("")):
     """
     Handles uploading of documents to a specified folder on the server.
     """
-
-    def validate_and_update_path(file_path, prefix: str = "DOC"):
-        """
-        Helper function - Validates if the file name matches the format XXXXXX-filename.extension.
-        If not, assigns a new unique ID based on the current date-time and returns the updated path.
-
-        :param file_path: str - Original file path
-        :param prefix: str - Filename Prefix
-        :return: str - Updated file path if the original didn't match the format; otherwise, the original path
-        """
-        # Extract directory, file name, and extension
-        directory, full_filename = os.path.split(file_path)
-        filename, extension = os.path.splitext(full_filename)
-
-        # Define the regex pattern for validation
-        pattern = r"^[a-zA-Z0-9]{6}-.+\..+$"
-
-        # Check if the file name matches the pattern
-        if re.match(pattern, full_filename):
-            return file_path  # Return the original path if it matches
-
-        # Generate a new unique ID
-        unique_id = prefix + datetime.now().strftime("%d%m%y%H%M")
-
-        # Create the new file name
-        new_filename = f"{unique_id}-{filename}{extension}"
-
-        # Construct the updated path
-        updated_path = os.path.join(directory, new_filename)
-
-        return updated_path
-
     try:
         # Clean and decode the folder path
         clean_folder = clean_path(folder)
 
         # Create full target directory path
-        target_dir = CONFIG.RAW_DOCUMENTS_PATH
+        target_dir = Path(CONFIG.RAW_DOCUMENTS_PATH)
         if clean_folder:
             target_dir = target_dir / clean_folder
             # Ensure target directory exists and is within RAW_DOCUMENTS_PATH
@@ -1040,10 +1063,10 @@ async def upload_document(file: UploadFile, folder: str = Form("")):
             raise HTTPException(status_code=400, detail="Unsupported file type")
 
         # Create full path for the file
-        dest_path = target_dir / sanitized_filename
+        dest_path = Path(target_dir) / sanitized_filename
 
         # Rename the file if necessary, to keep the proper format
-        dest_path = validate_and_update_path(str(dest_path))
+        dest_path = Path(validate_and_update_path(str(dest_path)))
 
         # Avoid overwriting existing files
         if dest_path.exists():
@@ -1072,6 +1095,9 @@ async def upload_document(file: UploadFile, folder: str = Form("")):
     except Exception as e:
         logging.error(f"Unexpected error during upload: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
+    finally:
+        if 'file' in locals():
+            await file.close()
 
 
 def check_processing_status():
@@ -1143,38 +1169,27 @@ async def process_documents():
             except Exception as e:
                 logger.warning(f"Could not load existing metadata: {e}")
 
-        # Run RAG_processor.py with proper encoding environment variable
-        process = document_processing_sequence(clip_model=CONFIG.CLIP_MODEL_NAME, index=server.index, metadata=existing_metadata)
-
+        # Run document processing sequence with proper async handling
         try:
-            stdout, stderr = process.communicate()
+            # Create a background task for processing
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                document_processing_sequence,
+                server.model,
+                server.index,
+                existing_metadata
+            )
+
+            # Check return code
+            if result != 0:
+                error_msg = "Document processing failed"
+                logger.error(error_msg)
+                raise HTTPException(status_code=500, detail=error_msg)
+
         except Exception as e:
-            if process:
-                process.kill()
-                _, _ = process.communicate()
-            raise e
-
-        # Process and log stdout
-        if stdout:
-            for line in stdout.splitlines():
-                if 'ERROR' in line:
-                    logger.error(line)
-                else:
-                    logger.info(line)
-
-        # Process and log stderr
-        if stderr:
-            for line in stderr.splitlines():
-                if 'ERROR' in line:
-                    logger.error(f"Processing error: {line}")
-                else:
-                    logger.info(line)
-
-        # Check return code
-        if process.returncode != 0:
-            error_msg = f"Process failed with code {process.returncode}"
-            logger.error(error_msg)
-            raise HTTPException(status_code=500, detail=error_msg)
+            logger.error(f"Error during document processing: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
 
         # Verify the results
         success, message = check_processing_status()
@@ -1184,46 +1199,47 @@ async def process_documents():
 
         # Merge new metadata with existing metadata
         try:
-            # Load newly processed metadata
-            with open(CONFIG.METADATA_PATH, 'r', encoding='utf-8') as f:
-                new_metadata = json.load(f)
+            async with asyncio.Lock():  # Use lock for file operations
+                # Load newly processed metadata
+                with open(CONFIG.METADATA_PATH, 'r', encoding='utf-8') as f:
+                    new_metadata = json.load(f)
 
-            # Helper function to generate unique key for metadata entry
-            def get_entry_key(element_entry):
-                if element_entry.get('type') == 'image':
-                    return f"image_{element_entry.get('image', {}).get('id')}"
-                elif element_entry.get('type') == 'text-chunk':
-                    return f"chunk_{element_entry.get('path')}_{element_entry.get('chunk')}"
-                else:
-                    content_str = json.dumps(element_entry.get('content', {}), sort_keys=True)
-                    return f"other_{hashlib.md5(content_str.encode()).hexdigest()}"
+                # Helper function to generate unique key for metadata entry
+                def get_entry_key(element_entry):
+                    if element_entry.get('type') == 'image':
+                        return f"image_{element_entry.get('image', {}).get('id')}"
+                    elif element_entry.get('type') == 'text-chunk':
+                        return f"chunk_{element_entry.get('path')}_{element_entry.get('chunk')}"
+                    else:
+                        content_str = json.dumps(element_entry.get('content', {}), sort_keys=True)
+                        return f"other_{hashlib.md5(content_str.encode()).hexdigest()}"
 
-            # Use dictionary for O(1) lookups
-            merged_metadata = {}
+                # Use dictionary for O(1) lookups
+                merged_metadata = {}
 
-            # Add existing metadata first
-            for entry in existing_metadata:
-                entry_key = get_entry_key(entry)
-                merged_metadata[entry_key] = entry
-
-            # Add new metadata
-            for entry in new_metadata:
-                entry_key = get_entry_key(entry)
-                if entry_key not in merged_metadata:
+                # Add existing metadata first
+                for entry in existing_metadata:
+                    entry_key = get_entry_key(entry)
                     merged_metadata[entry_key] = entry
 
-            # Convert back to list
-            final_metadata = list(merged_metadata.values())
+                # Add new metadata
+                for entry in new_metadata:
+                    entry_key = get_entry_key(entry)
+                    if entry_key not in merged_metadata:
+                        merged_metadata[entry_key] = entry
 
-            # Save merged metadata
-            with open(CONFIG.METADATA_PATH, 'w', encoding='utf-8') as f:
-                json.dump(final_metadata, f, ensure_ascii=False, indent=2)
+                # Convert back to list
+                final_metadata = list(merged_metadata.values())
 
-            logger.info(f"Successfully merged metadata: {len(final_metadata)} total entries")
+                # Save merged metadata
+                with open(CONFIG.METADATA_PATH, 'w', encoding='utf-8') as f:
+                    json.dump(final_metadata, f, ensure_ascii=False, indent=2)
 
-            # Reload the server's index and metadata
-            server.index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
-            server.metadata = final_metadata
+                logger.info(f"Successfully merged metadata: {len(final_metadata)} total entries")
+
+                # Reload the server's index and metadata
+                server.index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
+                server.metadata = final_metadata
 
         except Exception as e:
             logger.error(f"Error merging metadata: {e}")
@@ -1246,6 +1262,12 @@ async def process_documents():
     except Exception as e:
         logger.error(f"Error in process_documents: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Clean up resources
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 
 @app.get("/get/documents")
@@ -1540,7 +1562,6 @@ async def get_chat_history():
     return {"history": history}
 
 
-@app.get('/favicon.ico', include_in_schema=False)
 @app.get('/favicon.png', include_in_schema=False)
 async def favicon():
     favicon_path = Path('static/favicon.png')  # Create this file or adjust the path
