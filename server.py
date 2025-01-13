@@ -924,6 +924,9 @@ server = RAGQueryServer()
 # Serve static files
 app.mount("/static", NoCacheStaticFiles(directory="static"), name="static")
 
+# Serve document files from RAW_DOCUMENTS_PATH
+app.mount("/files", StaticFiles(directory=str(CONFIG.RAW_DOCUMENTS_PATH)), name="files")
+
 
 # API endpoints
 @app.get("/", response_class=HTMLResponse)
@@ -1355,10 +1358,11 @@ async def open_document(path: str = Body(..., embed=True)):
         if not full_path.exists() or not full_path.is_file():
             raise HTTPException(status_code=404, detail="File not found")
 
-        # Return the absolute URL to access the file via `/files`
-        # Replace with your actual server URL if needed
-        file_url = f"/files/{sanitized_path}"
-        return {"status": "success", "url": file_url}
+        # Return the URL using the /files mount point
+        relative_path = sanitized_path
+        file_url = f"/files/{relative_path}"
+
+        return JSONResponse(content={"status": "success", "url": file_url})
 
     except Exception as e:
         logging.error(f"Error generating file URL: {e}")
