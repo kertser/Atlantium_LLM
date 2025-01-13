@@ -291,126 +291,51 @@ def add_to_faiss(embedding, source_file_name, content_type, content, index, meta
         logging.error(f"Error adding {content_type} to FAISS: {e}")
         raise
 
+
 def query_with_context(index, metadata, model, device="cpu", text_query=None, image_query=None):
     """
-    Query FAISS with adaptive thresholding and dynamic top_k based on corpus size.
+    Query FAISS with separated image and text search logic.
+    Returns 30 most similar text chunks and 10 most similar images relative to the query.
     """
     try:
         if not metadata:
             logging.info("No documents indexed yet")
             return []
 
-        query_embeddings = []
-        is_text_query = text_query is not None
-        is_image_query = image_query is not None
+        # 1. Get indices for text chunks and images
+        text_indices = [i for i, m in enumerate(metadata) if m.get('type') == 'text-chunk']
+        image_indices = [i for i, m in enumerate(metadata) if m.get('type') == 'image']
 
-        # Process text query
+        if not text_indices and not image_indices:
+            logging.info("No content found in metadata")
+            return []
+
+        logging.info(f"Found {len(image_indices)} images and {len(text_indices)} text chunks in metadata")
+
+        # 2. Generate query embedding
+        query_embedding = None
         if text_query:
             text_embeddings, _ = encode_with_clip(texts=[text_query], images=None, model=model, device=device)
             if text_embeddings is not None:
-                query_embeddings.append(text_embeddings)
-
-        # Process image query
-        if image_query:
+                query_embedding = text_embeddings
+        elif image_query:
             if image_query.mode != "RGB":
                 image_query = image_query.convert("RGB")
             _, image_embeddings = encode_with_clip(texts=None, images=[image_query], model=model, device=device)
             if image_embeddings is not None:
-                query_embeddings.append(image_embeddings)
+                query_embedding = image_embeddings
 
-        if not query_embeddings:
-            raise ValueError("At least one of text_query or image_query must be provided")
+        if query_embedding is None:
+            raise ValueError("Failed to generate query embedding")
 
-        query_embeddings = np.vstack(query_embeddings)
-
-        # Get indices for text and images
-        text_indices = [i for i, m in enumerate(metadata) if m.get('type') == 'text-chunk']
-        image_indices = set(i for i, m in enumerate(metadata) if m.get('type') == 'image')
-
-        logging.info(f"Found {len(image_indices)} images and {len(text_indices)} text chunks in metadata")
-
-        def calculate_adaptive_k(total_items, base_percentage=0.05, min_k=2, max_k=30):
-            if total_items == 0:
-                return 0
-            top_k = max(min_k, min(max_k, int(total_items * base_percentage)))
-            if total_items < 20:
-                top_k = min(top_k, total_items)
-            return top_k
-
-        text_top_k = calculate_adaptive_k(
-            len(text_indices),
-            base_percentage=0.08,
-            min_k=3,
-            max_k=30
-        )
-
-        image_top_k = calculate_adaptive_k(
-            len(image_indices),
-            base_percentage=0.05,
-            min_k=2,
-            max_k=20
-        )
-
-        logging.info(f"Adaptive top_k values - Text: {text_top_k}, Image: {image_top_k}")
-
-        k = min(len(metadata), max(text_top_k + image_top_k, 50))
-        distances, indices = index.search(query_embeddings, k)
+        # 3. Perform search with FAISS
+        k = len(metadata)  # Get all results initially
+        distances, indices = index.search(query_embedding, k)
         similarities = 1 - (distances[0] / 2)
 
-        text_similarities = []
-        image_similarities = []
-
-        for idx, sim in zip(indices[0], similarities):
-            if idx >= len(metadata):
-                continue
-            if idx in text_indices:
-                text_similarities.append(sim)
-            elif idx in image_indices:
-                image_similarities.append(sim)
-
-        def calculate_adaptive_threshold(sims, content_type):
-            if len(sims) == 0:
-                return 0.3 if content_type == 'text' else 0.05
-
-            mean = np.mean(sims)
-            std = np.std(sims)
-            q75, q25 = np.percentile(sims, [75, 25])
-            iqr = q75 - q25
-
-            if content_type == 'text':
-                base_multiplier = 0.6
-                min_threshold = 0.3
-            else:
-                base_multiplier = 0.15
-                min_threshold = 0.05
-
-            if std > 0.1:
-                threshold = mean + base_multiplier * std
-            else:
-                threshold = q75 - base_multiplier * iqr
-
-            if content_type == 'image':
-                threshold = max(min(threshold, mean * 0.8), min_threshold)
-            else:
-                threshold = max(min(threshold, mean), q25, min_threshold)
-
-            return threshold
-
-        text_threshold = calculate_adaptive_threshold(text_similarities, 'text')
-        image_threshold = calculate_adaptive_threshold(image_similarities, 'image')
-
-        if is_text_query and not is_image_query:
-            image_threshold *= 1.2
-        elif is_image_query and not is_text_query:
-            image_threshold *= 0.5
-        else:
-            image_threshold *= 0.8
-
-        logging.info(f"Final thresholds - Text: {text_threshold:.3f}, Image: {image_threshold:.3f}")
-
+        # 4. Separate and process results
         text_results = []
         image_results = []
-        seen_indices = set()
 
         for idx, sim in zip(indices[0], similarities):
             if idx >= len(metadata):
@@ -423,42 +348,24 @@ def query_with_context(index, metadata, model, device="cpu", text_query=None, im
                 "similarity": float(sim)
             }
 
-            if idx in text_indices and sim >= text_threshold:
+            if idx in text_indices:
                 text_results.append(result)
-                seen_indices.add(idx)
-            elif idx in image_indices and sim >= image_threshold:
+            elif idx in image_indices:
                 image_results.append(result)
-                seen_indices.add(idx)
 
-        if len(image_results) < image_top_k and image_indices:
-            extra_k = min(len(metadata), 200)
-            image_distances, image_idx = index.search(query_embeddings, extra_k)
-
-            lenient_threshold = max(0.03, image_threshold * 0.3)
-
-            for idx, distance in zip(image_idx[0], image_distances[0]):
-                if idx in image_indices and idx not in seen_indices:
-                    sim = 1 - (distance / 2)
-                    if sim >= lenient_threshold:
-                        result = {
-                            "idx": int(idx),
-                            "metadata": metadata[idx],
-                            "distance": float(distance),
-                            "similarity": float(sim)
-                        }
-                        image_results.append(result)
-                        seen_indices.add(idx)
-
-                        if len(image_results) >= image_top_k:
-                            break
-
+        # 5. Sort results by similarity
         text_results.sort(key=lambda x: x['similarity'], reverse=True)
         image_results.sort(key=lambda x: x['similarity'], reverse=True)
 
-        final_results = text_results[:text_top_k] + image_results[:image_top_k]
+        # 6. Take top results (30 text chunks, 10 images)
+        final_text_results = text_results[:30]
+        final_image_results = image_results[:10]
 
+        # 7. Process results for return
         processed_results = []
-        for result in final_results:
+
+        # Process text results
+        for result in final_text_results:
             processed_result = {
                 "idx": result["idx"],
                 "distance": result["distance"],
@@ -466,16 +373,33 @@ def query_with_context(index, metadata, model, device="cpu", text_query=None, im
                 "metadata": result["metadata"].copy()
             }
 
-            if result['metadata']['type'] == 'text-chunk':
-                chunk_path = result['metadata'].get('chunk')
-                if chunk_path:
-                    processed_result['metadata']['get_content'] = lambda p=chunk_path: get_chunk_text(p)
+            # Add content retrieval function for text chunks
+            chunk_path = result['metadata'].get('chunk')
+            if chunk_path:
+                processed_result['metadata']['get_content'] = lambda p=chunk_path: get_chunk_text(p)
 
             processed_results.append(processed_result)
 
+        # Process image results
+        for result in final_image_results:
+            processed_result = {
+                "idx": result["idx"],
+                "distance": result["distance"],
+                "similarity": result["similarity"],
+                "metadata": result["metadata"].copy()
+            }
+            processed_results.append(processed_result)
+
+        # Log the results
+        text_similarities = [r['similarity'] for r in final_text_results]
+        image_similarities = [r['similarity'] for r in final_image_results]
+
+        avg_text_sim = sum(text_similarities) / len(text_similarities) if text_similarities else 0
+        avg_image_sim = sum(image_similarities) / len(image_similarities) if image_similarities else 0
+
         logging.info(
-            f"Returning {len(text_results[:text_top_k])} text results (threshold: {text_threshold:.3f}) and "
-            f"{len(image_results[:image_top_k])} image results (threshold: {image_threshold:.3f})"
+            f"Returning {len(final_text_results)} text results (avg sim: {avg_text_sim:.3f}) and "
+            f"{len(final_image_results)} image results (avg sim: {avg_image_sim:.3f})"
         )
 
         return [processed_results]
