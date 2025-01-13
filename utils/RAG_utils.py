@@ -235,7 +235,7 @@ def extract_text_and_images_from_word(doc_path):
 
         # Extract images from relationships
         for rel in doc.part.rels.values():
-            if "image" in rel.target_ref:
+            if "image" in rel.target_ref and rel.target_mode == "Internal":  # Ensure target mode is Internal
                 try:
                     image_data = rel.target_part.blob
                     image = Image.open(BytesIO(image_data))

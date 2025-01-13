@@ -12,6 +12,7 @@
 * Update the requirements.txt for new model usage, depending on system
 * Make "Backup" and "Restore" RAG_Data and processed files
 * Update documentation
+!! ERROR: Error processing image from REP00012-RZ104 Ultrasonic evaluation - Test Report 30.07.2024.docx: target_part property on _Relationship is undefined when target mode is External
 
 # TBDs for development:
 * Add complicated reasoning (SMoA) to the model (TBD)
