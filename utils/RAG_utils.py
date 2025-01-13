@@ -1,12 +1,14 @@
 import logging
+import re
 from io import BytesIO
 from pathlib import Path
 from typing import Optional, Dict
 
 from config import CONFIG
 from utils.img_utils import ImageProcessor
+import semchunk
+from transformers import LongformerTokenizer
 
-# import openpyxl  # for Excel files
 from openpyxl.reader.excel import load_workbook
 import pymupdf  # PyMuPDF for PDFs
 from PIL import Image, UnidentifiedImageError
@@ -219,11 +221,6 @@ def extract_text_and_images_from_word(doc_path):
 
     Returns:
         tuple: (extracted_text, list of image_data dictionaries)
-        Each image_data dictionary contains:
-            - image: PIL Image object
-            - context: Text context around the image (currently empty)
-            - page_num: Page number (always 1 for Word docs)
-            - caption: Image caption
     """
     try:
         doc = Document(doc_path)
@@ -235,44 +232,50 @@ def extract_text_and_images_from_word(doc_path):
 
         # Extract images from relationships
         for rel in doc.part.rels.values():
-            if "image" in rel.target_ref and rel.target_mode == "Internal":  # Ensure target mode is Internal
-                try:
-                    image_data = rel.target_part.blob
-                    image = Image.open(BytesIO(image_data))
-
-                    if image.mode in CONFIG.VALID_IMAGE_MODES:
-                        background = Image.new('RGB', image.size, (255, 255, 255))
-                        if image.mode == 'P':
-                            image = image.convert('RGBA')
-                        background.paste(image, mask=image.split()[-1])
-                        image = background
-                    elif image.mode != 'RGB':
-                        image = image.convert('RGB')
-
-                    if image.width < CONFIG.MIN_IMAGE_SIZE or image.height < CONFIG.MIN_IMAGE_SIZE:
-                        logger.info(f"Skipping small image ({image.width}x{image.height}) in {doc_name}")
-                        continue
-
-                    # Currently, surrounding_text is empty.
-                    surrounding_text = ""
-                    img_data = {
-                        'image': image,
-                        'context': surrounding_text,
-                        'page_num': 1,  # Word docs don't have pages in the same way as PDFs
-                        'caption': f"Image from {doc_name}",
-                        'dimensions': f"{image.width}x{image.height}",
-                        'format': image.format,
-                        'mode': 'RGB'
-                    }
-                    images_data.append(img_data)
-                    logger.info(f"Processed image ({img_data['dimensions']}) from {doc_name}")
-
-                except UnidentifiedImageError as uie:
-                    logger.error(f"Invalid or corrupted image in {doc_name}: {uie}")
+            try:
+                # First check if this is an image relationship
+                if "image" not in rel.target_ref:  # Fixed PEP 8: E713
                     continue
-                except Exception as e:
-                    logger.error(f"Error processing image from {doc_name}: {e}")
+
+                # Try to get image data, skip if not available
+                if not hasattr(rel, 'target_part') or not hasattr(rel.target_part, 'blob'):
+                    logger.debug(f"Skipping image in {doc_name}: No image data available")
                     continue
+
+                image_data = rel.target_part.blob
+                image = Image.open(BytesIO(image_data))
+
+                if image.mode in CONFIG.VALID_IMAGE_MODES:
+                    background = Image.new('RGB', image.size, (255, 255, 255))
+                    if image.mode == 'P':
+                        image = image.convert('RGBA')
+                    background.paste(image, mask=image.split()[-1])
+                    image = background
+                elif image.mode != 'RGB':
+                    image = image.convert('RGB')
+
+                if image.width < CONFIG.MIN_IMAGE_SIZE or image.height < CONFIG.MIN_IMAGE_SIZE:
+                    logger.debug(f"Skipping small image ({image.width}x{image.height}) in {doc_name}")
+                    continue
+
+                img_data = {
+                    'image': image,
+                    'context': "",  # Empty context as we don't extract surrounding text
+                    'page_num': 1,  # Word docs don't have pages like PDFs
+                    'caption': f"Image from {doc_name}",
+                    'dimensions': f"{image.width}x{image.height}",
+                    'format': image.format,
+                    'mode': 'RGB'
+                }
+                images_data.append(img_data)
+                logger.info(f"Processed image ({img_data['dimensions']}) from {doc_name}")
+
+            except UnidentifiedImageError as uie:
+                logger.debug(f"Invalid or corrupted image in {doc_name}: {uie}")
+                continue
+            except Exception as e:
+                logger.debug(f"Error processing image from {doc_name}: {e}")
+                continue
 
         logger.info(f"Completed processing {doc_name}: extracted {len(images_data)} valid images")
         return text, images_data
@@ -292,9 +295,11 @@ def extract_text_and_images_from_excel(excel_path):
     Returns:
         tuple: (extracted_text, list of image_data dictionaries)
     """
+    # Suppress openpyxl warnings about headers and footers
+    import warnings
+    warnings.filterwarnings('ignore', category=UserWarning, message="Cannot parse header or footer*")
 
     workbook = None
-
     try:
         workbook = load_workbook(excel_path, data_only=True)
         doc_name = Path(excel_path).name
@@ -309,60 +314,60 @@ def extract_text_and_images_from_excel(excel_path):
 
                 # Extract text from cells
                 for row in worksheet.iter_rows(values_only=True):
-                    row_text = " ".join([str(cell) if cell else "" for cell in row]).strip()
+                    row_text = " ".join([str(cell) if cell is not None else "" for cell in row]).strip()
                     if row_text:
                         text += row_text + "\n"
 
                 # Extract images
-                for image in getattr(worksheet, '_images', []):
-                    try:
-                        img_content = getattr(image, 'ref', None)
-                        if not img_content or not hasattr(img_content.image, 'content'):
-                            continue
+                if hasattr(worksheet, '_images'):
+                    for image in worksheet._images:
+                        try:
+                            if not hasattr(image, 'ref') or not hasattr(image.ref.image, 'content'):
+                                continue
 
-                        img = Image.open(BytesIO(img_content.image.content))
-                        width, height = img.size
+                            img = Image.open(BytesIO(image.ref.image.content))
+                            width, height = img.size
 
-                        # Skip small images
-                        if width < CONFIG.MIN_IMAGE_SIZE or height < CONFIG.MIN_IMAGE_SIZE:
-                            logger.debug(f"Skipping small image ({width}x{height}) in {sheet_name}")
-                            continue
+                            # Skip small images
+                            if width < CONFIG.MIN_IMAGE_SIZE or height < CONFIG.MIN_IMAGE_SIZE:
+                                logger.debug(f"Skipping small image ({width}x{height}) in {sheet_name}")
+                                continue
 
-                        if img.mode != 'RGB':
-                            img = img.convert('RGB')
+                            if img.mode != 'RGB':
+                                img = img.convert('RGB')
 
-                        anchor = getattr(image, 'anchor', None)
-                        cell_ref = str(anchor) if anchor else "Unknown"
+                            anchor = getattr(image, 'anchor', None)
+                            cell_ref = str(anchor) if anchor else "Unknown"
 
-                        # Extract context
-                        context = "No context available"
-                        if anchor and hasattr(anchor, '_from'):
-                            try:
-                                row, col = anchor._from.row, anchor._from.col
-                                context = " ".join(
-                                    str(worksheet.cell(r, c).value or "").strip()
-                                    for r in range(max(1, row - 1), row + 2)
-                                    for c in range(max(1, col - 1), col + 2)
-                                )
-                            except Exception:
-                                logger.debug(f"Error extracting context for image in {sheet_name}")
+                            # Extract context (cells around the image)
+                            context = "No context available"
+                            if anchor and hasattr(anchor, '_from'):
+                                try:
+                                    row, col = anchor._from.row, anchor._from.col
+                                    context = " ".join(
+                                        str(worksheet.cell(r, c).value or "").strip()
+                                        for r in range(max(1, row - 1), row + 2)
+                                        for c in range(max(1, col - 1), col + 2)
+                                    )
+                                except Exception:
+                                    logger.debug(f"Error extracting context for image in {sheet_name}")
 
-                        images.append({
-                            'image': img,
-                            'context': context.strip(),
-                            'page_num': 1,
-                            'caption': f"Image from {doc_name} - Sheet: {sheet_name} (Cell: {cell_ref})",
-                            'dimensions': f"{width}x{height}",
-                            'sheet': sheet_name,
-                            'cell_reference': cell_ref,
-                            'source_document': str(excel_path)
-                        })
-                        logger.info(f"Processed image ({width}x{height}) in {sheet_name}")
+                            images.append({
+                                'image': img,
+                                'context': context.strip(),
+                                'page_num': 1,
+                                'caption': f"Image from {doc_name} - Sheet: {sheet_name} (Cell: {cell_ref})",
+                                'dimensions': f"{width}x{height}",
+                                'sheet': sheet_name,
+                                'cell_reference': cell_ref,
+                                'source_document': str(excel_path)
+                            })
+                            logger.info(f"Processed image ({width}x{height}) in {sheet_name}")
 
-                    except UnidentifiedImageError:
-                        logger.debug(f"Unidentified image format in {sheet_name}")
-                    except Exception as e:
-                        logger.error(f"Error processing image in {sheet_name}: {e}")
+                        except UnidentifiedImageError:
+                            logger.debug(f"Unidentified image format in {sheet_name}")
+                        except Exception as e:
+                            logger.debug(f"Error processing image in {sheet_name}: {e}")
 
             except Exception as e:
                 logger.error(f"Error processing sheet {sheet_name}: {e}")
@@ -381,7 +386,7 @@ def extract_text_and_images_from_excel(excel_path):
             except Exception as e:
                 logger.debug(f"Error closing workbook: {e}")
 
-def chunk_text(text: str, source_path: str, chunk_size=CONFIG.CHUNK_SIZE, overlap=CONFIG.CHUNK_OVERLAP):
+def chunk_text_base(text: str, source_path: str, chunk_size=CONFIG.CHUNK_SIZE, overlap=CONFIG.CHUNK_OVERLAP):
     """
     Split text into chunks with overlap and enhanced metadata.
     """
@@ -418,3 +423,116 @@ def chunk_text(text: str, source_path: str, chunk_size=CONFIG.CHUNK_SIZE, overla
         start_idx = end_idx - overlap if end_idx < len(words) else end_idx
 
     return chunks
+
+def chunk_text(text: str, source_path: str, chunk_size=CONFIG.CHUNK_SIZE, overlap=CONFIG.CHUNK_OVERLAP):
+    """
+    Split text into semantically meaningful chunks with overlap and enhanced metadata.
+    Includes filtering for meaningless text such as headers, footers, disclaimers, etc.
+    """
+    if not text or chunk_size < CONFIG.MIN_CHUNK_SIZE:
+        return []
+
+    # Initialize the Longformer tokenizer - it can handle sequences up to 4096 tokens
+    tokenizer = LongformerTokenizer.from_pretrained('allenai/longformer-base-4096')
+
+    # Create a chunker with the specified chunk size
+    chunker = semchunk.chunkerify(tokenizer, chunk_size)
+
+    # Calculate the overlap in tokens
+    overlap_tokens = int(chunk_size * overlap) if overlap < 1 else overlap
+
+    # Filter the input text to remove irrelevant parts
+    filtered_text = _filter_meaningless_text(text)
+
+    # Obtain chunks and their offsets
+    chunks, offsets = chunker(filtered_text, offsets=True, overlap=overlap_tokens)
+
+    # Prepare the list of chunks with metadata
+    chunked_data = []
+    relative_path = str(Path(source_path).relative_to(CONFIG.RAW_DOCUMENTS_PATH))
+
+    for chunk_number, (chunk_text, (start_idx, end_idx)) in enumerate(zip(chunks, offsets)):
+        chunk_info = {
+            'text': chunk_text,
+            'metadata': {
+                'source_path': source_path,
+                'chunk_number': chunk_number,
+                'start_idx': start_idx,
+                'end_idx': end_idx,
+                'relative_path': relative_path
+            }
+        }
+        chunked_data.append(chunk_info)
+
+    return chunked_data
+
+def _filter_meaningless_text(text: str) -> str:
+    """
+    Internal function to filter out headers, footers, disclaimers, copyright lines,
+    table of contents, and other irrelevant segments from the input text.
+    """
+    # Regular expressions to match meaningless content
+    patterns = [
+        # Primary TOC and dotted line patterns
+        r'^.*?\.{4,}.*$',  # This will match ANY line containing 4 or more consecutive dots
+
+        # Table of Contents headers
+        r'^\s*Table\s+of\s+Contents\s*$',  # Table of Contents header
+        r'^\s*Contents\s*$',  # Alternative Contents header
+
+        # Document metadata
+        r'©\s?\d{4}\s?.*?\.',  # Copyright lines
+        r'^\s*Confidential\s*(?:and\s+Proprietary)?\s*$',  # Confidentiality notices
+        r'^\s*All\s+[Rr]ights?\s+[Rr]eserved\s*\.?$',  # Rights reserved
+        r'^\s*Draft\s+(?:version|copy)?\s*$',  # Draft markings
+
+        # Contact information
+        r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',  # Email addresses
+        r'\b(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{2,3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}\b',  # Phone numbers
+        r'\bhttps?://\S+\b',  # URLs
+        r'\bwww\.\S+\b',  # Web addresses
+
+        # Document structure elements
+        r'^\s*Page\s\d+\s*(?:of\s*\d+)?\s*$',  # Page indicators
+        r'^\s*\d+\s*/\s*\d+\s*$',  # Page numbers like "1/10"
+        r'^\s*[-_]{3,}\s*$',  # Horizontal rules
+        r'^\s*[=]{3,}\s*$',  # Alternative horizontal rules
+
+        # Headers and footers
+        r'Rev(?:ision)?\.?\s?[A-Z0-9]',  # Revision indicators
+        r'^\s*Last\s+(?:updated|modified|revised):\s.*$',  # Last updated lines
+        r'^\s*Document\s+(?:ID|Number):\s*.*$',  # Document IDs
+        r'^\s*Version:\s*\d+(?:\.\d+)*\s*$',  # Version numbers
+
+        # Dates and timestamps
+        r'\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s\d{1,2},\s\d{4}\b',
+        r'\b\d{1,2}/\d{1,2}/\d{2,4}\b',  # Date formats like MM/DD/YYYY
+        r'\b\d{4}-\d{2}-\d{2}\b',  # ISO date format
+        r'\b(?:AM|PM|am|pm)\b',  # Time indicators
+
+        # Business information
+        r'^\s*Approved by:.*$',
+        r'^\s*(?:Reviewed|Prepared) by:.*$',
+        r'^\s*POB\s\d+.*$',
+        r'^\s*Tel:\s?.*$',
+        r'^\s*Fax:\s?.*$',
+
+        # Disclaimers and legal text
+        r'^\s*NOTICE:.*$',  # Notice blocks
+        r'^\s*WARNING:.*$',  # Warning blocks
+        r'^\s*Disclaimer:.*$',  # Disclaimer blocks
+        r'^\s*Legal\s+Notice:.*$',  # Legal notices
+
+        # Empty space
+        r'^\s*$',  # Empty lines
+        r'\n{3,}',  # Multiple consecutive newlines
+    ]
+
+    # Combine patterns and filter text
+    combined_pattern = re.compile('|'.join(patterns), re.IGNORECASE | re.MULTILINE)
+    filtered_text = re.sub(combined_pattern, '', text)
+
+    # Remove excessive empty lines
+    filtered_text = re.sub(r'\n{2,}', '\n', filtered_text).strip()
+
+    return filtered_text
