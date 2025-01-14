@@ -33,7 +33,7 @@ async function createAuthModal() {
     const passwordInput = modal.querySelector('#auth-password');
     const errorMessage = modal.querySelector('.error-message');
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
         confirmButton.onclick = () => {
             const password = passwordInput.value;
             if (password === AUTH_PASSWORD) {
@@ -61,22 +61,6 @@ async function createAuthModal() {
         document.body.appendChild(modal);
         passwordInput.focus();
     });
-}
-
-function initializeChatImageHandlers(chatImageInput, attachImageButton) {
-    // Store event listener references for cleanup
-    const imageChangeHandler = (event) => handleImageAttachment(event);
-    const attachClickHandler = () => chatImageInput.click();
-
-    // Add event listeners
-    chatImageInput.addEventListener('change', imageChangeHandler);
-    attachImageButton.addEventListener('click', attachClickHandler);
-
-    // Return cleanup function
-    return () => {
-        chatImageInput.removeEventListener('change', imageChangeHandler);
-        attachImageButton.removeEventListener('click', attachClickHandler);
-    };
 }
 
 // Helper functions (defined outside DOMContentLoaded to be available globally)
@@ -369,7 +353,7 @@ function createFolderContextMenu(e, folderPath, folderName) {
                     if (!authenticated) return;
                 }
 
-                const modal = createModal(
+                createModal(
                     'Delete Folder',
                     `
                         <p>Are you sure you want to delete the folder "${folderName}" and all its contents?</p>
@@ -1151,6 +1135,22 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
+    function initializeChatImageHandlers(chatImageInput, attachImageButton) {
+        // Store event listener references for cleanup
+        const imageChangeHandler = (event) => handleImageAttachment(event);
+        const attachClickHandler = () => chatImageInput.click();
+
+        // Add event listeners
+        chatImageInput.addEventListener('change', imageChangeHandler);
+        attachImageButton.addEventListener('click', attachClickHandler);
+
+        // Return cleanup function
+        return () => {
+            chatImageInput.removeEventListener('change', imageChangeHandler);
+            attachImageButton.removeEventListener('click', attachClickHandler);
+        };
+    }
+
     async function handleSend() {
         let message = input.value.trim();
 
@@ -1394,8 +1394,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const error = await processResponse.json();
                 throw new Error(error.detail || 'Processing failed');
             }
-
-            const result = await processResponse.json();
 
             // Success handling
             processBtn.textContent = "Processing Complete";
