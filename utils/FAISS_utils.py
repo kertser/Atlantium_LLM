@@ -1,3 +1,4 @@
+import gc
 import hashlib
 import json
 from pathlib import Path
@@ -7,6 +8,7 @@ import logging
 import numpy as np
 import traceback
 import faiss
+import torch
 
 from config import CONFIG
 
@@ -463,6 +465,11 @@ def query_with_context(index, metadata, model, device="cpu", text_query=None, im
         logging.error(f"Error in query_with_context: {str(e)}")
         logging.error(traceback.format_exc())
         return []
+    finally:
+        gc.collect()
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 def optimize_faiss_index(index, metadata):
     """Optimize FAISS index for memory efficiency"""
