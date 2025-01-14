@@ -3,6 +3,7 @@ import logging
 import shutil
 from pathlib import Path
 from typing import List, Any, Set, Tuple
+import torch
 
 import faiss
 import numpy as np
@@ -98,16 +99,14 @@ def get_document_count(base_path: Path, supported_extensions: Set[str]) -> int:
     return count
 
 
-def rescan_documents(config: CONFIG) -> tuple[bool, str]:
+def rescan_documents() -> tuple[bool, str]:
     """
     Rescan documents and update RAG system by comparing raw documents with processed ones.
-
-    Args:
-        config: Application configuration object
 
     Returns:
         Tuple of (success: bool, message: str)
     """
+    model = None
     try:
         logger.info("Starting document rescan process")
 
@@ -120,11 +119,11 @@ def rescan_documents(config: CONFIG) -> tuple[bool, str]:
             processed_files = set()
 
         # Convert supported extensions to set of lowercase extensions with dots
-        supported_extensions = {f".{ext.lower().lstrip('.')}" for ext in config.SUPPORTED_EXTENSIONS}
+        supported_extensions = {f".{ext.lower().lstrip('.')}" for ext in CONFIG.SUPPORTED_EXTENSIONS}
 
         # Compare current files with processed files
         new_files, removed_files = compare_and_update_rag(
-            raw_docs_path=config.RAW_DOCUMENTS_PATH,
+            raw_docs_path=CONFIG.RAW_DOCUMENTS_PATH,
             processed_files=processed_files,
             supported_extensions=supported_extensions
         )
@@ -143,15 +142,16 @@ def rescan_documents(config: CONFIG) -> tuple[bool, str]:
                 from utils.img_utils import ImageStore
                 from RAG_processor import process_documents
 
-                # Load or initialize CLIP model
-                model, processor, device = CLIP_init(config.CLIP_MODEL_NAME)
+                # Load or initialize CLIP model (note: returns only model and device)
+                model, device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
 
                 # Load or initialize FAISS index and metadata
                 try:
-                    index = load_faiss_index(config.FAISS_INDEX_PATH)
-                    metadata = load_metadata(config.METADATA_PATH)
-                except Exception:
-                    index = initialize_faiss_index(config.EMBEDDING_DIMENSION, config.USE_GPU)
+                    index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
+                    metadata = load_metadata(CONFIG.METADATA_PATH)
+                except Exception as e:
+                    logger.warning(f"Failed to load existing index/metadata, initializing new ones: {e}")
+                    index = initialize_faiss_index(CONFIG.EMBEDDING_DIMENSION, CONFIG.USE_GPU)
                     metadata = []
 
                 # Initialize image store
@@ -170,6 +170,10 @@ def rescan_documents(config: CONFIG) -> tuple[bool, str]:
                 if not success:
                     raise Exception("Failed to process new documents")
 
+                # Update processed_files list with new files
+                for file_path in new_files:
+                    processed_files.add(str(file_path.absolute()))
+
             except Exception as e:
                 logger.error(f"Error processing new documents: {e}")
                 return False, f"Failed to process new documents: {str(e)}"
@@ -183,15 +187,26 @@ def rescan_documents(config: CONFIG) -> tuple[bool, str]:
                 if not success:
                     failed_removals.append(f"{file_path}: {msg}")
                     logger.error(f"Failed to remove document {file_path}: {msg}")
+                else:
+                    # Remove from processed_files list if successfully removed from RAG
+                    processed_files.discard(str(file_path.absolute()))
 
             if failed_removals:
                 return False, f"Failed to remove some documents: {'; '.join(failed_removals)}"
 
+        # Save updated processed_files list
+        try:
+            with open(processed_files_path, 'w', encoding='utf-8') as f:
+                json.dump(list(processed_files), f, indent=2)
+        except Exception as e:
+            logger.error(f"Error saving processed files list: {e}")
+            return False, f"Failed to save processed files list: {str(e)}"
+
+        # Clean up orphaned chunks
         cleanup_success, cleanup_msg = cleanup_orphaned_chunks()
         if not cleanup_success:
             logger.warning(f"Chunk cleanup warning: {cleanup_msg}")
 
-        # total_changes = len(new_files) + len(removed_files)
         success_msg = f"Rescan completed: {len(new_files)} new documents processed, {len(removed_files)} documents removed"
         if cleanup_success:
             success_msg += f". {cleanup_msg}"
@@ -202,6 +217,14 @@ def rescan_documents(config: CONFIG) -> tuple[bool, str]:
         error_msg = f"Error during rescan: {str(e)}"
         logger.error(error_msg, exc_info=True)
         return False, error_msg
+    finally:
+        # Clean up resources
+        if model is not None and hasattr(model, 'cpu'):
+            model.cpu()
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 
 def remove_document_from_rag(doc_path: Path) -> Tuple[bool, str]:

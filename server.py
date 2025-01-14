@@ -1539,7 +1539,7 @@ async def rename_folder(
 async def rescan_documents_endpoint():
     """Rescan documents and update RAG system."""
     try:
-        success, message = rescan_documents(CONFIG)
+        success, message = rescan_documents()
 
         if not success:
             raise HTTPException(status_code=500, detail=message)
