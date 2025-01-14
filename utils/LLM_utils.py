@@ -1,11 +1,14 @@
 import logging
 import time
+import os
 from typing import Dict, Any
+from unittest.mock import patch
 
 import torch
 from fastapi import HTTPException
 from openai import OpenAI
 from transformers import AutoModel
+from transformers.dynamic_module_utils import get_imports
 from config import CONFIG
 
 
@@ -124,59 +127,51 @@ def grok_post_request(messages, model_name="grok-beta", max_tokens=128, temperat
     raise HTTPException(status_code=500, detail="Maximum retries reached for OpenAI API request")
 
 
-def CLIP_init(model_name="jinaai/jina-clip-v2"):
+def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
+    """Handle unnecessary flash_attn dependency"""
+    if not str(filename).endswith("modeling_florence2.py"):
+        return get_imports(filename)
+    imports = get_imports(filename)
+    imports.remove("flash_attn")
+    return imports
+
+
+def CLIP_init(model_name="jinaai/jina-clip-v2", device_str: str = None):
     """
-    Initialize Jina-CLIP model with detailed logging.
+    Initialize Jina-CLIP model with detailed logging and enhanced functionality.
+
+    Args:
+        model_name (str): Name or path of the CLIP model
+        device_str (str): Optional device specification (e.g., "cpu", "cuda")
+
+    Returns:
+        tuple: (model, device) or (None, None) if initialization fails
     """
     try:
         # Set device
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if device_str is None:
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            device = torch.device(device_str)
+
         logging.info(f"Initializing CLIP on device: {device}")
 
-        # Initialize model
-        model = AutoModel.from_pretrained(
-            model_name,
-            trust_remote_code=True,
-            torch_dtype=torch.float16
-        ).to(device)
+        # Set dtype based on device
+        torch_dtype = torch.float16 if device.type == "cuda" else torch.float32
+
+        # Initialize model with flash_attn patch
+        with patch("transformers.dynamic_module_utils.get_imports", fixed_get_imports):
+            model = AutoModel.from_pretrained(
+                model_name,
+                trust_remote_code=True,
+                torch_dtype=torch_dtype
+            ).to(device)
 
         if model is None:
             raise RuntimeError("Model initialization returned None")
 
         # Set model to evaluation mode
         model.eval()
-
-        """ Debug test encoding code
-        test_text = ["Test text"]
-        with torch.no_grad():
-            try:
-                # Try encode_text first
-                test_embedding = model.encode_text(test_text)
-                if test_embedding is None:
-                    raise RuntimeError("Test encoding returned None")
-                # Convert to numpy if it's a tensor
-                if isinstance(test_embedding, torch.Tensor):
-                    test_embedding = test_embedding.cpu().numpy()
-                logging.debug(f"Test encoding successful. Shape: {test_embedding.shape}")
-            except AttributeError:
-                # Fallback to get_text_features
-                inputs = model.tokenizer(test_text, return_tensors="pt", padding=True).to(device)
-                test_embedding = model.get_text_features(**inputs)
-                if test_embedding is None:
-                    raise RuntimeError("Test encoding returned None")
-                test_embedding = test_embedding / test_embedding.norm(dim=-1, keepdim=True)
-                test_embedding = test_embedding.cpu().numpy()
-                logging.debug(f"Test encoding successful using get_text_features. Shape: {test_embedding.shape}")
-                
-
-            # Log the embedding dimension
-            embedding_dim = test_embedding.shape[1]
-            logging.info(f"Model produces embeddings of dimension: {embedding_dim}")
-            if embedding_dim != CONFIG.EMBEDDING_DIMENSION:
-                logging.warning(
-                    f"Updating CONFIG.EMBEDDING_DIMENSION from {CONFIG.EMBEDDING_DIMENSION} to {embedding_dim}")
-                CONFIG.EMBEDDING_DIMENSION = embedding_dim
-        """
 
         logging.info("CLIP model initialized successfully")
         return model, device
