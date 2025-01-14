@@ -43,12 +43,23 @@ def initialize_clip(model_path: str, device: str = None) -> None:
         torch_dtype = torch.float16 if device.type == "cuda" else torch.float32
         print(f"Initializing CLIP on device: {device}")
 
+        # Set configuration for model initialization
+        if device.type == "cpu":
+            config = {
+                "use_flash_attention": False,  # Disable flash attention
+                "use_memory_efficient_attention": False,  # Disable memory efficient attention
+                "enable_xformers": False  # Disable xformers
+            }
+        else:
+            config = {}
+
         # Handle unnecessary flash_attn dependency for CPU
         with patch("transformers.dynamic_module_utils.get_imports", fixed_get_imports):
             model = AutoModel.from_pretrained(
                 model_path,
                 trust_remote_code=True,
                 torch_dtype=torch_dtype,
+                config=config
             ).to(device)
 
         if model is None:
