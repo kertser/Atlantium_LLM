@@ -123,8 +123,16 @@ def validate_metadata_integrity(metadata: List[Dict]) -> List[Dict]:
 def get_chunk_text(chunk_path: str) -> str:
     """Retrieve text chunk content from file."""
     try:
+        # Normalize path separators to system-specific ones
+        chunk_path = str(chunk_path).replace('\\', '/')
+        chunk_path = Path(chunk_path)
+
         # Construct full path using STORED_TEXT_CHUNKS_PATH
         full_path = CONFIG.STORED_TEXT_CHUNKS_PATH / chunk_path
+
+        # Resolve the path to handle any '..' or '.' components
+        full_path = full_path.resolve()
+
         if not full_path.exists():
             logging.error(f"Chunk file not found: {full_path}")
             return ""
@@ -235,9 +243,9 @@ def add_to_faiss(embedding, source_file_name, content_type, content, index, meta
 
             # Create metadata entry
             meta_entry = {
-                "path": str(relative_path),
+                "path": str(relative_path).replace('\\', '/'),
                 "type": content_type,
-                "chunk": str(Path(relative_path.stem) / chunk_filename),
+                "chunk": str(Path(relative_path.stem) / chunk_filename).replace('\\', '/'),
                 "chunk_hash": chunk_hash
             }
 

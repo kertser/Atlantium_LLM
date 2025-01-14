@@ -95,9 +95,6 @@ USER appuser
 RUN id && \
     ls -la /app/RAG_Data
 
-# Set PYTHONPATH
-ENV PYTHONPATH=/app:$PYTHONPATH
-
 EXPOSE 9000
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
