@@ -127,15 +127,6 @@ def grok_post_request(messages, model_name="grok-beta", max_tokens=128, temperat
     raise HTTPException(status_code=500, detail="Maximum retries reached for OpenAI API request")
 
 
-def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
-    """Handle unnecessary flash_attn dependency"""
-    if not str(filename).endswith("modeling_florence2.py"):
-        return get_imports(filename)
-    imports = get_imports(filename)
-    imports.remove("flash_attn")
-    return imports
-
-
 def CLIP_init(model_name="jinaai/jina-clip-v2", device_str: str = None):
     """
     Initialize Jina-CLIP model with detailed logging and enhanced functionality.
@@ -147,6 +138,15 @@ def CLIP_init(model_name="jinaai/jina-clip-v2", device_str: str = None):
     Returns:
         tuple: (model, device) or (None, None) if initialization fails
     """
+
+    def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
+        """Handle unnecessary flash_attn dependency"""
+        if not str(filename).endswith("modeling_florence2.py"):
+            return get_imports(filename)
+        imports = get_imports(filename)
+        imports.remove("flash_attn")
+        return imports
+
     try:
         # Set device
         if device_str is None:

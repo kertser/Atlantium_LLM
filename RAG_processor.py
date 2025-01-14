@@ -42,7 +42,8 @@ def setup_logger():
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s: %(message)s',
         handlers=[
-            logging.FileHandler(CONFIG.LOG_PATH / "system.log")
+            logging.FileHandler(CONFIG.LOG_PATH / "system.log"),
+            logging.StreamHandler(sys.stdout)
         ]
     )
 
@@ -639,17 +640,10 @@ def init_CLIP_model():
     # Initialize CLIP
     try:
         clip_model, device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
+
         if clip_model is None:
             raise RuntimeError("Model initialization returned None")
 
-        # Test the model
-        with torch.no_grad():
-            test_embedding = clip_model.encode_text(["Test text"])
-            if test_embedding is None or test_embedding.shape[1] != CONFIG.EMBEDDING_DIMENSION:
-                raise RuntimeError(
-                    f"Invalid embedding dimension. Expected {CONFIG.EMBEDDING_DIMENSION}, got {test_embedding.shape[1] if test_embedding is not None else None}")
-
-        logging.info("CLIP model initialized and tested successfully")
         return clip_model, device
     except Exception as err:
         logging.error(f"CLIP initialization error: {err}", exc_info=True)
