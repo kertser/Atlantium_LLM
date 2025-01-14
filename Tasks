@@ -13,6 +13,7 @@
 * Make "Backup" and "Restore" RAG_Data and processed files
 * Update documentation
 * Maybe processing chunks and images asynchronously?
+* implement flash-attn workaround for cpu machines
 
 # TBDs for development:
 * Add complicated reasoning (SMoA) to the model (TBD)
@@ -22,7 +23,7 @@
 * Multimodal Input - Connect audio model (TBD)
 * Adaptive retrieval thresholds (TBD)
 
-pip3 install -U xformers --index-url https://download.pytorch.org/whl/cu124
+pip install -U xformers --index-url https://download.pytorch.org/whl/cu124
 pip install ninja
 
 This is for windows: (will be available at setup_files/windows/flash_attn-2.7.1.post1+cu124torch2.5.1cxx11abiFALSE-cp312-cp312-win_amd64.whl)
@@ -30,3 +31,18 @@ download from https://github.com/bdashore3/flash-attention/releases/download/v2.
 and pip install
 
 For Linux is probably just: pip install flash-attn (probably with GPU only)
+
+
+# workaround for flash_attn:
+from unittest.mock import patch
+from transformers.dynamic_module_utils import get_imports
+
+def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
+    if not str(filename).endswith("modeling_florence2.py"):
+        return get_imports(filename)
+    imports = get_imports(filename)
+    imports.remove("flash_attn")
+    return imports
+
+with patch("transformers.dynamic_module_utils.get_imports", fixed_get_imports): #workaround for unnecessary flash_attn requirement
+            model = AutoModelForCausalLM.from_pretrained(model_path, attn_implementation="sdpa", torch_dtype=dtype,trust_remote_code=True)
