@@ -1,0 +1,50 @@
+system: |
+  Process UV system calculations with the following parameters:
+  - System type (RZ, RZM, RZMW series)
+  - Flow rate (m³/h)
+  - UVT (%-1cm)
+  - Lamp power settings (%)
+  - Lamp efficiency settings (%)
+
+parameters:
+  validation:
+    system_type:
+      pattern: "^(RZ|RZM|RZMW)-\\d{3}-\\d+$"
+      required: true
+      error_message: "Invalid system type. Must be RZ, RZM, or RZMW series."
+    flow:
+      min: 0
+      max: 1000
+      required: true
+      error_message: "Flow rate must be between 0 and 1000 m³/h"
+    uvt:
+      min: 1
+      max: 100
+      required: true
+      error_message: "UVT must be between 1% and 100%"
+    power_settings:
+      min: 0
+      max: 100
+      default: 100
+      error_message: "Power settings must be between 0% and 100%"
+    efficiency_settings:
+      min: 0
+      max: 100
+      default: 80
+      error_message: "Efficiency settings must be between 0% and 100%"
+
+response_format:
+  calculation:
+    system_info:
+      - system_type
+      - number_of_lamps
+      - lamp_power
+    parameters:
+      - flow
+      - uvt
+      - power_settings
+      - efficiency_settings
+    results:
+      - red_value
+      - validation_status
+      - confidence_level

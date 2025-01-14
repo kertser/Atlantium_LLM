@@ -9,7 +9,7 @@ from transformers import CLIPProcessor, CLIPModel
 
 
 def openai_post_request(messages: list, model_name: str, api_key: str, max_tokens: int = None,
-                        temperature: float = None) -> Dict[str, Any]:
+                        temperature: float = None, functions: list = None, function_call: str = None) -> Dict[str, Any]:
     """Send request using OpenAI client library with rate limit handling"""
     client = OpenAI(api_key=api_key)
     max_retries = 5
@@ -17,21 +17,61 @@ def openai_post_request(messages: list, model_name: str, api_key: str, max_token
 
     for attempt in range(max_retries):
         try:
-            response = client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=temperature
-            )
+            # Format messages according to the new API format
+            formatted_messages = []
+            for msg in messages:
+                content = msg.get("content", "")
+                if not content:  # Skip empty messages
+                    continue
 
-            # Return formatted response
-            return {
+                formatted_msg = {
+                    "role": msg["role"],
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": str(content)
+                        }
+                    ]
+                }
+                formatted_messages.append(formatted_msg)
+
+            if not formatted_messages:  # Check if we have any messages
+                raise ValueError("No valid messages to send")
+
+            kwargs = {
+                "model": model_name,
+                "messages": formatted_messages,
+                "response_format": {"type": "text"}
+            }
+
+            if max_tokens is not None:
+                kwargs["max_tokens"] = max_tokens
+            if temperature is not None:
+                kwargs["temperature"] = temperature
+            if functions is not None:
+                kwargs["functions"] = functions
+            if function_call is not None:
+                kwargs["function_call"] = function_call
+
+            response = client.chat.completions.create(**kwargs)
+
+            # Return formatted response with function call if present
+            message = response.choices[0].message
+            response_dict = {
                 'choices': [{
                     'message': {
-                        'content': response.choices[0].message.content
+                        'content': message.content if message.content else ""
                     }
                 }]
             }
+
+            if hasattr(message, 'function_call') and message.function_call:
+                response_dict['choices'][0]['message']['function_call'] = {
+                    'name': message.function_call.name,
+                    'arguments': message.function_call.arguments
+                }
+
+            return response_dict
 
         except Exception as e:
             if attempt == max_retries - 1:
