@@ -8,6 +8,8 @@ from typing import Dict, Optional, List
 from PIL import Image
 from openai import OpenAI
 from fastapi import HTTPException
+import os
+import re
 
 from config import CONFIG
 from utils.img_utils import ImageStore, ImageClassifier
@@ -17,16 +19,14 @@ from models.prompt_manager import PromptLoader
 class ImageProcessor:
     """Handles image processing and analysis for the RAG system."""
 
-    def __init__(self, openai_client: OpenAI, model, processor, device, formatter):
+    def __init__(self, openai_client: OpenAI, model, device, formatter):
         """Initialize the image processor with necessary components."""
         self.client = openai_client
         self.model = model
-        self.processor = processor
         self.device = device
         self.image_store = ImageStore()
         self.image_classifier = ImageClassifier(
             model=model,
-            processor=processor,
             device=device
         )
         self.prompt_loader = PromptLoader()
@@ -45,39 +45,101 @@ class ImageProcessor:
 
             classification_result = await self._classify_image(image)
             if not classification_result['is_technical']:
-                # Format non-technical response
                 formatted_response = self.formatter.format_response(
                     classification_result['response']
                 )
                 return {
                     **classification_result,
-                    'response': formatted_response
+                    'response': formatted_response,
+                    'similar_images': []  # Add empty list for consistency
                 }
 
-            # Analyze technical aspects
-            technical_context = await self.analyze_technical_context({
-                'image': image,
-                'base64_image': base64_image
-            })
+            # Get embeddings for FAISS search
+            from utils.FAISS_utils import query_with_context, load_faiss_index, load_metadata
+            index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
+            metadata = load_metadata(CONFIG.METADATA_PATH)
 
-            # Build query context
+            # Use CLIP to search for similar images
+            results = query_with_context(
+                index=index,
+                metadata=metadata,
+                model=self.model,
+                device=self.device,
+                image_query=image,
+            )
+
+            # Extract document references and process similar images
+            document_refs = set()
+            contexts = []  # This was previously unused
+            similar_images = []
+
+            if results and results[0]:
+                for result_group in results:
+                    for result in result_group:
+                        metadata = result["metadata"]
+                        similarity = 1 - (result['distance'] / 2)
+
+                        if metadata.get('type') == 'image' and similarity > self.similarity_threshold:
+                            image_id = metadata.get('image', {}).get('id')
+                            if image_id:
+                                image_data = self._prepare_image_data(image_id, metadata, similarity)
+                                if image_data:
+                                    similar_images.append(image_data)
+                                    source_doc = metadata.get('image', {}).get('source_doc', '')
+                                    if source_doc:
+                                        filename = os.path.basename(source_doc)
+                                        match = re.match(r'^([A-Za-z0-9]+)-', filename)
+                                        if match:
+                                            document_refs.add(match.group(1))
+
+                        elif metadata.get('type') == 'text-chunk':
+                            if 'get_content' in metadata:
+                                chunk_text = metadata['get_content']()
+                                if chunk_text:
+                                    contexts.append(chunk_text)  # Collecting text contexts
+
+            # Deduplicate similar images
+            if similar_images:
+                similar_images = self.image_classifier.deduplicate(
+                    similar_images,
+                    self.deduplication_threshold
+                )
+                logging.info(f"Found {len(similar_images)} similar images after deduplication")
+
+            # Build query context including both technical analysis and text contexts
             query_context = self.prompt_loader.format_template(
                 'image_query_with_context',
                 query_text=query_text or "Analyze this technical image",
-                image_context=technical_context.get('analysis', '')
+                image_context="\n\n".join([
+                    "Technical Documentation Context:",
+                    *contexts  # Include the collected text contexts
+                ]) if contexts else "No additional context available."
             )
 
             # Process with GPT
-            vision_result = await self._process_vision_request(base64_image, query_context)
+            vision_result = await self._process_vision_request(
+                base64_image,
+                query_context,  # Now includes both technical analysis and text contexts
+                list(document_refs)
+            )
 
-            # Format the response using the formatter from RAGQueryServer
+            # Format the response
             formatted_response = self.formatter.format_response(vision_result['response'])
 
             return {
                 'response': formatted_response,
-                'technical_context': technical_context,
+                'is_technical': True,
                 'confidence': classification_result['confidence'],
-                'related_images': vision_result.get('related_images', [])
+                'similar_images': [
+                    {
+                        'image': img['image'],
+                        'caption': img['caption'],
+                        'context': img['context'],
+                        'source': img['source'],
+                        'similarity': str(img['similarity'])  # Convert to string for JSON
+                    } for img in similar_images
+                ],
+                'document_references': list(document_refs)
             }
 
         except Exception as e:
@@ -100,13 +162,36 @@ class ImageProcessor:
         }
 
     async def analyze_technical_context(self, image_data: Dict) -> Dict:
-        """Extract and analyze technical context from image."""
-        try:
-            base64_image = image_data.get('base64_image') or self._convert_to_base64(image_data['image'])
+        """
+        Extract and analyze technical context from image using GPT Vision model.
 
+        Args:
+            image_data: Dictionary containing either:
+                - 'base64_image': Base64 encoded image string
+                - 'image': PIL Image object
+
+        Returns:
+            Dict containing:
+                - system_category: Type of system (e.g., "UV Water Treatment System")
+                - components_list: List of identified components
+                - documentation_refs: Related documentation references
+                - maintenance_notes: Any maintenance considerations
+                - analysis: Detailed analysis from GPT Vision
+        """
+        try:
+            # Handle image input and convert to base64 if needed
+            if 'base64_image' in image_data:
+                base64_image = image_data['base64_image']
+            else:
+                image = image_data.get('image')
+                if not isinstance(image, Image.Image):
+                    raise ValueError("Invalid image format")
+                base64_image = self._convert_to_base64(image)
+
+            # Prepare the message for GPT Vision API
             messages = [
                 {
-                    "role": "system",
+                    "role": "assistant",
                     "content": self.prompt_loader.get_system_prompt('vision_assistant')
                 },
                 {
@@ -126,12 +211,14 @@ class ImageProcessor:
                 }
             ]
 
+            # Call GPT Vision API
             response = self.client.chat.completions.create(
-                model=CONFIG.GPT_VISION_MODEL,
+                model=CONFIG.BASE_VISION_MODEL,
                 messages=messages,
                 max_tokens=150
             )
 
+            # Return structured analysis
             return {
                 "system_category": "UV Water Treatment System",
                 "components_list": "",
@@ -142,6 +229,7 @@ class ImageProcessor:
 
         except Exception as e:
             logging.error(f"Error in analyze_technical_context: {e}")
+            logging.error("Full traceback:", exc_info=True)
             return {
                 "system_category": "Unknown",
                 "components_list": "",
@@ -150,41 +238,27 @@ class ImageProcessor:
                 "analysis": ""
             }
 
-    def get_relevant_images(self, results: List[Dict]) -> List[Dict]:
-        """Get and process relevant images from search results."""
-        relevant_images = []
-        try:
-            for result in results:
-                metadata = result['metadata']
-                similarity = 1 - (result['distance'] / 2)
-
-                if metadata.get('type') == 'image' and similarity > self.similarity_threshold:
-                    image_id = (metadata.get('image', {}).get('id') or
-                                metadata.get('content', {}).get('image_id'))
-
-                    if not image_id:
-                        continue
-
-                    image_data = self._prepare_image_data(image_id, metadata, similarity)
-                    if image_data:
-                        relevant_images.append(image_data)
-
-            return self.image_classifier.deduplicate(relevant_images, self.deduplication_threshold)
-
-        except Exception as e:
-            logging.error(f"Error getting relevant images: {e}")
-            return []
-
-    async def _process_vision_request(self, base64_image: str, query_context: str) -> Dict:
+    async def _process_vision_request(
+            self,
+            base64_image: str,
+            query_context: str,
+            document_refs: List[str]
+    ) -> Dict:
         """Process vision request with GPT with retries and proper formatting."""
         MAX_RETRIES = 3
         BASE_WAIT = 4
 
         for attempt in range(MAX_RETRIES):
             try:
+                # Format document references list if any exist
+                doc_context = ""
+                if document_refs:
+                    doc_refs_text = "\n".join([f"- [ref]{doc_id}[/ref]" for doc_id in document_refs])
+                    doc_context = f"\nRelevant Documentation:\n{doc_refs_text}"
+
                 messages = [
                     {
-                        "role": "system",
+                        "role": "assistant",
                         "content": self.prompt_loader.get_system_prompt('vision_assistant')
                     },
                     {
@@ -193,13 +267,22 @@ class ImageProcessor:
                             {
                                 "type": "text",
                                 "text": f"""
+                                    Analyze this technical image with the following context:
                                     {query_context}
 
-                                    IMPORTANT: If this component appears in our documentation, 
-                                    explicitly mention that and reference the document using double quotes.
-                                    Example: This component appears in ""Document_Name"" where it is described as...
+                                    {doc_context}
 
-                                    Use the provided documentation context to enhance your analysis.
+                                    IMPORTANT: When referencing documents:
+                                    - Use ONLY the document ID (characters before first dash)
+                                    - Format as [ref]DOCUMENT_ID[/ref]
+                                    - Do not include paths or full filenames
+
+                                    Provide a comprehensive analysis including:
+                                    1. Component identification
+                                    2. Technical specifications visible in the image
+                                    3. Integration with UV system
+                                    4. Related documentation references
+                                    5. Any safety or maintenance considerations
                                 """
                             },
                             {
@@ -211,7 +294,7 @@ class ImageProcessor:
                 ]
 
                 response = self.client.chat.completions.create(
-                    model=CONFIG.GPT_VISION_MODEL,
+                    model=CONFIG.BASE_VISION_MODEL,
                     messages=messages,
                     max_tokens=CONFIG.VISION_MAX_TOKENS
                 )
@@ -219,7 +302,6 @@ class ImageProcessor:
                 if not response or not response.choices:
                     raise ValueError("Empty or invalid response from OpenAI API")
 
-                # Get the raw response
                 raw_response = response.choices[0].message.content.strip()
 
                 return {
@@ -239,7 +321,8 @@ class ImageProcessor:
                     detail=f"Vision request failed after {MAX_RETRIES} attempts: {str(e)}"
                 )
 
-    def _preprocess_image(self, image_data: bytes) -> Image.Image:
+    @staticmethod
+    def _preprocess_image(image_data: bytes) -> Image.Image:
         """Preprocess image data into PIL Image."""
         try:
             image = Image.open(BytesIO(image_data))
@@ -256,11 +339,31 @@ class ImageProcessor:
             logging.error(f"Error preprocessing image: {e}")
             raise
 
-    def _convert_to_base64(self, image: Image.Image) -> str:
-        """Convert PIL Image to base64 string."""
-        buffered = BytesIO()
-        image.save(buffered, format="JPEG", quality=95)
-        return base64.b64encode(buffered.getvalue()).decode('utf-8')
+    @staticmethod
+    def _convert_to_base64(image: Image.Image) -> str:
+        """
+        Convert PIL Image to base64 string.
+        Handles RGBA and other image modes by converting to RGB with white background.
+        """
+        try:
+            # Handle RGBA images
+            if image.mode == 'RGBA':
+                # Create a white background
+                background = Image.new('RGB', image.size, (255, 255, 255))
+                # Paste using alpha channel as mask
+                background.paste(image, mask=image.split()[3])
+                image = background
+            # Handle other non-RGB modes
+            elif image.mode != 'RGB':
+                image = image.convert('RGB')
+
+            # Convert to base64
+            buffered = BytesIO()
+            image.save(buffered, format="JPEG", quality=95)
+            return base64.b64encode(buffered.getvalue()).decode('utf-8')
+        except Exception as e:
+            logging.error(f"Error converting image to base64: {e}")
+            raise
 
     def _prepare_image_data(self, image_id: str, metadata: Dict, similarity: float) -> Optional[Dict]:
         """Prepare image data from metadata."""
@@ -270,12 +373,12 @@ class ImageProcessor:
                 return None
 
             return {
-                'image': base64_image,
+                'image': base64_image,  # Base64 encoded image data
                 'image_id': image_id,
-                'caption': metadata.get('image', {}).get('caption', ''),
-                'context': metadata.get('context', ''),
+                'caption': metadata.get('image', {}).get('caption', '') or 'Similar image',
+                'context': metadata.get('context', '') or 'Related technical documentation',
                 'source': str(metadata.get('path', '')),
-                'similarity': similarity
+                'similarity': float(similarity)  # Ensure similarity is a float
             }
         except Exception as e:
             logging.error(f"Error preparing image data: {e}")

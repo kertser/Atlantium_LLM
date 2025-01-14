@@ -33,7 +33,7 @@ async function createAuthModal() {
     const passwordInput = modal.querySelector('#auth-password');
     const errorMessage = modal.querySelector('.error-message');
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
         confirmButton.onclick = () => {
             const password = passwordInput.value;
             if (password === AUTH_PASSWORD) {
@@ -61,22 +61,6 @@ async function createAuthModal() {
         document.body.appendChild(modal);
         passwordInput.focus();
     });
-}
-
-function initializeChatImageHandlers(chatImageInput, attachImageButton) {
-    // Store event listener references for cleanup
-    const imageChangeHandler = (event) => handleImageAttachment(event);
-    const attachClickHandler = () => chatImageInput.click();
-
-    // Add event listeners
-    chatImageInput.addEventListener('change', imageChangeHandler);
-    attachImageButton.addEventListener('click', attachClickHandler);
-
-    // Return cleanup function
-    return () => {
-        chatImageInput.removeEventListener('change', imageChangeHandler);
-        attachImageButton.removeEventListener('click', attachClickHandler);
-    };
 }
 
 // Helper functions (defined outside DOMContentLoaded to be available globally)
@@ -161,23 +145,29 @@ function createContextMenu(e, fileName, filePath) {
                     const authenticated = await createAuthModal();
                     if (!authenticated) return;
                 }
-                if (confirm('Are you sure you want to delete this file?')) {
-                    try {
-                        const response = await fetch(`/delete/document?path=${encodeURIComponent(filePath)}`, {
-                            method: 'DELETE'
-                        });
 
-                        if (!response.ok) {
-                            const error = await response.json();
-                            throw new Error(error.detail);
+                // Replace confirm() with createModal
+                createModal(
+                    'Delete File',
+                    `<p>Are you sure you want to delete this file?</p>`,
+                    async () => {
+                        try {
+                            const response = await fetch(`/delete/document?path=${encodeURIComponent(filePath)}`, {
+                                method: 'DELETE'
+                            });
+
+                            if (!response.ok) {
+                                const error = await response.json();
+                                throw new Error(error.detail);
+                            }
+
+                            await loadDocuments(currentFolderPath);
+                        } catch (error) {
+                            console.error('Delete file error:', error);
+                            alert(error.message || 'Failed to delete file');
                         }
-
-                        await loadDocuments(currentFolderPath);
-                    } catch (error) {
-                        console.error('Delete file error:', error);
-                        alert(error.message || 'Failed to delete file');
                     }
-                }
+                );
             }
         }
     );
@@ -363,7 +353,7 @@ function createFolderContextMenu(e, folderPath, folderName) {
                     if (!authenticated) return;
                 }
 
-                const modal = createModal(
+                createModal(
                     'Delete Folder',
                     `
                         <p>Are you sure you want to delete the folder "${folderName}" and all its contents?</p>
@@ -1145,6 +1135,22 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
+    function initializeChatImageHandlers(chatImageInput, attachImageButton) {
+        // Store event listener references for cleanup
+        const imageChangeHandler = (event) => handleImageAttachment(event);
+        const attachClickHandler = () => chatImageInput.click();
+
+        // Add event listeners
+        chatImageInput.addEventListener('change', imageChangeHandler);
+        attachImageButton.addEventListener('click', attachClickHandler);
+
+        // Return cleanup function
+        return () => {
+            chatImageInput.removeEventListener('change', imageChangeHandler);
+            attachImageButton.removeEventListener('click', attachClickHandler);
+        };
+    }
+
     async function handleSend() {
         let message = input.value.trim();
 
@@ -1388,8 +1394,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const error = await processResponse.json();
                 throw new Error(error.detail || 'Processing failed');
             }
-
-            const result = await processResponse.json();
 
             // Success handling
             processBtn.textContent = "Processing Complete";

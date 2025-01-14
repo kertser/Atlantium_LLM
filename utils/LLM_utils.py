@@ -1,11 +1,15 @@
 import logging
 import time
+import os
 from typing import Dict, Any
+from unittest.mock import patch
 
 import torch
 from fastapi import HTTPException
 from openai import OpenAI
-from transformers import CLIPProcessor, CLIPModel
+from transformers import AutoModel
+from transformers.dynamic_module_utils import get_imports
+from config import CONFIG
 
 
 def openai_post_request(messages: list, model_name: str, api_key: str, max_tokens: int = None,
@@ -92,7 +96,7 @@ def grok_post_request(messages, model_name="grok-beta", max_tokens=128, temperat
 
     """
     messages=[
-    {"role": "system", "content": "You are Grok, a chatbot inspired by the Hitchhikers Guide to the Galaxy."},
+    {"role": "assistant", "content": "You are Grok, a chatbot inspired by the Hitchhikers Guide to the Galaxy."},
     {"role": "user", "content": "What is the meaning of life, the universe, and everything?"},
     ]
     """
@@ -123,85 +127,113 @@ def grok_post_request(messages, model_name="grok-beta", max_tokens=128, temperat
     raise HTTPException(status_code=500, detail="Maximum retries reached for OpenAI API request")
 
 
-def CLIP_init(model_name="openai/clip-vit-base-patch32"):
+def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
+    """Handle unnecessary flash_attn dependency"""
+    if not str(filename).endswith("modeling_florence2.py"):
+        return get_imports(filename)
+    imports = get_imports(filename)
+    imports.remove("flash_attn")
+    return imports
+
+
+def CLIP_init(model_name="jinaai/jina-clip-v2", device_str: str = None):
+    """
+    Initialize Jina-CLIP model with detailed logging and enhanced functionality.
+
+    Args:
+        model_name (str): Name or path of the CLIP model
+        device_str (str): Optional device specification (e.g., "cpu", "cuda")
+
+    Returns:
+        tuple: (model, device) or (None, None) if initialization fails
+    """
     try:
-        # Set device (GPU if available, otherwise CPU)
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        logging.info(f"Using device: {device}")
+        # Set device
+        if device_str is None:
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            device = torch.device(device_str)
 
-        # Initialize CLIP model and processor
-        clip_model = CLIPModel.from_pretrained(model_name).to(device)
-        clip_processor = CLIPProcessor.from_pretrained(model_name)
+        logging.info(f"Initializing CLIP on device: {device}")
 
-        # Validate initialization
-        assert clip_model is not None, "CLIP model failed to load."
-        assert clip_processor is not None, "CLIP processor failed to initialize."
+        # Set dtype based on device
+        torch_dtype = torch.float16 if device.type == "cuda" else torch.float32
+
+        # Initialize model with flash_attn patch
+        with patch("transformers.dynamic_module_utils.get_imports", fixed_get_imports):
+            model = AutoModel.from_pretrained(
+                model_name,
+                trust_remote_code=True,
+                torch_dtype=torch_dtype
+            ).to(device)
+
+        if model is None:
+            raise RuntimeError("Model initialization returned None")
 
         # Set model to evaluation mode
-        clip_model.eval()
-        logging.info(f"CLIP model {model_name} initialized successfully on {device}")
+        model.eval()
 
-        return clip_model, clip_processor, device
+        logging.info("CLIP model initialized successfully")
+        return model, device
 
     except Exception as e:
-        print(f"Error initializing CLIP model: {str(e)}")
+        logging.error(f"CLIP initialization failed with error: {str(e)}")
+        logging.error("Full traceback:", exc_info=True)
+        return None, None
 
 
-def process_image_for_clip(image):
+def encode_with_clip(texts, images, model, device):
     """
-    Process an image to ensure it's in the correct format for CLIP
+    Encode texts and images using Jina-CLIP.
     """
-    try:
-        # Convert PIL Image to RGB if it isn't already
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
-        return image
-    except Exception as e:
-        print(f"Error processing image: {e}")
-        return None
-
-
-def encode_with_clip(texts, images, model, processor, device):
-    """
-    Encodes text and images using CLIP.
-    Returns: Tuple of (text_embeddings, image_embeddings) as NumPy arrays.
-    """
-    text_embeddings = []
-    image_embeddings = []
+    text_embeddings = None
+    image_embeddings = None
 
     # Encode texts
     if texts and isinstance(texts, list):
         try:
-            inputs = processor(text=texts, return_tensors="pt", padding=True, truncation=True)
-            inputs = {k: v.to(device) for k, v in inputs.items()}
             with torch.no_grad():
-                text_features = model.get_text_features(**inputs)
-                text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-                text_embeddings = text_features.cpu().detach().numpy()
+                try:
+                    text_embeddings = model.encode_text(texts)
+                except AttributeError:
+                    inputs = model.tokenizer(
+                        texts,
+                        return_tensors="pt",
+                        padding=True,
+                        truncation=True,
+                        max_length=CONFIG.CHUNK_SIZE
+                    ).to(device)
+                    text_features = model.get_text_features(**inputs)
+                    text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+                    text_embeddings = text_features
+
+                if isinstance(text_embeddings, torch.Tensor):
+                    text_embeddings = text_embeddings.cpu().numpy()
+
+                logging.debug(f"Generated text embeddings shape: {text_embeddings.shape}")
+
         except Exception as e:
-            logging.error(f"Error encoding text: {e}")
+            logging.error(f"Error encoding text: {str(e)}")
+            logging.error("Text encoding traceback:", exc_info=True)
+            raise
 
     # Encode images
     if images and isinstance(images, list):
         try:
-            processed_images = []
-            for image in images:
-                if image is None:
-                    continue
-                # Ensure image is in RGB mode
-                if image.mode != "RGB":
-                    image = image.convert("RGB")
-                processed_images.append(image)
+            with torch.no_grad():
+                try:
+                    image_embeddings = model.encode_image(images)
+                except AttributeError as e:
+                    logging.error(f"Error encoding images: {str(e)}")
 
-            if processed_images:
-                image_inputs = processor(images=processed_images, return_tensors="pt")
-                image_inputs = {k: v.to(device) for k, v in image_inputs.items()}
-                with torch.no_grad():
-                    image_features = model.get_image_features(**image_inputs)
-                    image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-                    image_embeddings = image_features.cpu().detach().numpy()
+                if isinstance(image_embeddings, torch.Tensor):
+                    image_embeddings = image_embeddings.cpu().numpy()
+
+                logging.debug(f"Generated image embeddings shape: {image_embeddings.shape}")
 
         except Exception as e:
-            logging.error(f"Error encoding images: {e}")
+            logging.error(f"Error encoding images: {str(e)}")
+            logging.error("Image encoding traceback:", exc_info=True)
+            raise
 
     return text_embeddings, image_embeddings

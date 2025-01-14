@@ -1,17 +1,19 @@
 # Ongoing Tasks / Errors:
-* Play with similarity scores to have more precise answers. Need to consider KPIs for the model.
-* Continue playing with prompts, top_K and chunking to reduce hallucinations. (May be achieved with more data)
-* Need to treat headers and footers of pdf/doc files form chinking/indexing - it is a garbage data. Similarly - prefaces, tables of content
-  One good idea is to keep this data with special metadata entry: 'block_type': position,  # 'header', 'footer', 'toc', 'content'
-  Then adding flags in the query processing to control whether to include this content and weight different content types differently in relevance scoring
-  It will provide more data in format_response function
-* Visualize the document processing with progress bar - over the "processing" button
-* Improve the search for the image and faiss metadata to retrieve the context from the documents, containing the images, similar to the attached.
-* Update methods of content treatment and chat history (including prompt templates). If the query is irrelevant to the history, do not take the history into account
-* Add prompt template for Interactive troubleshooting mode (analyze step-by-step)
-* Add option for "chat with live operator" (A button with contacts or whatsapp)
-* Add calculator results to the chat history
 
+* Visualize the document processing with progress bar - over the "processing" button (processing batches)
+* Add option for "chat with live operator" (A button with contacts or whatsapp)
+
+* Check calculator for RZ-UHP
+* Attach Image on the frontend is not not loading correctly without reset, after images been founded in query
+* Try to filter the document reference images from the search results images
+* Fix system message "localhost:9000 wants to delete" etc...
+* During the image store the images shall be saved rotated as they appear in document.
+* Check for Excel file upload errors (images)
+* Update the requirements.txt for new model usage, depending on system
+* Make "Backup" and "Restore" RAG_Data and processed files
+* Update documentation
+* Maybe processing chunks and images asynchronously?
+* implement flash-attn workaround for cpu machines
 
 # TBDs for development:
 * Add complicated reasoning (SMoA) to the model (TBD)
@@ -19,3 +21,28 @@
 * Android mobile app development (TBD)
 * Offline and fine-tuned LLMs (TBD)
 * Multimodal Input - Connect audio model (TBD)
+* Adaptive retrieval thresholds (TBD)
+
+pip install -U xformers --index-url https://download.pytorch.org/whl/cu124
+pip install ninja
+
+This is for windows: (will be available at setup_files/windows/flash_attn-2.7.1.post1+cu124torch2.5.1cxx11abiFALSE-cp312-cp312-win_amd64.whl)
+download from https://github.com/bdashore3/flash-attention/releases/download/v2.7.1.post1/flash_attn-2.7.1.post1+cu124torch2.5.1cxx11abiFALSE-cp312-cp312-win_amd64.whl
+and pip install
+
+For Linux is probably just: pip install flash-attn (probably with GPU only)
+
+
+# workaround for flash_attn:
+from unittest.mock import patch
+from transformers.dynamic_module_utils import get_imports
+
+def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
+    if not str(filename).endswith("modeling_florence2.py"):
+        return get_imports(filename)
+    imports = get_imports(filename)
+    imports.remove("flash_attn")
+    return imports
+
+with patch("transformers.dynamic_module_utils.get_imports", fixed_get_imports): #workaround for unnecessary flash_attn requirement
+            model = AutoModelForCausalLM.from_pretrained(model_path, attn_implementation="sdpa", torch_dtype=dtype,trust_remote_code=True)

@@ -30,17 +30,19 @@ import logging
 import os
 import re
 import shutil
-import subprocess
 import sys
+import asyncio
+import warnings
 from contextlib import asynccontextmanager
 from dataclasses import field
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Optional, List, Dict, Tuple, Any
+from typing import Optional, List, Dict, Any
 from urllib.parse import unquote
 
 import faiss
+import torch
 from PIL import Image
 from dotenv import load_dotenv
 from fastapi import Body
@@ -53,7 +55,7 @@ from pydantic import BaseModel
 
 from config import CONFIG
 from models.prompt_manager import PromptLoader, PromptBuilder
-from models.image_processor import ImageProcessor
+from models.image_processor import ImageProcessor, ImageClassifier
 from utils.FAISS_utils import load_faiss_index, load_metadata, query_with_context
 from utils.LLM_utils import CLIP_init, openai_post_request
 from utils.document_utils import (
@@ -64,11 +66,16 @@ from utils.document_utils import (
     validate_folder_name,
     rescan_documents,
 )
+from utils.img_utils import ImageProcessor as ImageUtils
 from models.agents.agent_manager import AgentManager
 from models.agents.websearch_agent import WebSearchAgent
+from RAG_processor import document_processing_sequence
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
+
+# Disable the UserWarning from Flash-Attention (GPU capabilities >8.0)
+warnings.simplefilter("ignore", UserWarning)
 
 # Setup logging
 logging.basicConfig(
@@ -84,6 +91,7 @@ logging.basicConfig(
         )
     ]
 )
+logger = logging.getLogger(__name__)
 
 
 def clean_path(path: str) -> str:
@@ -104,6 +112,37 @@ def clean_path(path: str) -> str:
     # Normalize path separators
     normalized = cleaned.replace('\\', os.path.sep).replace('/', os.path.sep)
     return normalized
+
+
+def validate_and_update_path(file_path, prefix: str = "DOC"):
+    """
+    Helper function - Validates if the file name matches the format XXXXXX-filename.extension.
+    If not, assigns a new unique ID based on the current date-time and returns the updated path.
+    """
+    # Convert to Path object for consistent handling
+    path = Path(file_path)
+    directory = path.parent
+    filename = path.stem
+    extension = path.suffix
+    full_filename = path.name
+
+    # Define the regex pattern for validation
+    pattern = r"^[a-zA-Z0-9]{6}-.+\..+$"
+
+    # Check if the file name matches the pattern
+    if re.match(pattern, full_filename):
+        return str(path)
+
+    # Generate a new unique ID
+    unique_id = prefix + datetime.now().strftime("%d%m%y%H%M")
+
+    # Create the new file name
+    new_filename = f"{unique_id}-{filename}{extension}"
+
+    # Construct the updated path
+    updated_path = directory / new_filename
+
+    return str(updated_path)
 
 
 class NoCacheStaticFiles(StaticFiles):
@@ -173,113 +212,187 @@ class EnhancedResponseFormatter:
     def __init__(self):
         self.prompt_builder = PromptBuilder()
 
-    def prepare_prompt(self, query_text: str, contexts: List[str], query_type: QueryType, images: List[Dict]) -> str:
-        return self.prompt_builder.build_chat_prompt(query_text, contexts, images, [], query_type.is_technical)
-
-    def prepare_messages(self, prompt: str) -> List[Dict[str, str]]:
-        return self.prompt_builder.build_messages(prompt)
-
     @staticmethod
-    def format_response(content: str) -> str:
+    def format_response(content: str, chunk_metadata: List[Dict] = None) -> str:
+        """
+        Format the response text with proper styling and document references.
+
+        Args:
+            content (str): The raw content to format
+            chunk_metadata (List[Dict], optional): Metadata from text chunks containing document information
+
+        Returns:
+            str: Formatted content with proper styling and document references
+        """
 
         def process_document_references(text: str) -> str:
+            """
+            Process document references using metadata from text chunks and processed files.
+
+            Args:
+                text (str): The text containing document references
+            """
             try:
-                # Load processed files
-                with open("processed_files.json", 'r', encoding='utf-8') as f:
+                # Load processed files for fallback
+                processed_files_path = CONFIG.PROCESSED_FILES_PATH
+                if not processed_files_path.exists():
+                    logging.warning("processed_files file not found")
+                    return text
+
+                with processed_files_path.open('r', encoding='utf-8') as f:
                     processed_files = json.load(f)
 
-                def find_matching_path(doc_ref: str) -> str:
-                    # Remove spaces from the reference
-                    search_term = doc_ref.replace(' ', '')
-                    # logging.info(f"Looking for document reference: {search_term}")
+                # Create document mapping from metadata
+                doc_mapping = {}
 
-                    for file_path in processed_files:
-                        # Normalize path separators
-                        norm_path = file_path.replace('\\', '/')
-                        clean_path = norm_path.replace(' ', '')
-                        if search_term in clean_path:
-                            # Extract path relative to Raw Documents
-                            if 'Raw Documents/' in norm_path:
-                                relative_path = norm_path.split('Raw Documents/')[1]
-                                # logging.info(f"Found matching path: {relative_path}")
-                                return relative_path
-                    # logging.info(f"No matching path found for {search_term}")
-                    return ''
+                # First, build mapping from chunk metadata if available
+                if chunk_metadata:
+                    for meta in chunk_metadata:
+                        if isinstance(meta, dict) and 'path' in meta:
+                            # Get the full path
+                            full_path = str(meta['path'])
+                            # Extract filename
+                            filename = os.path.basename(full_path)
+                            # Extract unique document ID
+                            match = re.match(r'^([A-Za-z0-9]+)-', filename)
+                            if match:
+                                doc_id = match.group(1)
+                                # Store both ID and full path
+                                doc_mapping[doc_id] = {
+                                    'filename': filename,
+                                    'path': full_path,
+                                    'relative_path': full_path.split('Raw Documents/')[-1]
+                                    if 'Raw Documents/' in full_path
+                                    else full_path
+                                }
+                                logging.debug(f"Added document mapping from metadata: {doc_id} -> {filename}")
 
-                # Find and replace document references
-                pattern = r'""([^"]+)""'
+                # Fallback to processed_files for any missing mappings
+                for file_path in processed_files:
+                    if not isinstance(file_path, str):
+                        continue
 
-                def replacement(match):
-                    doc_ref = match.group(1)
-                    rel_path = find_matching_path(doc_ref)
-                    if rel_path:
-                        # Create an onclick handler that calls openDocument
-                        return f'<a href="javascript:void(0)" onclick="openDocument(\'{rel_path}\')" class="doc-link">{doc_ref}</a>'
-                    # Return just the reference text without double-double quotes if no match found
+                    norm_path = file_path.replace('\\', '/')
+                    filename = os.path.basename(norm_path)
+                    match = re.match(r'^([A-Za-z0-9]+)-', filename)
+                    if match:
+                        doc_id = match.group(1)
+                        if doc_id not in doc_mapping:
+                            relative_path = (norm_path.split('Raw Documents/')[1]
+                                             if 'Raw Documents/' in norm_path
+                                             else norm_path)
+                            doc_mapping[doc_id] = {
+                                'filename': filename,
+                                'path': norm_path,
+                                'relative_path': relative_path
+                            }
+                            logging.debug(f"Added document mapping from processed files: {doc_id} -> {filename}")
+
+                def replacement(ref_match):
+                    doc_ref = ref_match.group(1).strip()
+                    # Find the full path for this document ID
+                    fullpath = None
+
+                    for filepath in processed_files:
+                        normpath = filepath.replace('\\', '/')
+                        # Get filename without path
+                        file_name = os.path.basename(normpath)
+                        # Check if filename starts with the document ID
+                        if file_name.startswith(f"{doc_ref}-"):
+                            if 'Raw Documents/' in normpath:
+                                fullpath = normpath.split('Raw Documents/')[1]
+                            else:
+                                fullpath = normpath
+                            break
+
+                    if fullpath:
+                        # Use the full filename in the display text
+                        display_text = os.path.basename(fullpath)
+                        safe_path = fullpath.replace("'", "\\'")
+                        return f'<a href="javascript:void(0)" onclick="openDocument(\'{safe_path}\')" class="doc-link">{display_text}</a>'
+
+                    # Return the original reference if no match found
+                    logging.debug(f"No match found for document: {doc_ref}")
                     return doc_ref
 
-                # Replace all document references
+                # Find and replace document references
+                pattern = r'\[ref](.*?)\[/ref]'
                 text = re.sub(pattern, replacement, text)
                 return text
 
-            except Exception as e:
-                logging.error(f"Error processing document references: {e}")
+            except Exception as err:
+                logging.error(f"Error processing document references: {err}", exc_info=True)
                 return text
 
         def clean_text(text: str) -> str:
-            # Clean up excess whitespace while preserving structure
+            """Clean up excess whitespace while preserving structure."""
             text = re.sub(r'\s*\n\s*\n\s*\n+', '\n\n', text)
             text = re.sub(r'[ \t]+', ' ', text)
             return text.strip()
 
-        def format_lists(content: str) -> str:
+        def format_lists(list_content: str) -> str:
+            """Format lists with proper spacing and indentation."""
             # Add <br> before valid numbered list items
-            content = re.sub(r'([^\n])\s*(\d+\.\s+(?=[A-Za-z]))', r'\1<br>\2', content)
+            list_content = re.sub(r'([^\n])\s*(\d+\.\s+(?=[A-Za-z]))', r'\1<br>\2', list_content)
             # Add <br> before headers
-            content = re.sub(r'([^\n])\s*(#{2,3}\s+)', r'\1<br>\2', content)
+            list_content = re.sub(r'([^\n])\s*(#{2,3}\s+)', r'\1<br>\2', list_content)
             # Format bullet points with proper indentation
-            content = re.sub(r'(?m)^[•\-]\s*', r'  • ', content)
+            list_content = re.sub(r'(?m)^[•\-]\s*', r'  • ', list_content)
             # Remove bullet points from bold text items with bullets
-            content = re.sub(r'\*\*\s*•\s*', r'• ', content)
+            list_content = re.sub(r'\*\*\s*•\s*', r'• ', list_content)
             # Format numbered lists with proper indentation
-            content = re.sub(r'(?m)^(\d+\.\s+)(\*\*.*?\*\*)', r'    \1\2', content)
+            list_content = re.sub(r'(?m)^(\d+\.\s+)(\*\*.*?\*\*)', r'    \1\2', list_content)
             # Ensure line breaks between list items
-            content = re.sub(r'(?<!<br>)(\d+\.\s+)(\*\*.*?\*\*)', r'<br>\1\2', content)
-            return content
+            list_content = re.sub(r'(?<!<br>)(\d+\.\s+)(\*\*.*?\*\*)', r'<br>\1\2', list_content)
+            return list_content
 
-        def apply_emphasis(content: str) -> str:
+        def apply_emphasis(emphasis_content: str) -> str:
+            """Apply emphasis formatting while preserving document references."""
+            # First, temporarily protect [ref] tags
+            emphasis_content = re.sub(r'\[ref](.*?)\[/ref]', r'PRESERVED_REF{\1}PRESERVED_REF', emphasis_content)
             # Replace **text** and *text* with HTML-like formatting
-            content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', content)
-            content = re.sub(r'\*(.*?)\*', r'<em>\1</em>', content)
-            return content
+            emphasis_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', emphasis_content)
+            emphasis_content = re.sub(r'\*(.*?)\*', r'<em>\1</em>', emphasis_content)
+            # Restore [ref] tags
+            emphasis_content = re.sub(r'PRESERVED_REF{(.*?)}PRESERVED_REF', r'[ref]\1[/ref]', emphasis_content)
+            return emphasis_content
 
-        def format_section(title: str, content: str) -> str:
-            # Format section with consistent spacing
-            formatted_content = clean_text(content)
-            formatted_content = process_document_references(formatted_content)
-            formatted_content = format_lists(formatted_content)
-            formatted_content = apply_emphasis(formatted_content)
-            return f"# {title}\n\n{formatted_content}"
+        def format_section(title: str, section_content: str) -> str:
+            """Format a section with all necessary formatting applied."""
+            try:
+                formatted_content = clean_text(section_content)
+                formatted_content = format_lists(formatted_content)
+                formatted_content = apply_emphasis(formatted_content)
+                formatted_content = process_document_references(formatted_content)
+                return f"# {title}\n\n{formatted_content}"
+            except Exception as err:
+                logging.error(f"Error formatting section '{title}': {err}", exc_info=True)
+                return f"# {title}\n\n{section_content}"
 
-        # Process the content
-        sections = []
-        current_title = "Reply"
-        current_content = []
+        try:
+            # Process the content
+            sections = []
+            current_title = "Reply"
+            current_content = []
 
-        for line in content.split('\n'):
-            line = line.strip()
-            if line.startswith('#'):
-                if current_content:
-                    sections.append(format_section(current_title, '\n'.join(current_content)))
-                current_title = line.lstrip('#').strip()
-                current_content = []
-            elif line:
-                current_content.append(line)
+            for line in content.split('\n'):
+                line = line.strip()
+                if line.startswith('#'):
+                    if current_content:
+                        sections.append(format_section(current_title, '\n'.join(current_content)))
+                    current_title = line.lstrip('#').strip()
+                    current_content = []
+                elif line:
+                    current_content.append(line)
 
-        if current_content:
-            sections.append(format_section(current_title, '\n'.join(current_content)))
+            if current_content:
+                sections.append(format_section(current_title, '\n'.join(current_content)))
 
-        return '\n\n'.join(sections)
+            return '\n\n'.join(sections)
+
+        except Exception as e:
+            logging.error(f"Error formatting response: {e}", exc_info=True)
+            return content  # Return original content if formatting fails
 
 
 class RAGQueryServer:
@@ -299,7 +412,7 @@ class RAGQueryServer:
         self.client = OpenAI(api_key=self.openai_api_key)
 
         # Initialize CLIP model
-        self.model, self.processor, self.device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
+        self.model, self.device = CLIP_init(CONFIG.CLIP_MODEL_NAME)
 
         self.prompt_loader = PromptLoader()
         self.formatter = EnhancedResponseFormatter()
@@ -309,10 +422,16 @@ class RAGQueryServer:
         self.image_processor = ImageProcessor(
             openai_client=self.client,
             model=self.model,
-            processor=self.processor,
             device=self.device,
             formatter=self.formatter
         )
+        self.image_classifier = ImageClassifier(
+            model=self.model,
+            device=self.device,
+        )
+
+        # Load processed files from metadata
+        self.processed_files = self._load_processed_files()
 
         # Initialize index and chat history
         self._initialize_index()
@@ -321,6 +440,21 @@ class RAGQueryServer:
         logging.info(
             f"Server initialized with {len([m for m in self.metadata if m.get('type') == 'image'])} images in metadata"
         )
+
+    @staticmethod
+    def _load_processed_files() -> List[str]:
+        """Load the list of processed files from metadata."""
+        try:
+            metadata_path = CONFIG.PROCESSED_FILES_PATH  # Make sure this is defined in your config
+            if os.path.exists(metadata_path):
+                with open(metadata_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            else:
+                logging.warning(f"No processed files metadata found at {metadata_path}")
+                return []
+        except Exception as e:
+            logging.error(f"Error loading processed files metadata: {e}")
+            return []
 
     def _initialize_index(self):
         """Initialize or load existing FAISS index and metadata."""
@@ -341,12 +475,18 @@ class RAGQueryServer:
             # GPT prompt messages
             messages = [
                 {
-                    "role": "assistant",
-                    "content": """Analyze queries to determine their type. Consider:
-                        - Query domain (technical, summary, overview or general knowledge)
-                        - Reply with the following types: overview, technical, summary, general
-                        - Choose only one, most relevant type based on the query
-                        Analyze the full semantic meaning of the query."""
+                    "role": "system",
+                    "content": """
+                        You are a classification specialist trained to identify the nature of queries.
+                        Analyze each query thoroughly based on its semantic content and classify it into one of the following categories:
+                        - "technical" for detailed technical questions or issues
+                        - "summary" for requests to summarize technical topics
+                        - "overview" for high-level descriptions of technical concepts or specifications
+                        - "general" for non-technical or unrelated questions
+
+                        Always select the single most appropriate category. Only classify a query as "general" if it is clearly unrelated to the other types.
+                        Ensure your decision is based on the query's full meaning and context.
+                    """
                 },
                 {
                     "role": "user",
@@ -356,7 +496,7 @@ class RAGQueryServer:
 
             response = openai_post_request(
                 messages=messages,
-                model_name=CONFIG.GPT_MODEL,
+                model_name=CONFIG.BASE_LLM_MODEL,
                 max_tokens=CONFIG.SUMMARY_MAX_TOKENS,
                 temperature=0,
                 api_key=self.openai_api_key
@@ -365,13 +505,35 @@ class RAGQueryServer:
             # Extract and parse response content
             classification = response['choices'][0]['message']['content'].strip()
 
-            # Define logic to set attributes dynamically based on classification
-            return QueryType(
-                is_overview="overview" in classification,
-                is_technical="technical" in classification,
-                is_summary="summary" in classification,
-                is_general="general" in classification
-            )
+            # Default is_technical:
+            if classification == "overview":
+                return QueryType(
+                    is_overview=True,
+                    is_technical=False,
+                    is_summary=False,
+                    is_general=False
+                )
+            elif classification == "summary":
+                return QueryType(
+                    is_overview=False,
+                    is_technical=False,
+                    is_summary=True,
+                    is_general=False
+                )
+            elif classification == "general":
+                return QueryType(
+                    is_overview=False,
+                    is_technical=False,
+                    is_summary=False,
+                    is_general=True
+                )
+            else:
+                return QueryType(
+                    is_overview=False,
+                    is_technical=True,
+                    is_summary=False,
+                    is_general=False
+                )
 
         except Exception as e:
             logging.error(f"Error determining query type: {e}")
@@ -383,43 +545,8 @@ class RAGQueryServer:
                 is_general=True  # Default fallback assumption
             )
 
-    async def get_relevant_contexts(self, results: List[Dict], query_text: str) -> Tuple[List[str], List[Dict]]:
-        """Get relevant contexts and images from search results."""
-        if not results or not results[0]:
-            logging.info("No results found")
-            return [], []
-
-        try:
-            relevant_contexts = []
-            relevant_images = []
-
-            for result in results[0]:
-                metadata = result['metadata']
-                similarity = 1 - (result['distance'] / 2)
-
-                # Process text chunks
-                if metadata.get('type') == 'text-chunk':
-                    if similarity > CONFIG.SIMILARITY_THRESHOLD and 'get_content' in metadata:
-                        chunk_text = metadata['get_content']()
-                        if chunk_text:
-                            relevant_contexts.append(chunk_text.strip())
-
-                # Process images using ImageProcessor
-                elif metadata.get('type') == 'image' and similarity > CONFIG.IMAGE_SIMILARITY_THRESHOLD:
-                    processed_images = await self._process_image_result(result, query_text)
-                    if processed_images:
-                        relevant_images.extend(processed_images)
-
-            relevant_images.sort(key=lambda x: x['similarity'], reverse=True)
-            logging.info(f"Final results: {len(relevant_contexts)} contexts, {len(relevant_images)} images")
-            return relevant_contexts, relevant_images
-
-        except Exception as e:
-            logging.error(f"Error in get_relevant_contexts: {e}", exc_info=True)
-            return [], []
-
     async def _process_image_result(self, result: Dict, query_text: str) -> List[Dict]:
-        """Process individual image search result."""
+        """Process individual image search result to extract basic image information."""
         try:
             metadata = result['metadata']
             image_id = (metadata.get('image', {}).get('id') or
@@ -428,24 +555,7 @@ class RAGQueryServer:
             if not image_id:
                 return []
 
-            image, img_metadata = self.image_processor.image_store.get_image(image_id)
-            if not image:
-                return []
-
-            # Calculate content similarity
-            content_similarity = await self._calculate_image_similarity(
-                image,
-                query_text,
-                result['distance']
-            )
-
-            # Get technical context through ImageProcessor
-            technical_context = await self.image_processor.analyze_technical_context({
-                'image': image,
-                'metadata': metadata
-            })
-
-            # Get base64 image
+            # Get base64 image directly
             base64_image = self.image_processor.image_store.get_base64(image_id)
             if not base64_image:
                 return []
@@ -456,9 +566,9 @@ class RAGQueryServer:
                 'caption': metadata.get('image', {}).get('caption', ''),
                 'context': query_text,
                 'source': str(metadata.get('path', '')),
-                'similarity': content_similarity['similarity'],
-                'semantic_similarity': content_similarity['semantic_similarity'],
-                'technical_details': technical_context
+                'similarity': 1.0,  # Default value since we're not calculating similarity
+                'semantic_similarity': 1.0,  # Default value since we're not calculating similarity
+                'technical_details': {}  # Empty dict since we're not analyzing technical context
             }]
 
         except Exception as e:
@@ -467,40 +577,21 @@ class RAGQueryServer:
 
     async def _calculate_image_similarity(self, image: Image.Image, query_text: str, distance: float) -> Dict:
         """Calculate image-text similarity using CLIP embeddings."""
-        try:
-            image_input = self.processor(images=image, return_tensors="pt").to(self.device)
-            image_embedding = self.model.get_image_features(**image_input)
-            image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
-
-            query_input = self.processor(
-                text=[query_text],
-                return_tensors="pt",
-                padding=True,
-                truncation=True,
-                max_length=77
-            )
-            query_input = {k: v.to(self.device) for k, v in query_input.items()}
-            query_embedding = self.model.get_text_features(**query_input)
-            query_embedding = query_embedding / query_embedding.norm(dim=-1, keepdim=True)
-
-            semantic_similarity = (query_embedding @ image_embedding.T).item()
-            content_similarity = (semantic_similarity + (1 - distance / 2)) / 2
-
-            return {
-                'similarity': content_similarity,
-                'semantic_similarity': semantic_similarity
-            }
-
-        except Exception as e:
-            logging.error(f"Error calculating image similarity: {e}")
-            return {'similarity': 0, 'semantic_similarity': 0}
+        return await ImageUtils.calculate_image_similarity(
+            image=image,
+            query_text=query_text,
+            distance=distance,
+            model=self.model,
+            device=self.device
+        )
 
     async def _get_referenced_images(self, response_text: str) -> List[Dict]:
         """Get images from documents referenced in the response text."""
+        # Meanwile disabled
         try:
-            # Extract document references using double-double quotes pattern
+            # Extract document references using pattern
             referenced_docs = set()
-            matches = re.finditer(r'""([^"]+)""', response_text)
+            matches = re.finditer(r'\[ref](.*?)\[/ref]', response_text)
 
             for match in matches:
                 doc_ref = match.group(1).strip()
@@ -518,7 +609,7 @@ class RAGQueryServer:
                 image_metadata = json.load(f)
 
             # Get images from referenced documents
-            relevant_images = []
+            image_candidates = []
             processed_ids = set()
 
             for image_id, img_data in image_metadata.items():
@@ -544,21 +635,52 @@ class RAGQueryServer:
                                         'width': img_data.get('width'),
                                         'height': img_data.get('height')
                                     }
-                                    relevant_images.append(image_info)
+                                    image_candidates.append(image_info)
                                     processed_ids.add(image_id)
                                     logging.info(f"Added image {image_id} from document {source_doc}")
                             except Exception as e:
                                 logging.error(f"Error processing image {image_id}: {e}")
                             break
 
-            logging.info(f"Found {len(relevant_images)} images from {len(referenced_docs)} referenced documents")
-            return relevant_images
+            if not image_candidates:
+                logging.info("No images found in referenced documents")
+                return []
+
+            try:
+                # Use ImageClassifier to rank images by relevance
+                if hasattr(self, 'image_classifier'):
+                    ranked_images = self.image_classifier.rank_images_by_relevance(
+                        image_store=self.image_processor.image_store,
+                        images=image_candidates,
+                        query_text=response_text
+                    )
+                    logging.info(f"Selected {len(ranked_images)} most relevant images")
+                    return ranked_images[:13]  # Limit to 12 most relevant images
+                else:
+                    logging.info("No image classifier available, returning unranked images")
+                    return image_candidates[:13]  # Return first 12 images if no classifier
+
+            except Exception as e:
+                logging.error(f"Error ranking images: {e}", exc_info=True)
+                return image_candidates[:13]  # Fallback to first 12 images if ranking fails
 
         except Exception as e:
             logging.error(f"Error getting images from response: {e}")
             return []
 
-    async def process_text_query(self, query_text: str, top_k: int = CONFIG.DEFAULT_TOP_K) -> QueryResponse:
+    @staticmethod
+    def _extract_document_references(chunk_metadata: List[Dict]) -> List[str]:
+        """Extract unique document IDs from chunk metadata."""
+        doc_refs = set()
+        for meta in chunk_metadata:
+            if isinstance(meta, dict) and 'path' in meta:
+                filename = os.path.basename(meta['path'])
+                match = re.match(r'^([A-Za-z0-9]+)-', filename)
+                if match:
+                    doc_refs.add(match.group(1))
+        return sorted(list(doc_refs))
+
+    async def process_text_query(self, query_text: str) -> QueryResponse:
         """Process a text query and return response with relevant images."""
         try:
             if not self.metadata:
@@ -599,10 +721,8 @@ class RAGQueryServer:
                 index=self.index,
                 metadata=self.metadata,
                 model=self.model,
-                processor=self.processor,
                 device=self.device,
                 text_query=query_text,
-                top_k=top_k
             )
 
             if not results:
@@ -611,16 +731,30 @@ class RAGQueryServer:
                     images=[]
                 )
 
-            # Get contexts and process special cases
-            contexts, initial_images = await self.get_relevant_contexts(results, query_text)
+            contexts = []
+            initial_images = []
+            chunk_metadata = []
+
+            if results and results[0]:
+                for result in results[0]:
+                    metadata = result['metadata']
+                    if metadata.get('type') == 'text-chunk' and 'get_content' in metadata:
+                        contexts.append(metadata['get_content']().strip())
+                        chunk_metadata.append(metadata)
+                    elif metadata.get('type') == 'image':
+                        processed_images = await self._process_image_result(result, query_text)
+                        if processed_images:
+                            initial_images.extend(processed_images)
+
+            # Extract document references from chunk metadata
+            available_refs = self._extract_document_references(chunk_metadata)
 
             query_type = await self.determine_query_type(query_text)
 
-            # if no contexts or general question: return websearch results
+            # if no contexts OR general question: return websearch results
             if not contexts or query_type.is_general:
                 contexts = self._create_no_results_response(query_text)
-
-            logging.info("query types: %s", query_type)
+                initial_images = []  # Drop the images, found in RAG, they are unrelated to the websearch
 
             # Get chat history with proper formatting
             formatted_history = self.get_chat_history()
@@ -629,8 +763,8 @@ class RAGQueryServer:
                 query_text=query_text,
                 contexts=contexts,
                 images=initial_images,
-                # chat_history=[],  # No history for this query
                 chat_history=formatted_history,
+                available_refs=available_refs,
                 is_technical=query_type.is_technical,
                 is_summary=query_type.is_summary,
                 is_overview=query_type.is_overview
@@ -642,8 +776,8 @@ class RAGQueryServer:
             # Get response from OpenAI
             response = openai_post_request(
                 messages=messages,
-                model_name=CONFIG.GPT_MODEL,
-                max_tokens=CONFIG.DETAIL_MAX_TOKENS,
+                model_name=CONFIG.BASE_LLM_MODEL,
+                max_tokens=CONFIG.DETAIL_MAX_TOKENS,  # Detail? Why not general?
                 temperature=CONFIG.TEMPERATURE,
                 api_key=self.openai_api_key
             )
@@ -652,7 +786,9 @@ class RAGQueryServer:
             text_response = response['choices'][0]['message']['content'].strip()
 
             # Get images from referenced documents using the image processor
-            referenced_images = await self._get_referenced_images(text_response)
+            # referenced_images = await self._get_referenced_images(text_response)
+            # Meanwhile disabling this feature
+            referenced_images = []
 
             # Combine and deduplicate images using the image processor
             all_images = initial_images + referenced_images if initial_images else referenced_images
@@ -661,7 +797,7 @@ class RAGQueryServer:
                                                                                CONFIG.DEDUPLICATION_THRESHOLD)
 
             # Format the response text
-            formatted_response = self.formatter.format_response(text_response)
+            formatted_response = self.formatter.format_response(text_response, chunk_metadata)
 
             # Update chat history
             self.update_chat_history(query_text, formatted_response)
@@ -750,7 +886,26 @@ async def lifespan(app: FastAPI):
     # Shutdown logic
     logging.info("Shutting down RAG Query Server...")
 
+# ------------------------------
+# FASTAPI init:
+# -------------------------------
 
+# Configure event loop policy before any async operations
+if sys.platform == 'win32':
+    try:
+        from asyncio import WindowsSelectorEventLoopPolicy, WindowsProactorEventLoopPolicy
+
+        # Try to use the Selector event loop policy first
+        if hasattr(asyncio, 'WindowsSelectorEventLoopPolicy'):
+            asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())
+        else:
+            # Fallback to Proactor but with modified pipe implementation
+            policy = WindowsProactorEventLoopPolicy()
+            asyncio.set_event_loop_policy(policy)
+
+        logger.info("Windows event loop policy configured successfully")
+    except Exception as e:
+        logger.warning(f"Failed to set Windows event loop policy: {e}")
 # Initialize FastAPI app
 app = FastAPI(lifespan=lifespan, title="Atlantium RAG API")
 
@@ -768,6 +923,9 @@ server = RAGQueryServer()
 
 # Serve static files
 app.mount("/static", NoCacheStaticFiles(directory="static"), name="static")
+
+# Serve document files from RAW_DOCUMENTS_PATH
+app.mount("/files", StaticFiles(directory=str(CONFIG.RAW_DOCUMENTS_PATH)), name="files")
 
 
 # API endpoints
@@ -855,7 +1013,24 @@ async def image_query(
             raise HTTPException(status_code=400, detail="File size too large")
 
         # Process using the base method
-        return await server.process_image_query(contents, query)
+        result = await server.process_image_query(contents, query)
+
+        # Log the similar images for debugging
+        similar_images = result.get('similar_images', [])
+
+        # Structure response to include similar images
+        response = {
+            "status": "success",
+            "response": {
+                "text_response": result.get('response', ''),
+                "is_technical": result.get('is_technical', False),
+                "confidence": result.get('confidence', 0),
+                "images": similar_images,  # Changed from similar_images to images to match frontend expectation
+                "document_references": result.get('document_references', [])
+            }
+        }
+
+        return JSONResponse(content=response)
 
     except Exception as e:
         logging.error(f"Error processing image: {str(e)}", exc_info=True)
@@ -866,20 +1041,13 @@ async def image_query(
 async def upload_document(file: UploadFile, folder: str = Form("")):
     """
     Handles uploading of documents to a specified folder on the server.
-
-    Args:
-        file (UploadFile): The file to be uploaded.
-        folder (str): The target folder for the upload.
-
-    Returns:
-        dict: A success status and the relative path of the saved file.
     """
     try:
         # Clean and decode the folder path
         clean_folder = clean_path(folder)
 
         # Create full target directory path
-        target_dir = CONFIG.RAW_DOCUMENTS_PATH
+        target_dir = Path(CONFIG.RAW_DOCUMENTS_PATH)
         if clean_folder:
             target_dir = target_dir / clean_folder
             # Ensure target directory exists and is within RAW_DOCUMENTS_PATH
@@ -898,7 +1066,10 @@ async def upload_document(file: UploadFile, folder: str = Form("")):
             raise HTTPException(status_code=400, detail="Unsupported file type")
 
         # Create full path for the file
-        dest_path = target_dir / sanitized_filename
+        dest_path = Path(target_dir) / sanitized_filename
+
+        # Rename the file if necessary, to keep the proper format
+        dest_path = Path(validate_and_update_path(str(dest_path)))
 
         # Avoid overwriting existing files
         if dest_path.exists():
@@ -927,32 +1098,13 @@ async def upload_document(file: UploadFile, folder: str = Form("")):
     except Exception as e:
         logging.error(f"Unexpected error during upload: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
-
-
-def update_processed_files(doc_paths):
-    """Update the list of successfully processed files"""
-    processed_files_path = Path("processed_files.json")
-    try:
-        if processed_files_path.exists():
-            with open(processed_files_path, 'r') as f:
-                processed_files = set(json.load(f))
-        else:
-            processed_files = set()
-
-        # Add new files
-        processed_files.update([str(unquote(path)) for path in doc_paths])
-
-        # Save updated list
-        with open(processed_files_path, 'w') as f:
-            json.dump(list(processed_files), f)
-
-    except Exception as e:
-        logging.error(f"Error updating processed files list: {e}")
+    finally:
+        if 'file' in locals():
+            await file.close()
 
 
 def check_processing_status():
     """Check if all necessary files and data exist after processing"""
-    logger = logging.getLogger(__name__)
     try:
         # Check required paths
         if not CONFIG.METADATA_PATH.exists():
@@ -996,17 +1148,21 @@ def check_processing_status():
 
 
 @app.post("/process/documents")
-@app.post("/process/documents")
 async def process_documents():
     """
     Process documents asynchronously while maintaining metadata persistence.
     Returns a status response indicating success or failure.
     """
-    logger = logging.getLogger(__name__)
     try:
         logger.info("Starting document processing...")
 
-        # Load existing metadata before processing
+        # Load existing index and metadata before processing
+        if CONFIG.FAISS_INDEX_PATH.exists():
+            server.index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
+            logger.info(f"Loaded FAISS index with {server.index.ntotal} vectors")
+        else:
+            logger.warning("No existing FAISS index found")
+
         existing_metadata = []
         if CONFIG.METADATA_PATH.exists():
             try:
@@ -1016,41 +1172,27 @@ async def process_documents():
             except Exception as e:
                 logger.warning(f"Could not load existing metadata: {e}")
 
-        # Run RAG_processor.py with proper encoding environment variable
-        process = subprocess.Popen(
-            [sys.executable, 'RAG_processor.py'],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env={
-                **os.environ,
-                "PYTHONIOENCODING": "utf-8"
-            }
-        )
+        # Run document processing sequence with proper async handling
+        try:
+            # Create a background task for processing
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                document_processing_sequence,
+                server.model,
+                server.index,
+                existing_metadata
+            )
 
-        stdout, stderr = process.communicate()
+            # Check return code
+            if result != 0:
+                error_msg = "Document processing failed"
+                logger.error(error_msg)
+                raise HTTPException(status_code=500, detail=error_msg)
 
-        # Process and log stdout
-        if stdout:
-            for line in stdout.splitlines():
-                if 'ERROR' in line:
-                    logger.error(line)
-                else:
-                    logger.info(line)
-
-        # Process and log stderr
-        if stderr:
-            for line in stderr.splitlines():
-                if 'ERROR' in line:
-                    logger.error(f"Processing error: {line}")
-                else:
-                    logger.info(line)
-
-        # Check return code
-        if process.returncode != 0:
-            error_msg = f"Process failed with code {process.returncode}"
-            logger.error(error_msg)
-            raise HTTPException(status_code=500, detail=error_msg)
+        except Exception as e:
+            logger.error(f"Error during document processing: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
 
         # Verify the results
         success, message = check_processing_status()
@@ -1060,46 +1202,47 @@ async def process_documents():
 
         # Merge new metadata with existing metadata
         try:
-            # Load newly processed metadata
-            with open(CONFIG.METADATA_PATH, 'r', encoding='utf-8') as f:
-                new_metadata = json.load(f)
+            async with asyncio.Lock():  # Use lock for file operations
+                # Load newly processed metadata
+                with open(CONFIG.METADATA_PATH, 'r', encoding='utf-8') as f:
+                    new_metadata = json.load(f)
 
-            # Helper function to generate unique key for metadata entry
-            def get_entry_key(entry):
-                if entry.get('type') == 'image':
-                    return f"image_{entry.get('image', {}).get('id')}"
-                elif entry.get('type') == 'text-chunk':
-                    return f"chunk_{entry.get('path')}_{entry.get('chunk')}"
-                else:
-                    content_str = json.dumps(entry.get('content', {}), sort_keys=True)
-                    return f"other_{hashlib.md5(content_str.encode()).hexdigest()}"
+                # Helper function to generate unique key for metadata entry
+                def get_entry_key(element_entry):
+                    if element_entry.get('type') == 'image':
+                        return f"image_{element_entry.get('image', {}).get('id')}"
+                    elif element_entry.get('type') == 'text-chunk':
+                        return f"chunk_{element_entry.get('path')}_{element_entry.get('chunk')}"
+                    else:
+                        content_str = json.dumps(element_entry.get('content', {}), sort_keys=True)
+                        return f"other_{hashlib.md5(content_str.encode()).hexdigest()}"
 
-            # Use dictionary for O(1) lookups
-            merged_metadata = {}
+                # Use dictionary for O(1) lookups
+                merged_metadata = {}
 
-            # Add existing metadata first
-            for entry in existing_metadata:
-                entry_key = get_entry_key(entry)
-                merged_metadata[entry_key] = entry
-
-            # Add new metadata
-            for entry in new_metadata:
-                entry_key = get_entry_key(entry)
-                if entry_key not in merged_metadata:
+                # Add existing metadata first
+                for entry in existing_metadata:
+                    entry_key = get_entry_key(entry)
                     merged_metadata[entry_key] = entry
 
-            # Convert back to list
-            final_metadata = list(merged_metadata.values())
+                # Add new metadata
+                for entry in new_metadata:
+                    entry_key = get_entry_key(entry)
+                    if entry_key not in merged_metadata:
+                        merged_metadata[entry_key] = entry
 
-            # Save merged metadata
-            with open(CONFIG.METADATA_PATH, 'w', encoding='utf-8') as f:
-                json.dump(final_metadata, f, ensure_ascii=False, indent=2)
+                # Convert back to list
+                final_metadata = list(merged_metadata.values())
 
-            logger.info(f"Successfully merged metadata: {len(final_metadata)} total entries")
+                # Save merged metadata
+                with open(CONFIG.METADATA_PATH, 'w', encoding='utf-8') as f:
+                    json.dump(final_metadata, f, ensure_ascii=False, indent=2)
 
-            # Reload the server's index and metadata
-            server.index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
-            server.metadata = final_metadata
+                logger.info(f"Successfully merged metadata: {len(final_metadata)} total entries")
+
+                # Reload the server's index and metadata
+                server.index = load_faiss_index(CONFIG.FAISS_INDEX_PATH)
+                server.metadata = final_metadata
 
         except Exception as e:
             logger.error(f"Error merging metadata: {e}")
@@ -1119,20 +1262,23 @@ async def process_documents():
         logger.info("Document processing completed successfully")
         return {"status": "success"}
 
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Error in process_documents: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Clean up resources
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 
 @app.get("/get/documents")
 async def get_documents(path: str = ""):
     """Get list of documents and folders with metadata recursively"""
-    logger = logging.getLogger(__name__)
     try:
-        # Get total count from processed_files.json
-        processed_files_path = Path("processed_files.json")
+        # Get total count from processed_files
+        processed_files_path = CONFIG.PROCESSED_FILES_PATH
         total_documents = 0
         if processed_files_path.exists():
             with open(processed_files_path, 'r', encoding='utf-8') as f:
@@ -1200,55 +1346,6 @@ async def get_documents(path: str = ""):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/documents")
-async def list_documents():
-    try:
-        # Load list of processed documents
-        processed_files_path = Path("processed_files.json")
-        if processed_files_path.exists():
-            with open(processed_files_path, 'r') as f:
-                documents = json.load(f)
-
-            # Get file details
-            doc_details = []
-            for doc_path in documents:
-                path = Path(doc_path)
-                if path.exists():
-                    stats = path.stat()
-                    doc_details.append({
-                        "name": path.name,
-                        "size": stats.st_size,
-                        "modified": stats.st_mtime,
-                        "type": path.suffix[1:].upper()
-                    })
-
-            return {"documents": doc_details}
-        return {"documents": []}
-    except Exception as e:
-        logging.error(f"Error listing documents: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/files/{file_path:path}")
-async def serve_file(file_path: str):
-    try:
-        # Sanitize and validate the file path
-        sanitized_path = clean_path(file_path)
-        full_path = CONFIG.RAW_DOCUMENTS_PATH / sanitized_path
-
-        # Ensure the file exists and is accessible
-        if not str(full_path).startswith(str(CONFIG.RAW_DOCUMENTS_PATH)):
-            raise HTTPException(status_code=403, detail="Access denied")
-        if not full_path.exists() or not full_path.is_file():
-            raise HTTPException(status_code=404, detail="File not found")
-
-        return FileResponse(full_path)
-
-    except Exception as e:
-        logging.error(f"Error serving file: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.post("/open/document")
 async def open_document(path: str = Body(..., embed=True)):
     try:
@@ -1261,10 +1358,11 @@ async def open_document(path: str = Body(..., embed=True)):
         if not full_path.exists() or not full_path.is_file():
             raise HTTPException(status_code=404, detail="File not found")
 
-        # Return the absolute URL to access the file via `/files`
-        # Replace with your actual server URL if needed
-        file_url = f"/files/{sanitized_path}"
-        return {"status": "success", "url": file_url}
+        # Return the URL using the /files mount point
+        relative_path = sanitized_path
+        file_url = f"/files/{relative_path}"
+
+        return JSONResponse(content={"status": "success", "url": file_url})
 
     except Exception as e:
         logging.error(f"Error generating file URL: {e}")
@@ -1441,7 +1539,7 @@ async def rename_folder(
 async def rescan_documents_endpoint():
     """Rescan documents and update RAG system."""
     try:
-        success, message = rescan_documents(CONFIG)
+        success, message = rescan_documents()
 
         if not success:
             raise HTTPException(status_code=500, detail=message)
@@ -1468,7 +1566,6 @@ async def get_chat_history():
     return {"history": history}
 
 
-@app.get('/favicon.ico', include_in_schema=False)
 @app.get('/favicon.png', include_in_schema=False)
 async def favicon():
     favicon_path = Path('static/favicon.png')  # Create this file or adjust the path

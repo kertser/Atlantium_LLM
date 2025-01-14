@@ -34,7 +34,7 @@ class PromptLoader:
 
     def get_system_prompt(self, key: str) -> str:
         """Get a system prompt by key."""
-        return self._prompts.get('system', {}).get(key, '')
+        return self._prompts.get('assistant', {}).get(key, '')
 
     def get_instructions(self, instruction_type: str) -> List[str]:
         """Get instructions by type."""
@@ -88,6 +88,10 @@ class PromptLoader:
         """Get the no-answer prompt."""
         return self.get_template('no_answer_prompt')
 
+    def get_troubleshooting_template(self) -> str:
+        """Get interactive troubleshooting template."""
+        return self.get_template('troubleshooting')
+
 class PromptBuilder:
     """Class for building various types of prompts using the PromptLoader."""
 
@@ -100,12 +104,21 @@ class PromptBuilder:
             contexts: List[str],
             images: List[Dict],
             chat_history: List[Dict],
+            available_refs: List[str],  # Changed from chunk_metadata
             is_technical: bool = False,
             is_summary: bool = False,
             is_overview: bool = False,
             is_general: bool = True
     ) -> str:
         """Build a complete prompt with priority on current query."""
+
+        # Add available references section
+        available_refs_text = ""
+        if available_refs:
+            available_refs_text = "\n## Available Document References\n"
+            available_refs_text += "Use ONLY these document IDs in your response:\n"
+            available_refs_text += "\n".join(f"- {ref}" for ref in available_refs)
+            available_refs_text += "\n\nIMPORTANT: Only reference these documents using [ref]ID[/ref] format."
 
         # Process context information with priority markers
         context_text = ("## Primary Technical Documentation:\n" +
@@ -155,6 +168,7 @@ class PromptBuilder:
         return self.loader.format_template(
             'chat_prompt',
             query_text=query_text,
+            available_references=available_refs_text,
             context_text=context_text,
             image_context=image_context,
             chat_context=chat_context,
@@ -195,7 +209,7 @@ class PromptBuilder:
         """Build the messages list for the API request."""
         return [
             {
-                "role": "system",
+                "role": "assistant",
                 "content": self.loader.get_system_prompt('technical_assistant')
             },
             {"role": "user", "content": prompt}
@@ -207,7 +221,7 @@ class PromptBuilder:
         formatted_no_answer = no_answer_prompt.format(query=query_text)
         return [
             {
-                "role": "system",
+                "role": "assistant",
                 "content": self.loader.get_system_prompt('technical_assistant')
             },
             {"role": "user", "content": formatted_no_answer}

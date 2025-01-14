@@ -1,33 +1,65 @@
 import base64
 import hashlib
 import json
-import logging
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
-from typing import Tuple, List, Dict, Optional, Union
+from typing import Tuple, List, Dict, Optional, Union, Any, Generator
+import logging
+import pymupdf
+from contextlib import contextmanager
+from utils.LLM_utils import encode_with_clip
 
 import imagehash
 import torch
 from PIL import Image
 
 from config import CONFIG
+logger = logging.getLogger(__name__)
 
+pymupdf.TOOLS.mupdf_display_errors(False)
 
 class ImageProcessor:
     """Base class for image processing operations."""
 
     @staticmethod
     def convert_to_rgb(image: Image.Image) -> Image.Image:
-        """Convert an image to RGB format, handling transparency."""
-        if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
+        """Convert an image to RGB format, preserving original colors."""
+        if image.mode == 'RGB':
+            return image
+
+        if image.mode in ('RGBA', 'LA'):
+            # Handle transparency
             background = Image.new('RGB', image.size, (255, 255, 255))
-            if image.mode == 'P':
-                image = image.convert('RGBA')
-            background.paste(image, mask=image.split()[-1])
-            return background
-        elif image.mode != 'RGB':
-            return image.convert('RGB')
+            if 'A' in image.mode:
+                # Preserve original colors when removing transparency
+                rgb_image = image.convert('RGB')
+                if image.mode == 'RGBA':
+                    background.paste(rgb_image, mask=image.split()[3])
+                else:
+                    background.paste(rgb_image)
+                return background
+
+        # Direct conversion for other modes
+        return image.convert('RGB')
+
+    @staticmethod
+    def resize_image(image: Image.Image, max_size: Tuple[int, int] = (512, 512)) -> Image.Image:
+        """
+        Resize the image if its dimensions exceed the maximum size while maintaining the aspect ratio.
+
+        Args:
+            image (Image.Image): The image to resize.
+            max_size (Tuple[int, int]): Maximum allowable dimensions (width, height). Default is (512, 512).
+
+        Returns:
+            Image.Image: The resized image or the original if no resizing is needed.
+        """
+        if image.width <= max_size[0] and image.height <= max_size[1]:
+            return image  # No resizing needed
+
+        # Resize image while maintaining aspect ratio
+        image.thumbnail(max_size, Image.Resampling.LANCZOS)
         return image
 
     @staticmethod
@@ -38,7 +70,7 @@ class ImageProcessor:
                 try:
                     image_bytes = base64.b64decode(image)
                     image = Image.open(BytesIO(image_bytes))
-                except:
+                except Exception:
                     image = Image.open(image)
             elif isinstance(image, bytes):
                 image = Image.open(BytesIO(image))
@@ -53,6 +85,119 @@ class ImageProcessor:
 
         except Exception as e:
             logging.error(f"Error calculating image hash: {e}")
+            return None
+
+    @staticmethod
+    def validate_image_data(image: Image.Image) -> bool:
+        """Validate image data integrity."""
+        try:
+            # Basic size check
+            if image.width < CONFIG.MIN_IMAGE_SIZE or image.height < CONFIG.MIN_IMAGE_SIZE:
+                return False
+
+            # Try to access image data
+            try:
+                image.load()
+                _ = image.getdata()[0]  # Check first pixel
+                return True
+            except Exception:
+                return False
+
+        except Exception:
+            return False
+
+    @staticmethod
+    async def calculate_image_similarity(
+            image: Image.Image,
+            query_text: str,
+            distance: float,
+            model: Any,
+            device: str
+    ) -> Dict:
+        """
+        Calculate image-text similarity using CLIP embeddings.
+
+        Args:
+            image: PIL Image to compare
+            query_text: Text to compare against
+            distance: Distance metric from previous calculations
+            model: CLIP model instance
+            device: Device to run calculations on ('cuda' or 'cpu')
+
+        Returns:
+            Dictionary containing similarity scores
+        """
+        try:
+            # Ensure image is in RGB format
+            if image.mode != "RGB":
+                image = ImageProcessor.convert_to_rgb(image)
+
+            with torch.no_grad():
+                # Get image embeddings using encode_with_clip
+                _, image_embeddings = encode_with_clip(
+                    texts=None,
+                    images=[image],
+                    model=model,
+                    device=device
+                )
+                if image_embeddings is None:
+                    raise RuntimeError("Failed to generate image embeddings")
+
+                # Get text embeddings
+                text_embeddings, _ = encode_with_clip(
+                    texts=[query_text],
+                    images=None,
+                    model=model,
+                    device=device
+                )
+                if text_embeddings is None:
+                    raise RuntimeError("Failed to generate text embeddings")
+
+                # Convert numpy arrays to tensors
+                image_embedding = torch.from_numpy(image_embeddings).to(device)
+                query_embedding = torch.from_numpy(text_embeddings).to(device)
+
+                # Calculate similarities
+                semantic_similarity = (query_embedding @ image_embedding.T).item()
+                content_similarity = (semantic_similarity + (1 - distance / 2)) / 2
+
+                logging.debug(
+                    f"Calculated similarities - semantic: {semantic_similarity:.4f}, content: {content_similarity:.4f}")
+
+                return {
+                    'similarity': content_similarity,
+                    'semantic_similarity': semantic_similarity
+                }
+
+        except Exception as e:
+            logging.error(f"Error calculating image similarity: {e}")
+            logging.error("Full traceback:", exc_info=True)
+            return {'similarity': 0, 'semantic_similarity': 0}
+
+    @staticmethod
+    def handle_pdf_image(image_bytes: bytes, page: Any) -> Optional[Image.Image]:
+        """Handle problematic PDF images with multiple fallback methods."""
+        try:
+            # Try direct conversion first
+            try:
+                return Image.open(BytesIO(image_bytes))
+            except Exception as e:
+                logging.debug(f"Direct conversion failed: {e}")
+
+            # Try PyMuPDF alternative extraction
+            try:
+                pix = page.get_pixmap(matrix=pymupdf.Matrix(1, 1))
+                return Image.frombytes(
+                    "RGB",
+                    (pix.width, pix.height),  # Use tuple instead of list
+                    pix.samples
+                )
+            except Exception as e:
+                logging.debug(f"PyMuPDF conversion failed: {e}")
+
+            return None
+        except Exception as e:
+            logging.error(f"Error handling PDF image: {e}")
             return None
 
     @staticmethod
@@ -98,6 +243,14 @@ class ImageStore(ImageProcessor):
 
         self.metadata = self._load_metadata()
         self._verify_stored_images()
+
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit with cleanup."""
+        self.cleanup()
 
     def _load_metadata(self) -> Dict:
         """Load existing metadata or create new."""
@@ -148,7 +301,8 @@ class ImageStore(ImageProcessor):
             self._save_metadata()
             logging.info(f"Removed {len(to_remove)} invalid entries")
 
-    def _generate_id(self, image: Image.Image, source: str, page: int) -> str:
+    @staticmethod
+    def _generate_id(image: Image.Image, source: str, page: int) -> str:
         """Generate unique image ID based on content and source."""
         try:
             buffer = BytesIO()
@@ -176,10 +330,35 @@ class ImageStore(ImageProcessor):
         """Store an image and return its ID."""
         try:
             image_id = self._generate_id(image, source_doc, page_num)
-            image = self.convert_to_rgb(image)
+            original_mode = image.mode
 
-            path = self.base_path / f"{image_id}.png"
-            image.save(path, "PNG")
+            # Only convert if absolutely necessary
+            if original_mode not in ('RGB', 'RGBA'):
+                if original_mode in ('L', 'LA'):
+                    # Keep grayscale as grayscale
+                    if original_mode == 'LA':
+                        background = Image.new('L', image.size, 255)
+                        background.paste(image, mask=image.split()[1])
+                        image = background
+                else:
+                    # Minimal conversion for other modes
+                    image = image.convert('RGB')
+
+            path = self.base_path / f"{image_id}.{CONFIG.PREFERRED_SAVE_FORMAT.lower()}"
+
+            # Save with minimal processing
+            save_params = {
+                'format': CONFIG.PREFERRED_SAVE_FORMAT,
+                'quality': 100,  # Maximum quality
+            }
+
+            if CONFIG.PREFERRED_SAVE_FORMAT == 'PNG':
+                save_params.update({
+                    'optimize': False,
+                    'compress_level': 0  # No compression
+                })
+
+            image.save(path, **save_params)
 
             self.metadata[image_id] = {
                 "source_document": str(source_doc),
@@ -188,7 +367,8 @@ class ImageStore(ImageProcessor):
                 "caption": caption,
                 "context": context,
                 "width": image.width,
-                "height": image.height
+                "height": image.height,
+                "original_mode": original_mode
             }
 
             self._save_metadata()
@@ -205,17 +385,58 @@ class ImageStore(ImageProcessor):
                 return None, None
 
             metadata = self.metadata[image_id]
-            path = CONFIG.BASE_DIR / metadata["path"]
+            try:
+                path = CONFIG.BASE_DIR / metadata["path"]
+            except Exception as e:
+                logging.error(f"Invalid path in metadata for image {image_id}: {e}")
+                return None, None
 
             if not path.exists():
                 logging.error(f"Image not found: {path}")
                 return None, None
 
-            return Image.open(path), metadata
+            try:
+                return Image.open(path), metadata
+            except Exception as e:
+                logging.error(f"Failed to open image {path}: {e}")
+                return None, None
 
         except Exception as e:
             logging.error(f"Error retrieving image {image_id}: {e}")
             return None, None
+
+    @contextmanager
+    def open_image_safely(self, path: Union[str, Path]) -> Generator[Optional[Image.Image], None, None]:
+        """Safely open and handle image cleanup."""
+        img = None
+        try:
+            img = Image.open(path)
+            yield img
+        except Exception as e:
+            logging.error(f"Error opening image {path}: {e}")
+            yield None
+        finally:
+            if img:
+                try:
+                    img.close()
+                except Exception:
+                    pass
+
+    def cleanup(self):
+        """Clean up temporary resources."""
+        try:
+            # Clear the LRU cache for base64 encodings
+            self.get_base64.cache_clear()
+        except Exception as e:
+            logging.error(f"Error during cleanup: {e}")
+
+    @staticmethod
+    def is_valid_format(image: Image.Image) -> bool:
+        """Check if image format is supported."""
+        return (
+            image.format in CONFIG.SUPPORTED_IMAGE_FORMATS and
+            image.mode in CONFIG.VALID_IMAGE_MODES
+        )
 
     @lru_cache(maxsize=100)
     def get_base64(self, image_id: str) -> Optional[str]:
@@ -226,7 +447,11 @@ class ImageStore(ImageProcessor):
                 return None
 
             buffer = BytesIO()
-            image.save(buffer, format="PNG")
+            image.save(
+                buffer,
+                format=CONFIG.PREFERRED_SAVE_FORMAT,
+                quality=CONFIG.IMAGE_QUALITY
+            )
             return base64.b64encode(buffer.getvalue()).decode('utf-8')
         except Exception as e:
             logging.error(f"Error encoding image: {e}")
@@ -262,25 +487,28 @@ class ImageStore(ImageProcessor):
             logging.error(f"Error deleting image: {e}")
             return False
 
-    def deduplicate_images(self) -> None:
-        """Remove duplicate images based on perceptual hashing."""
+    def deduplicate_images(self, batch_size: int = 100) -> None:
+        """Remove duplicate images based on perceptual hashing with batch processing."""
         hash_map: Dict[str, List[str]] = {}
+        total = len(self.metadata)
 
-        for image_id, metadata in self.metadata.items():
-            try:
-                image, _ = self.get_image(image_id)
-                if image is None:
+        for i in range(0, total, batch_size):
+            batch_ids = list(self.metadata.keys())[i:i + batch_size]
+            for image_id in batch_ids:
+                try:
+                    image, _ = self.get_image(image_id)
+                    if image is None:
+                        continue
+
+                    image_hash = self.calculate_hash(image)
+                    if image_hash is None:
+                        continue
+
+                    hash_map.setdefault(image_hash, []).append(image_id)
+
+                except Exception as e:
+                    logging.error(f"Error processing {image_id}: {e}")
                     continue
-
-                image_hash = self.calculate_hash(image)
-                if image_hash is None:
-                    continue
-
-                hash_map.setdefault(image_hash, []).append(image_id)
-
-            except Exception as e:
-                logging.error(f"Error processing {image_id}: {e}")
-                continue
 
         # Remove duplicates keeping oldest version
         for image_hash, id_list in hash_map.items():
@@ -293,7 +521,8 @@ class ImageStore(ImageProcessor):
         self._save_metadata()
         logging.info("Deduplication complete")
 
-    def merge_metadata(self, primary: Dict, secondary: Dict) -> Dict:
+    @staticmethod
+    def merge_metadata(primary: Dict, secondary: Dict) -> Dict:
         """Merge metadata from two images."""
         merged = primary.copy()
 
@@ -310,15 +539,27 @@ class ImageStore(ImageProcessor):
 class ImageClassifier(ImageProcessor):
     """Handles zero-shot image classification using CLIP."""
 
-    def __init__(self, model=None, processor=None, device='cuda'):
-        """Initialize with CLIP model and processor."""
+    def __init__(self, model=None, device='cuda'):
+        """Initialize with CLIP model."""
         super().__init__()
         self.model = model
-        self.processor = processor
         self.device = device
 
-        if self.model and self.model.device.type != device:
+        if self.model and str(self.model.device) != device:
             self.model = self.model.to(device)
+
+    def cleanup(self):
+        """Clean up model resources."""
+        try:
+            if self.model is not None:
+                self.model.cpu()
+                del self.model
+            import gc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception as e:
+            logging.error(f"Error during classifier cleanup: {e}")
 
     def classify(
             self,
@@ -326,8 +567,8 @@ class ImageClassifier(ImageProcessor):
             labels: List[str],
     ) -> Tuple[str, float]:
         """Perform zero-shot classification."""
-        if not self.model or not self.processor:
-            raise ValueError("Model and processor required")
+        if not self.model:
+            raise ValueError("Model required")
 
         try:
             # Process image
@@ -338,26 +579,110 @@ class ImageClassifier(ImageProcessor):
 
             image = self.convert_to_rgb(image)
 
-            # Prepare inputs
-            inputs = self.processor(
-                text=labels,
-                images=image,
-                return_tensors="pt",
-                padding=True
-            )
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+            # Process text: truncate and clean labels
+            processed_labels = []
+            for label in labels:
+                cleaned_text = ' '.join(label.split())  # Remove extra whitespace
+                truncated_text = cleaned_text[:100]  # Truncate to first 100 chars
+                processed_labels.append(truncated_text)
 
-            # Get prediction
             with torch.no_grad():
-                outputs = self.model(**inputs)
-                probs = outputs.logits_per_image.softmax(dim=1)
+                # Get image embeddings using encode_with_clip
+                _, image_embeddings = encode_with_clip(
+                    texts=None,
+                    images=[image],
+                    model=self.model,
+                    device=self.device
+                )
 
-            idx = probs.argmax().item()
-            return labels[idx], probs[0, idx].item()
+                # Get text embeddings for labels
+                text_embeddings, _ = encode_with_clip(
+                    texts=processed_labels,
+                    images=None,
+                    model=self.model,
+                    device=self.device
+                )
+
+                if image_embeddings is None or text_embeddings is None:
+                    raise RuntimeError("Failed to generate embeddings")
+
+                # Convert to tensors
+                image_embeddings = torch.from_numpy(image_embeddings).to(self.device)
+                text_embeddings = torch.from_numpy(text_embeddings).to(self.device)
+
+                # Calculate similarity scores
+                similarity = (100.0 * image_embeddings @ text_embeddings.T).softmax(dim=-1)
+                probs = similarity[0].cpu().numpy()
+
+                idx = probs.argmax().item()
+                return processed_labels[idx], float(probs[idx])
 
         except Exception as e:
             logging.error(f"Classification error: {e}", exc_info=True)
             return "classification error", 0.0
+
+    def rank_images_by_relevance(
+            self,
+            image_store: 'ImageStore',
+            images: List[Dict],
+            query_text: str,
+            max_images: int = 12
+    ) -> List[Dict]:
+        """Rank images by their relevance to the query text."""
+        if not self.model:
+            raise ValueError("Model required")
+
+        # Clean and prepare query text
+        clean_query = ' '.join(query_text.split())
+        text_segments = [clean_query[i:i + 100] for i in range(0, len(clean_query), 100)][:3]
+
+        # Get text embeddings for all segments at once
+        with torch.no_grad():
+            text_embeddings, _ = encode_with_clip(
+                texts=text_segments,
+                images=None,
+                model=self.model,
+                device=self.device
+            )
+            if text_embeddings is None:
+                raise RuntimeError("Failed to generate text embeddings")
+            text_embeddings = torch.from_numpy(text_embeddings).to(self.device)
+
+        ranked_images = []
+
+        for img_info in images:
+            try:
+                image, metadata = image_store.get_image(img_info['image_id'])
+                if image is None:
+                    continue
+
+                # Get image embeddings
+                with torch.no_grad():
+                    _, image_embeddings = encode_with_clip(
+                        texts=None,
+                        images=[image],
+                        model=self.model,
+                        device=self.device
+                    )
+                    if image_embeddings is None:
+                        continue
+
+                    image_embeddings = torch.from_numpy(image_embeddings).to(self.device)
+
+                    # Calculate similarity with all text segments at once
+                    similarities = (100.0 * image_embeddings @ text_embeddings.T)[0]
+                    avg_score = similarities.mean().item()
+
+                    img_info['relevance_score'] = avg_score
+                    ranked_images.append(img_info)
+
+            except Exception as e:
+                logging.error(f"Error ranking image {img_info.get('image_id')}: {e}")
+                continue
+
+        # Sort by relevance score and limit
+        ranked_images.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
+        return ranked_images[:max_images]
 
     def deduplicate(
             self,
@@ -366,12 +691,6 @@ class ImageClassifier(ImageProcessor):
     ) -> List[Dict]:
         """
         Deduplicate a list of images based on perceptual hash comparison.
-
-        :param images: A list of image dictionaries, each containing at least
-                       a base64-encoded 'image' field.
-        :param similarity_threshold: Similarity threshold for considering two
-                                     images duplicates (0.0 - 1.0).
-        :return: A list of unique image dictionaries after deduplication.
         """
         if not images:
             return []
@@ -380,16 +699,13 @@ class ImageClassifier(ImageProcessor):
 
         for img in images:
             try:
-                # Skip if no 'image' field is present
                 if 'image' not in img:
                     continue
 
-                # Decode base64 and convert to a PIL Image for size checks
-                image_bytes = base64.b64decode(img['image'])
-                current_image = Image.open(BytesIO(image_bytes))
+                current_image = Image.open(BytesIO(base64.b64decode(img['image'])))
 
-                # Skip small images (likely icons/logos)
-                if current_image.size[0] < 200 or current_image.size[1] < 200:
+                # Use configured constant for size check
+                if current_image.size[0] < CONFIG.MIN_ICON_SIZE or current_image.size[1] < CONFIG.MIN_ICON_SIZE:
                     continue
 
                 # Calculate hash for the current image

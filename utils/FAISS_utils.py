@@ -1,11 +1,12 @@
 import hashlib
 import json
-import logging
 from pathlib import Path
 from typing import List, Dict, Union, Any, Set
-
-import faiss
+from utils.LLM_utils import encode_with_clip
+import logging
 import numpy as np
+import traceback
+import faiss
 
 from config import CONFIG
 
@@ -291,139 +292,169 @@ def add_to_faiss(embedding, source_file_name, content_type, content, index, meta
         raise
 
 
-def query_faiss(index, metadata, query_embeddings, top_k):
-    """Query FAISS index with separate searches for text and images"""
+def query_with_context(index, metadata, model, device="cpu", text_query=None, image_query=None):
+    """
+    Query FAISS with separated image and text search logic.
+    First stage: Gets 1% closest text chunks (max 100) and 5% closest images (max 12)
+    Second stage: Filters images based on their similarity to the retrieved text content
+    """
     try:
         if not metadata:
             logging.info("No documents indexed yet")
             return []
 
-        # Get indices for text and images
+        # 1. Get indices for text chunks and images
         text_indices = [i for i, m in enumerate(metadata) if m.get('type') == 'text-chunk']
         image_indices = [i for i, m in enumerate(metadata) if m.get('type') == 'image']
 
-        logging.info(f"Metadata contains {len(image_indices)} images and {len(text_indices)} text chunks")
+        if not text_indices and not image_indices:
+            logging.info("No content found in metadata")
+            return []
 
-        # Search in full index
-        k = min(len(metadata), top_k)  # Get more results initially
-        distances, indices = index.search(query_embeddings, k)
+        # Calculate quantile limits
+        text_limit = min(100, max(1, int(len(text_indices) * 0.01)))  # 1% of texts, max 100
+        image_limit = min(12, max(1, int(len(image_indices) * 0.05)))  # 5% of images, max 12
 
-        # Separate results by type
+        logging.info(f"Found {len(image_indices)} images and {len(text_indices)} text chunks in metadata")
+        logging.info(f"Will return up to {text_limit} text chunks (1%) and {image_limit} images (5%)")
+
+        # 2. Generate query embedding
+        query_embedding = None
+        if text_query:
+            text_embeddings, _ = encode_with_clip(texts=[text_query], images=None, model=model, device=device)
+            if text_embeddings is not None:
+                query_embedding = text_embeddings
+        elif image_query:
+            if image_query.mode != "RGB":
+                image_query = image_query.convert("RGB")
+            _, image_embeddings = encode_with_clip(texts=None, images=[image_query], model=model, device=device)
+            if image_embeddings is not None:
+                query_embedding = image_embeddings
+
+        if query_embedding is None:
+            raise ValueError("Failed to generate query embedding")
+
+        # 3. Perform search with FAISS
+        k = len(metadata)  # Get all results initially
+        distances, indices = index.search(query_embedding, k)
+        similarities = 1 - (np.square(distances[0]) / 2)  # Correct cosine similarity calculation
+
+        # 4. Separate and process results
         text_results = []
         image_results = []
 
-        # First pass - collect all results
-        seen_indices = set()
-        for idx, distance in zip(indices[0], distances[0]):
+        for idx, sim in zip(indices[0], similarities):
             if idx >= len(metadata):
                 continue
 
             result = {
                 "idx": int(idx),
                 "metadata": metadata[idx],
-                "distance": float(distance)
+                "distance": float(distances[0][idx]),
+                "similarity": float(sim)
             }
 
-            # Add to appropriate list based on type
             if idx in text_indices:
                 text_results.append(result)
-                seen_indices.add(idx)
             elif idx in image_indices:
                 image_results.append(result)
-                seen_indices.add(idx)
 
-        # If we don't have enough image results, do a targeted image search
-        if len(image_results) < top_k and image_indices:
-            # Create a mask for image indices
-            mask = np.zeros(len(metadata), dtype=bool)
-            mask[image_indices] = True
+        # 5. Sort results by similarity
+        text_results.sort(key=lambda x: x['similarity'], reverse=True)
+        image_results.sort(key=lambda x: x['similarity'], reverse=True)
 
-            # Search again with mask
-            D, I = index.search(query_embeddings, len(image_indices))
+        # 6. Take top results by quantile
+        final_text_results = text_results[:text_limit]
 
-            # Add new image results that weren't found before
-            for idx, distance in zip(I[0], D[0]):
-                if idx in image_indices and idx not in seen_indices:
-                    result = {
-                        "idx": int(idx),
-                        "metadata": metadata[idx],
-                        "distance": float(distance)
-                    }
-                    image_results.append(result)
-                    if len(image_results) >= top_k:
-                        break
+        # 7. Generate embedding from text results for second-stage image filtering
+        if final_text_results:
+            # Collect text content
+            text_contents = []
+            for result in final_text_results:
+                if 'metadata' in result and 'chunk' in result['metadata']:
+                    content = get_chunk_text(result['metadata']['chunk'])
+                    if content:
+                        text_contents.append(content)
 
-        # Sort results by distance
-        text_results.sort(key=lambda x: x['distance'])
-        image_results.sort(key=lambda x: x['distance'])
+            if text_contents:
+                # Create context embedding from text results
+                context_text = " ".join(text_contents)
+                context_embedding, _ = encode_with_clip(texts=[context_text], images=None, model=model, device=device)
 
-        # Take top_k of each type
-        final_results = text_results[:top_k] + image_results[:top_k]
-        results = [final_results]  # Maintain expected return format
+                if context_embedding is not None:
+                    # Search images using the context embedding
+                    img_distances, img_indices = index.search(context_embedding, k)
+                    img_similarities = 1 - (np.square(img_distances[0]) / 2)
 
-        logging.info(f"Returning {len(text_results[:top_k])} text and {len(image_results[:top_k])} image results")
-        return results
+                    # Filter images based on similarity to text context
+                    refined_image_results = []
+                    for idx, sim in zip(img_indices[0], img_similarities):
+                        if idx >= len(metadata) or idx not in image_indices:
+                            continue
 
-    except Exception as e:
-        logging.error(f"Error in query_faiss: {e}")
-        return []
+                        result = {
+                            "idx": int(idx),
+                            "metadata": metadata[idx],
+                            "distance": float(img_distances[0][idx]),
+                            "similarity": float(sim)
+                        }
+                        refined_image_results.append(result)
 
+                    refined_image_results.sort(key=lambda x: x['similarity'], reverse=True)
+                    final_image_results = refined_image_results[:image_limit]
+                else:
+                    final_image_results = image_results[:image_limit]
+            else:
+                final_image_results = image_results[:image_limit]
+        else:
+            final_image_results = image_results[:image_limit]
 
-def query_with_context(index, metadata, model, processor, device="cpu", text_query=None, image_query=None, top_k=5):
-    """Query FAISS with improved context handling"""
-    query_embeddings = []
+        # 8. Process results for return
+        processed_results = []
 
-    # Process text query
-    if text_query:
-        query_input = processor(text=[text_query], return_tensors="pt", padding=True, truncation=True)
-        query_input = {k: v.to(device) for k, v in query_input.items()}
-        text_embedding = model.get_text_features(**query_input)
-        text_embedding = text_embedding / text_embedding.norm(dim=-1, keepdim=True)
-        query_embeddings.append(text_embedding.cpu().detach().numpy())
-
-    # Process image query
-    if image_query:
-        if image_query.mode != "RGB":
-            image_query = image_query.convert("RGB")
-        image_input = processor(images=image_query, return_tensors="pt").to(device)
-        image_embedding = model.get_image_features(**image_input)
-        image_embedding = image_embedding / image_embedding.norm(dim=-1, keepdim=True)
-        query_embeddings.append(image_embedding.cpu().detach().numpy())
-
-    if not query_embeddings:
-        raise ValueError("At least one of text_query or image_query must be provided")
-
-    # Combine and normalize embeddings
-    query_embeddings = np.vstack(query_embeddings)
-
-    # Query FAISS
-    results = query_faiss(index, metadata, query_embeddings, top_k)
-
-    if not results or not results[0]:
-        logging.error("No results retrieved from FAISS index")
-        return []
-
-    # Process results with new metadata structure
-    processed_results = []
-    for result_group in results:
-        processed_group = []
-        for result in result_group:
+        # Process text results
+        for result in final_text_results:
             processed_result = {
                 "idx": result["idx"],
                 "distance": result["distance"],
+                "similarity": result["similarity"],
                 "metadata": result["metadata"].copy()
             }
 
-            if result['metadata']['type'] == 'text-chunk':
-                chunk_path = result['metadata'].get('chunk')
-                if chunk_path:
-                    processed_result['metadata']['get_content'] = lambda p=chunk_path: get_chunk_text(p)
+            chunk_path = result['metadata'].get('chunk')
+            if chunk_path:
+                processed_result['metadata']['get_content'] = lambda p=chunk_path: get_chunk_text(p)
 
-            processed_group.append(processed_result)
-        processed_results.append(processed_group)
+            processed_results.append(processed_result)
 
-    return processed_results
+        # Process image results
+        for result in final_image_results:
+            processed_result = {
+                "idx": result["idx"],
+                "distance": result["distance"],
+                "similarity": result["similarity"],
+                "metadata": result["metadata"].copy()
+            }
+            processed_results.append(processed_result)
 
+        # Log the results
+        text_similarities = [r['similarity'] for r in final_text_results]
+        image_similarities = [r['similarity'] for r in final_image_results]
+
+        avg_text_sim = sum(text_similarities) / len(text_similarities) if text_similarities else 0
+        avg_image_sim = sum(image_similarities) / len(image_similarities) if image_similarities else 0
+
+        logging.info(
+            f"Returning {len(final_text_results)} text results (avg sim: {avg_text_sim:.3f}) and "
+            f"{len(final_image_results)} image results (avg sim: {avg_image_sim:.3f})"
+        )
+
+        return [processed_results]
+
+    except Exception as e:
+        logging.error(f"Error in query_with_context: {str(e)}")
+        logging.error(traceback.format_exc())
+        return []
 
 def optimize_faiss_index(index, metadata):
     """Optimize FAISS index for memory efficiency"""
