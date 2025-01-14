@@ -127,15 +127,6 @@ def grok_post_request(messages, model_name="grok-beta", max_tokens=128, temperat
     raise HTTPException(status_code=500, detail="Maximum retries reached for OpenAI API request")
 
 
-def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
-    """Handle unnecessary flash_attn dependency"""
-    if not str(filename).endswith("modeling_florence2.py"):
-        return get_imports(filename)
-    imports = get_imports(filename)
-    imports.remove("flash_attn")
-    return imports
-
-
 def CLIP_init(model_name="jinaai/jina-clip-v2", device_str: str = None):
     """
     Initialize Jina-CLIP model with detailed logging and enhanced functionality.
@@ -147,6 +138,15 @@ def CLIP_init(model_name="jinaai/jina-clip-v2", device_str: str = None):
     Returns:
         tuple: (model, device) or (None, None) if initialization fails
     """
+
+    def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
+        """Handle unnecessary flash_attn dependency"""
+        if not str(filename).endswith("modeling_florence2.py"):
+            return get_imports(filename)
+        imports = get_imports(filename)
+        imports.remove("flash_attn")
+        return imports
+
     try:
         # Set device
         if device_str is None:
@@ -159,12 +159,23 @@ def CLIP_init(model_name="jinaai/jina-clip-v2", device_str: str = None):
         # Set dtype based on device
         torch_dtype = torch.float16 if device.type == "cuda" else torch.float32
 
+        # Set configuration for model initialization
+        if device.type == "cpu":
+            config = {
+                "use_flash_attention": False,  # Disable flash attention
+                "use_memory_efficient_attention": False,  # Disable memory efficient attention
+                "enable_xformers": False  # Disable xformers
+            }
+        else:
+            config = {}
+
         # Initialize model with flash_attn patch
         with patch("transformers.dynamic_module_utils.get_imports", fixed_get_imports):
             model = AutoModel.from_pretrained(
                 model_name,
                 trust_remote_code=True,
-                torch_dtype=torch_dtype
+                torch_dtype=torch_dtype,
+                config=config
             ).to(device)
 
         if model is None:
