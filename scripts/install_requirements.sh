@@ -16,8 +16,9 @@ if [ ! -f "$REQ_FILE" ]; then
     exit 1
 fi
 
+pip cache purge
 echo "Installing from: $REQ_FILE"
-pip install -r "$REQ_FILE" || {
+pip install --no-cache-dir -r "$REQ_FILE" || {
     echo "Error installing dependencies. Check for version compatibility issues."
     exit 1
 }
