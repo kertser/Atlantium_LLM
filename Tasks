@@ -17,7 +17,6 @@
 * implement flash-attn workaround for cpu machines
 * upload and remove (and query) documents processes sometimes stuck. May be related to "Windows event loop policy"
 * Need to free torch memory after processing of each query. Maybe after each document. An on reset as well
-* Add - "Images might be related to your query" in the front-end
 * Collect more context for image metadata and use the context to filter-out the unrelated images
 
 # TBDs for development:

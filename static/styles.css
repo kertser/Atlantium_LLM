@@ -122,6 +122,25 @@ header h1 {
     cursor: pointer;
 }
 
+.image-header-container {
+    margin-bottom: 8px;
+}
+
+.image-header {
+    font-size: 1em;
+    font-weight: bold;
+    margin-bottom: 0;
+    color: #2C5282;
+}
+
+.underline-divider {
+    border: 0;
+    height: 1px;
+    background: #2C5282;
+    margin-top: 5px;
+    margin-bottom: 10px;
+}
+
 .image-container img {
     width: 100%;
     height: 200px;

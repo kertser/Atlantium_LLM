@@ -1040,6 +1040,21 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (!isUser && content.images && content.images.length > 0) {
+            // Add the title and underline divider before the image grid
+            const imageHeaderContainer = document.createElement('div');
+            imageHeaderContainer.className = 'image-header-container';
+
+            const imageHeader = document.createElement('h4');
+            imageHeader.className = 'image-header';
+            imageHeader.textContent = 'Here are the images that may be related to your query:';
+
+            const underlineDivider = document.createElement('hr');
+            underlineDivider.className = 'underline-divider';
+
+            imageHeaderContainer.appendChild(imageHeader);
+            imageHeaderContainer.appendChild(underlineDivider);
+            messageDiv.appendChild(imageHeaderContainer);
+
             const imageGrid = document.createElement('div');
             imageGrid.className = 'image-grid';
 
