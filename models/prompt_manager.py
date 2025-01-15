@@ -104,7 +104,7 @@ class PromptBuilder:
             contexts: List[str],
             images: List[Dict],
             chat_history: List[Dict],
-            available_refs: List[str],  # Changed from chunk_metadata
+            available_refs: List[str],
             is_technical: bool = False,
             is_summary: bool = False,
             is_overview: bool = False,

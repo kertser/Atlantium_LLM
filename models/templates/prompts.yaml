@@ -256,7 +256,7 @@ templates:
     # Current Technical Query [optional]
     {query_text}
     
-    # Available Document References [optional]
+    # Available Document References [if references are available]
     {available_references}
 
     ## Primary Technical Context [optional]
@@ -283,7 +283,7 @@ templates:
     2. Technical Details from Current Context [optional]
     3. Relevant Historical References (only if directly applicable) [optional]
     4. Additional Considerations [optional]
-    5. Documentation References (using ONLY the available document IDs) [optional]
+    5. Documentation References (using ONLY the available document IDs, nothing else)
     6. Next Steps/Recommendations [only if related to technical assistance]
 
   no_answer_prompt: |
@@ -336,8 +336,7 @@ templates:
     
     Analysis Guidelines:
     1. Document References:
-       * ONLY use [ref]ID[/ref] for document IDs found in the image metadata or context
-       * If no document ID is available, describe without references
+       * ALWAYS use ONLY [ref]ID[/ref] for document IDs found in the image metadata or context
        * Never create or assume document IDs
     
     2. Component Analysis:
