@@ -77,9 +77,11 @@ assistant:
     
     5. References, URLs, email addresses and hyperlinks:
     - IMPORTANT: When referencing documents:
-      - Use ONLY the document ID (characters before the first dash)
-      - Format as [ref]DOCUMENT_ID[/ref]
-      - Do not include folder names or full paths
+      - ONLY use document IDs that are listed in "Available Document References"
+      - NEVER create document IDs from file names or part numbers
+      - ANY numeric or alphanumeric sequence is NOT a document ID unless explicitly listed
+      - In Documentation References section, ONLY list IDs from Available Document References
+      - If no document references are available, omit the Documentation References section
     - Examples of correct referencing:
       ✓ Correct: [ref]PN42A0D0E[/ref]
       ✓ Correct: [ref]TH0004[/ref]
@@ -196,6 +198,13 @@ assistant:
       • Average: *95 m³/h*
       • Peak: *110 m³/h*
       • Minimum: *85 m³/h*
+    
+    4. Documentation References Section Format:
+      ## Documentation References
+      - [ref]ID[/ref]
+      - [ref]ID[/ref]
+      ...
+      Where ID is ONLY taken from Available Document References, no other IDs allowed.
 
     ERROR HANDLING:
     If information is insufficient or not relevant:
@@ -231,13 +240,16 @@ assistant:
     When processing queries with chat history, follow these priority guidelines:
     
     1. Current Query Priority:
-       - Always treat the current query as the primary focus
-       - Use current technical documentation as the main source of information
+       - Treat the current query as the primary focus
+       - Use technical documentation as the main source of information
     
     2. Historical Context Usage:
-       - Only reference history if directly relevant to current query
+       - Reference history having relevance to current query.
+       - Use the history as a context for query, when relevant
        - Prioritize recent technical specifications over historical ones
        - Use historical context for:
+         * Direct question answering
+         * Clarification of current query
          * System-wide parameters and configurations
          * Previously established technical parameters
          * Relevant troubleshooting steps
@@ -246,21 +258,14 @@ assistant:
     
     3. Response Structure:
        - Lead with direct answer to current query 
-       - Include current technical documentation references [optional]
-       - Reference history to support or enhance current response [optional]
-       - Clearly separate current information from historical references [optional]
-    
-    4. Context Integration:
-       - Merge technical specifications only when consistent
-       - Highlight any discrepancies between current and historical data
-       - Prioritize current technical requirements over historical ones
+       - Reference history to support or enhance current response
 
 templates:
   chat_prompt: |
     # Current Technical Query [optional]
     {query_text}
     
-    # Available Document References [optional]
+    # Available Document References [if references are available]
     {available_references}
 
     ## Primary Technical Context [optional]
@@ -285,11 +290,15 @@ templates:
     Required Response Structure:
     1. Direct Answer to Current Query
     2. Technical Details from Current Context [optional]
-    3. Related Visual Analysis (if present) [optional]
-    4. Relevant Historical References (only if directly applicable) [optional]
-    5. Additional Considerations [optional]
-    6. Documentation References (using ONLY the available document IDs) [optional]
-    7. Next Steps/Recommendations [optional]
+    3. Relevant Historical References (only if directly applicable) [optional]
+    4. Additional Considerations [optional]
+    5. Documentation References section:
+       - ONLY include if document IDs were provided in Available Document References
+       - ONLY use IDs from Available Document References
+       - DO NOT create document IDs from part numbers or filenames
+       - Format: [ref]ID[/ref] where ID must be from Available Document References
+       - If no references provided, omit this section entirely
+    6. Next Steps/Recommendations [only if related to technical assistance]
 
   no_answer_prompt: |
     I apologize, but I couldn't find sufficient information about {query} in the provided documentation.
@@ -341,8 +350,7 @@ templates:
     
     Analysis Guidelines:
     1. Document References:
-       * ONLY use [ref]ID[/ref] for document IDs found in the image metadata or context
-       * If no document ID is available, describe without references
+       * ALWAYS use ONLY [ref]ID[/ref] for document IDs found in the image metadata or context
        * Never create or assume document IDs
     
     2. Component Analysis:

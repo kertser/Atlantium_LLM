@@ -1,48 +1,15 @@
 # Ongoing Tasks / Errors:
 
 * Visualize the document processing with progress bar - over the "processing" button (processing batches)
-* Add option for "chat with live operator" (A button with contacts or whatsapp)
-
-* Check calculator for RZ-UHP
 * Attach Image on the frontend is not not loading correctly without reset, after images been founded in query
-* Try to filter the document reference images from the search results images
-* Fix system message "localhost:9000 wants to delete" etc...
-* During the image store the images shall be saved rotated as they appear in document.
-* Check for Excel file upload errors (images)
-* Update the requirements.txt for new model usage, depending on system
-* Make "Backup" and "Restore" RAG_Data and processed files
 * Update documentation
 * Maybe processing chunks and images asynchronously?
-* implement flash-attn workaround for cpu machines
+* Try embedding dimensions 512 instead of 1024
+* upload and remove (and query) documents processes sometimes stuck. May be related to "Windows event loop policy"
+* Need to free torch memory after processing of each query. Maybe after each document. An on reset as well
 
 # TBDs for development:
 * Add complicated reasoning (SMoA) to the model (TBD)
 * Switch to MongoDB instead of metadata in files (TBD)
-* Android mobile app development (TBD)
 * Offline and fine-tuned LLMs (TBD)
 * Multimodal Input - Connect audio model (TBD)
-* Adaptive retrieval thresholds (TBD)
-
-pip install -U xformers --index-url https://download.pytorch.org/whl/cu124
-pip install ninja
-
-This is for windows: (will be available at setup_files/windows/flash_attn-2.7.1.post1+cu124torch2.5.1cxx11abiFALSE-cp312-cp312-win_amd64.whl)
-download from https://github.com/bdashore3/flash-attention/releases/download/v2.7.1.post1/flash_attn-2.7.1.post1+cu124torch2.5.1cxx11abiFALSE-cp312-cp312-win_amd64.whl
-and pip install
-
-For Linux is probably just: pip install flash-attn (probably with GPU only)
-
-
-# workaround for flash_attn:
-from unittest.mock import patch
-from transformers.dynamic_module_utils import get_imports
-
-def fixed_get_imports(filename: str | os.PathLike) -> list[str]:
-    if not str(filename).endswith("modeling_florence2.py"):
-        return get_imports(filename)
-    imports = get_imports(filename)
-    imports.remove("flash_attn")
-    return imports
-
-with patch("transformers.dynamic_module_utils.get_imports", fixed_get_imports): #workaround for unnecessary flash_attn requirement
-            model = AutoModelForCausalLM.from_pretrained(model_path, attn_implementation="sdpa", torch_dtype=dtype,trust_remote_code=True)

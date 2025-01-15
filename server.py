@@ -77,22 +77,50 @@ WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
 # Disable the UserWarning from Flash-Attention (GPU capabilities >8.0)
 warnings.simplefilter("ignore", UserWarning)
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s: %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        RotatingFileHandler(
-            CONFIG.LOG_PATH / "system.log",
-            maxBytes=CONFIG.MAX_LOG_SIZE,
-            backupCount=CONFIG.LOG_BACKUP_COUNT,
-            encoding='utf-8'
-        )
-    ]
-)
-logger = logging.getLogger(__name__)
+def setup_server_logging():
+    """Set up logging for the server"""
+    try:
+        # Ensure log directory exists
+        os.makedirs(CONFIG.LOG_PATH, exist_ok=True)
 
+        # Create log file path
+        log_file = CONFIG.LOG_PATH / "system.log"
+
+        # Add write permission test
+        try:
+            with open(log_file, 'a') as f:
+                f.write('')
+        except IOError as e:
+            print(f"Warning: Unable to write to log file: {e}")
+            return False
+
+        # Remove any existing handlers to avoid duplication
+        root_logger = logging.getLogger()
+        for handler in root_logger.handlers[:]:
+            root_logger.removeHandler(handler)
+
+        # Setup logging
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s: %(message)s',
+            handlers=[
+                logging.StreamHandler(sys.stdout),
+                RotatingFileHandler(
+                    log_file,
+                    maxBytes=CONFIG.MAX_LOG_SIZE,
+                    backupCount=CONFIG.LOG_BACKUP_COUNT,
+                    encoding='utf-8'
+                )
+            ]
+        )
+
+        this_logger = logging.getLogger(__name__)
+        this_logger.info(f"Logging initialized. Writing to {log_file}")
+        return this_logger
+
+    except Exception as e:
+        print(f"Error setting up logging: {e}")
+        return None
 
 def clean_path(path: str) -> str:
     """
@@ -587,7 +615,7 @@ class RAGQueryServer:
 
     async def _get_referenced_images(self, response_text: str) -> List[Dict]:
         """Get images from documents referenced in the response text."""
-        # Meanwile disabled
+        # Meanwhile disabled function
         try:
             # Extract document references using pattern
             referenced_docs = set()
@@ -668,18 +696,6 @@ class RAGQueryServer:
             logging.error(f"Error getting images from response: {e}")
             return []
 
-    @staticmethod
-    def _extract_document_references(chunk_metadata: List[Dict]) -> List[str]:
-        """Extract unique document IDs from chunk metadata."""
-        doc_refs = set()
-        for meta in chunk_metadata:
-            if isinstance(meta, dict) and 'path' in meta:
-                filename = os.path.basename(meta['path'])
-                match = re.match(r'^([A-Za-z0-9]+)-', filename)
-                if match:
-                    doc_refs.add(match.group(1))
-        return sorted(list(doc_refs))
-
     async def process_text_query(self, query_text: str) -> QueryResponse:
         """Process a text query and return response with relevant images."""
         try:
@@ -689,10 +705,9 @@ class RAGQueryServer:
                     images=[]
                 )
 
-            # Detect if query requires calculator agent
+            # First call - Calculator agent check (if needed)
             agent_requirements = await self.agent_manager.detect_agent_requirements(query_text)
 
-            # If it's a calculator query, handle it with proper error reporting
             if agent_requirements.get('calculator'):
                 try:
                     calc_results = await self.agent_manager.process_with_agents(
@@ -701,12 +716,10 @@ class RAGQueryServer:
                     )
 
                     if calc_results and 'calculator' in calc_results:
-                        # Always use aggregate_responses for formatting
                         text_response = await self.agent_manager.aggregate_responses(
-                            "",  # Empty string since it's a pure calculation
+                            "",
                             calc_results
                         )
-                        # Update the history and return
                         self.update_chat_history(query_text, text_response)
                         return QueryResponse(text_response=text_response, images=[])
 
@@ -717,6 +730,7 @@ class RAGQueryServer:
                         images=[]
                     )
 
+            # Regular query processing
             results = query_with_context(
                 index=self.index,
                 metadata=self.metadata,
@@ -746,69 +760,53 @@ class RAGQueryServer:
                         if processed_images:
                             initial_images.extend(processed_images)
 
-            # Extract document references from chunk metadata
-            available_refs = self._extract_document_references(chunk_metadata)
-
             query_type = await self.determine_query_type(query_text)
 
-            # if no contexts OR general question: return websearch results
-            if not contexts or query_type.is_general:
+            if not contexts and query_type.is_general:
                 contexts = self._create_no_results_response(query_text)
-                initial_images = []  # Drop the images, found in RAG, they are unrelated to the websearch
+                initial_images = []
 
-            # Get chat history with proper formatting
+            # Second call - Main response generation
             formatted_history = self.get_chat_history()
-
             formatted_prompt = self.formatter.prompt_builder.build_chat_prompt(
                 query_text=query_text,
                 contexts=contexts,
                 images=initial_images,
                 chat_history=formatted_history,
-                available_refs=available_refs,
+                available_refs=[],  # Empty refs for initial prompt
                 is_technical=query_type.is_technical,
                 is_summary=query_type.is_summary,
                 is_overview=query_type.is_overview
             )
 
-            # Prepare messages for OpenAI
             messages = self.formatter.prompt_builder.build_messages(formatted_prompt)
 
-            # Get response from OpenAI
+            # Single API call for main response
             response = openai_post_request(
                 messages=messages,
                 model_name=CONFIG.BASE_LLM_MODEL,
-                max_tokens=CONFIG.DETAIL_MAX_TOKENS,  # Detail? Why not general?
+                max_tokens=CONFIG.DETAIL_MAX_TOKENS,
                 temperature=CONFIG.TEMPERATURE,
                 api_key=self.openai_api_key
             )
 
-            # Get the raw response text
             text_response = response['choices'][0]['message']['content'].strip()
-
-            # Get images from referenced documents using the image processor
-            # referenced_images = await self._get_referenced_images(text_response)
-            # Meanwhile disabling this feature
-            referenced_images = []
-
-            # Combine and deduplicate images using the image processor
-            all_images = initial_images + referenced_images if initial_images else referenced_images
-            if all_images:
-                all_images = self.image_processor.image_classifier.deduplicate(all_images,
-                                                                               CONFIG.DEDUPLICATION_THRESHOLD)
-
-            # Format the response text
             formatted_response = self.formatter.format_response(text_response, chunk_metadata)
 
-            # Update chat history
+            # Process images
+            all_images = initial_images if initial_images else []
+            if all_images:
+                all_images = self.image_processor.image_classifier.deduplicate(
+                    all_images,
+                    CONFIG.DEDUPLICATION_THRESHOLD
+                )
+
             self.update_chat_history(query_text, formatted_response)
 
-            # Create and return the final response
-            final_response = QueryResponse(
+            return QueryResponse(
                 text_response=formatted_response,
                 images=all_images
             )
-
-            return final_response
 
         except Exception as e:
             logging.error(f"Error processing query: {e}", exc_info=True)
@@ -890,6 +888,11 @@ async def lifespan(app: FastAPI):
 # FASTAPI init:
 # -------------------------------
 
+# Initialize logging before anything else
+logger = setup_server_logging()
+if logger is None:
+    raise Exception("Failed to initialize logging")
+
 # Configure event loop policy before any async operations
 if sys.platform == 'win32':
     try:
@@ -906,6 +909,7 @@ if sys.platform == 'win32':
         logger.info("Windows event loop policy configured successfully")
     except Exception as e:
         logger.warning(f"Failed to set Windows event loop policy: {e}")
+
 # Initialize FastAPI app
 app = FastAPI(lifespan=lifespan, title="Atlantium RAG API")
 
