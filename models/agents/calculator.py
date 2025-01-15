@@ -798,6 +798,7 @@ def main():
             "Calculate RED for RZM-350-8 with flow 100, UVT 95%, lamp 1 at 90% power and lamp 2 at 80% power, all other lamps at 85% power",
             "Calculate RED for RZMW-350-11 with flow 200, UVT 92%, lamp 1 efficiency 85% and lamp 2 efficiency 75%, all lamps at 80% power",
             "Calculate RED for RZ-163-12 with flow 100, UVT 95%, lamp 1 efficiency 90%, lamp 2 efficiency 85%",
+            "Calculate RED for RZ-163UHP-11 with flow 100, UVT 95%, lamp efficiency 90%",
             "What day is it today?"
         ]
 
