@@ -77,22 +77,50 @@ WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
 # Disable the UserWarning from Flash-Attention (GPU capabilities >8.0)
 warnings.simplefilter("ignore", UserWarning)
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s: %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        RotatingFileHandler(
-            CONFIG.LOG_PATH / "system.log",
-            maxBytes=CONFIG.MAX_LOG_SIZE,
-            backupCount=CONFIG.LOG_BACKUP_COUNT,
-            encoding='utf-8'
-        )
-    ]
-)
-logger = logging.getLogger(__name__)
+def setup_server_logging():
+    """Set up logging for the server"""
+    try:
+        # Ensure log directory exists
+        os.makedirs(CONFIG.LOG_PATH, exist_ok=True)
 
+        # Create log file path
+        log_file = CONFIG.LOG_PATH / "system.log"
+
+        # Add write permission test
+        try:
+            with open(log_file, 'a') as f:
+                f.write('')
+        except IOError as e:
+            print(f"Warning: Unable to write to log file: {e}")
+            return False
+
+        # Remove any existing handlers to avoid duplication
+        root_logger = logging.getLogger()
+        for handler in root_logger.handlers[:]:
+            root_logger.removeHandler(handler)
+
+        # Setup logging
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s: %(message)s',
+            handlers=[
+                logging.StreamHandler(sys.stdout),
+                RotatingFileHandler(
+                    log_file,
+                    maxBytes=CONFIG.MAX_LOG_SIZE,
+                    backupCount=CONFIG.LOG_BACKUP_COUNT,
+                    encoding='utf-8'
+                )
+            ]
+        )
+
+        this_logger = logging.getLogger(__name__)
+        this_logger.info(f"Logging initialized. Writing to {log_file}")
+        return this_logger
+
+    except Exception as e:
+        print(f"Error setting up logging: {e}")
+        return None
 
 def clean_path(path: str) -> str:
     """
@@ -860,6 +888,11 @@ async def lifespan(app: FastAPI):
 # FASTAPI init:
 # -------------------------------
 
+# Initialize logging before anything else
+logger = setup_server_logging()
+if logger is None:
+    raise Exception("Failed to initialize logging")
+
 # Configure event loop policy before any async operations
 if sys.platform == 'win32':
     try:
@@ -876,6 +909,7 @@ if sys.platform == 'win32':
         logger.info("Windows event loop policy configured successfully")
     except Exception as e:
         logger.warning(f"Failed to set Windows event loop policy: {e}")
+
 # Initialize FastAPI app
 app = FastAPI(lifespan=lifespan, title="Atlantium RAG API")
 
