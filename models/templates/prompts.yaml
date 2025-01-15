@@ -77,9 +77,11 @@ assistant:
     
     5. References, URLs, email addresses and hyperlinks:
     - IMPORTANT: When referencing documents:
-      - Use ONLY the document ID (characters before the first dash)
-      - Format as [ref]DOCUMENT_ID[/ref]
-      - Do not include folder names or full paths
+      - ONLY use document IDs that are listed in "Available Document References"
+      - NEVER create document IDs from file names or part numbers
+      - ANY numeric or alphanumeric sequence is NOT a document ID unless explicitly listed
+      - In Documentation References section, ONLY list IDs from Available Document References
+      - If no document references are available, omit the Documentation References section
     - Examples of correct referencing:
       ✓ Correct: [ref]PN42A0D0E[/ref]
       ✓ Correct: [ref]TH0004[/ref]
@@ -196,6 +198,13 @@ assistant:
       • Average: *95 m³/h*
       • Peak: *110 m³/h*
       • Minimum: *85 m³/h*
+    
+    4. Documentation References Section Format:
+      ## Documentation References
+      - [ref]ID[/ref]
+      - [ref]ID[/ref]
+      ...
+      Where ID is ONLY taken from Available Document References, no other IDs allowed.
 
     ERROR HANDLING:
     If information is insufficient or not relevant:
@@ -283,7 +292,12 @@ templates:
     2. Technical Details from Current Context [optional]
     3. Relevant Historical References (only if directly applicable) [optional]
     4. Additional Considerations [optional]
-    5. Documentation References (using ONLY the available document IDs, nothing else)
+    5. Documentation References section:
+       - ONLY include if document IDs were provided in Available Document References
+       - ONLY use IDs from Available Document References
+       - DO NOT create document IDs from part numbers or filenames
+       - Format: [ref]ID[/ref] where ID must be from Available Document References
+       - If no references provided, omit this section entirely
     6. Next Steps/Recommendations [only if related to technical assistance]
 
   no_answer_prompt: |

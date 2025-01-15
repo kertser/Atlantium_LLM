@@ -2,20 +2,14 @@
 
 * Visualize the document processing with progress bar - over the "processing" button (processing batches)
 * Add option for "chat with live operator" (A button with contacts or whatsapp)
-
 * Check calculator for RZ-UHP
 * Attach Image on the frontend is not not loading correctly without reset, after images been founded in query
 * Try to filter the document reference images from the search results images
-* Fix system message "localhost:9000 wants to delete" etc...
-* During the image store the images shall be saved rotated as they appear in document.
-* Check for Excel file upload errors (images)
 * Update documentation
 * Maybe processing chunks and images asynchronously?
 * Try embedding dimensions 512 instead of 1024
-* implement flash-attn workaround for cpu machines
 * upload and remove (and query) documents processes sometimes stuck. May be related to "Windows event loop policy"
 * Need to free torch memory after processing of each query. Maybe after each document. An on reset as well
-* Collect more context for image metadata and use the context to filter-out the unrelated images
 
 # TBDs for development:
 * Add complicated reasoning (SMoA) to the model (TBD)
