@@ -373,8 +373,9 @@ def query_with_context(index, metadata, model, device="cpu", text_query=None, im
         text_results.sort(key=lambda x: x['similarity'], reverse=True)
         image_results.sort(key=lambda x: x['similarity'], reverse=True)
 
-        # 6. Take top results by quantile
-        final_text_results = text_results[:text_limit]
+        # 6. Filter results based on similarity thresholds
+        final_text_results = [r for r in text_results[:text_limit] if r['similarity'] > CONFIG.MINIMUM_TEXT_SIMILARITY]
+        filtered_image_results = [r for r in image_results[:image_limit] if r['similarity'] > CONFIG.MINIMUM_IMAGE_SIMILARITY]
 
         # 7. Generate embedding from text results for second-stage image filtering
         if final_text_results:
@@ -411,13 +412,13 @@ def query_with_context(index, metadata, model, device="cpu", text_query=None, im
                         refined_image_results.append(result)
 
                     refined_image_results.sort(key=lambda x: x['similarity'], reverse=True)
-                    final_image_results = refined_image_results[:image_limit]
+                    final_image_results = [r for r in refined_image_results[:image_limit] if r['similarity'] > CONFIG.MINIMUM_IMAGE_SIMILARITY]
                 else:
-                    final_image_results = image_results[:image_limit]
+                    final_image_results = filtered_image_results
             else:
-                final_image_results = image_results[:image_limit]
+                final_image_results = filtered_image_results
         else:
-            final_image_results = image_results[:image_limit]
+            final_image_results = filtered_image_results
 
         # 8. Process results for return
         processed_results = []

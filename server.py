@@ -751,8 +751,8 @@ class RAGQueryServer:
 
             query_type = await self.determine_query_type(query_text)
 
-            # if no contexts OR general question: return websearch results
-            if not contexts or query_type.is_general:
+            # if no contexts AND general question: return websearch results (Fix that)
+            if not contexts and query_type.is_general:
                 contexts = self._create_no_results_response(query_text)
                 initial_images = []  # Drop the images, found in RAG, they are unrelated to the websearch
 

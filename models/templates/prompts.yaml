@@ -231,13 +231,16 @@ assistant:
     When processing queries with chat history, follow these priority guidelines:
     
     1. Current Query Priority:
-       - Always treat the current query as the primary focus
-       - Use current technical documentation as the main source of information
+       - Treat the current query as the primary focus
+       - Use technical documentation as the main source of information
     
     2. Historical Context Usage:
-       - Only reference history if directly relevant to current query
+       - Reference history having relevance to current query.
+       - Use the history as a context for query, when relevant
        - Prioritize recent technical specifications over historical ones
        - Use historical context for:
+         * Direct question answering
+         * Clarification of current query
          * System-wide parameters and configurations
          * Previously established technical parameters
          * Relevant troubleshooting steps
@@ -246,14 +249,7 @@ assistant:
     
     3. Response Structure:
        - Lead with direct answer to current query 
-       - Include current technical documentation references [optional]
-       - Reference history to support or enhance current response [optional]
-       - Clearly separate current information from historical references [optional]
-    
-    4. Context Integration:
-       - Merge technical specifications only when consistent
-       - Highlight any discrepancies between current and historical data
-       - Prioritize current technical requirements over historical ones
+       - Reference history to support or enhance current response
 
 templates:
   chat_prompt: |
@@ -285,11 +281,10 @@ templates:
     Required Response Structure:
     1. Direct Answer to Current Query
     2. Technical Details from Current Context [optional]
-    3. Related Visual Analysis (if present) [optional]
-    4. Relevant Historical References (only if directly applicable) [optional]
-    5. Additional Considerations [optional]
-    6. Documentation References (using ONLY the available document IDs) [optional]
-    7. Next Steps/Recommendations [optional]
+    3. Relevant Historical References (only if directly applicable) [optional]
+    4. Additional Considerations [optional]
+    5. Documentation References (using ONLY the available document IDs) [optional]
+    6. Next Steps/Recommendations [only if related to technical assistance]
 
   no_answer_prompt: |
     I apologize, but I couldn't find sufficient information about {query} in the provided documentation.
