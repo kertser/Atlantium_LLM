@@ -1,8 +1,6 @@
 # Ongoing Tasks / Errors:
 
 * Visualize the document processing with progress bar - over the "processing" button (processing batches)
-* Attach Image on the frontend is not not loading correctly without reset, after images been founded in query
-  Reset cache after the query?
 * Update documentation
 * Resolve image relevance issue - if no images found by similarity - find top similar images from the references
 

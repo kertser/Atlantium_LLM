@@ -785,6 +785,16 @@ document.addEventListener('DOMContentLoaded', () => {
     chatImageInput.style.display = 'none';
     document.body.appendChild(chatImageInput);
 
+    // Initialize image handlers immediately
+    window.cleanupChatImageHandlers = initializeChatImageHandlers(chatImageInput, attachImageButton);
+
+    // Add cleanup on page unload
+    window.addEventListener('unload', () => {
+        if (window.cleanupChatImageHandlers) {
+            window.cleanupChatImageHandlers();
+        }
+    }, { once: true });
+
     // Update the loadDocuments function to include new handlers
     const originalLoadDocuments = loadDocuments;
     loadDocuments = async (path = '') => {
@@ -1099,6 +1109,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Event Handlers
     async function handleImageAttachment(event) {
+        event.preventDefault();
+        event.stopPropagation();
+
         const file = event.target.files[0];
         if (!file) return;
 
@@ -1108,20 +1121,19 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Clear existing preview and create new preview image
+        // Clear existing preview
         previewContainer.innerHTML = '';
-        const previewImage = document.createElement('img');
 
-        // Create object URL for preview
+        const previewImage = document.createElement('img');
         const objectUrl = URL.createObjectURL(file);
         previewImage.src = objectUrl;
 
-        // Create remove button
         const removeButton = document.createElement('button');
         removeButton.className = 'remove-image-button';
         removeButton.innerHTML = '×';
-        removeButton.onclick = () => {
-            // Clean up the object URL when removing the preview
+        removeButton.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
             URL.revokeObjectURL(objectUrl);
             previewContainer.style.display = 'none';
             previewContainer.innerHTML = '';
@@ -1136,18 +1148,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update current attached image
         currentAttachedImage = file;
 
-        // Clean up old preview URL when image changes
-        if (previewImage.onload) {
-            previewImage.onload();
-        }
-        previewImage.onload = () => {
-            // Store the current URL for cleanup
-            const oldUrl = previewImage.dataset.objectUrl;
-            if (oldUrl) {
-                URL.revokeObjectURL(oldUrl);
-            }
-            previewImage.dataset.objectUrl = objectUrl;
-        };
+        // Store the object URL for cleanup
+        previewImage.dataset.objectUrl = objectUrl;
     }
 
     function initializeChatImageHandlers(chatImageInput, attachImageButton) {
@@ -1360,8 +1362,6 @@ document.addEventListener('DOMContentLoaded', () => {
     fileInput.addEventListener('change', (e) => handleFiles([...e.target.files]));
 
     // Chat Event Listeners
-    attachImageButton.addEventListener('click', () => chatImageInput.click());
-    chatImageInput.addEventListener('change', handleImageAttachment);
     sendButton.addEventListener('click', handleSend);
     resetButton.addEventListener('click', handleReset);
     input.addEventListener('input', adjustTextareaHeight);
