@@ -33,6 +33,7 @@ from utils.RAG_utils import (
     chunk_text,
 )
 from utils.img_utils import ImageStore, ImageProcessor
+from utils.helper_functions import cleanup_and_reload_resources
 from contextlib import contextmanager
 
 
@@ -820,28 +821,10 @@ def document_processing_sequence(clip_model=None, index=None, metadata=None):
     finally:
         # Cleanup resources
         try:
-            if 'image_store' in locals() and image_store is not None:
-                image_store.cleanup()
-            if clip_model is not None:
-                if hasattr(clip_model, 'cpu'):
-                    clip_model.cpu()
-                del clip_model
-            if index is not None:
-                del index
-            # Cleanup temporary files
-            tmp_files = list(CONFIG.RAG_DATA.glob("*.tmp"))
-            for tmp_file in tmp_files:
-                try:
-                    tmp_file.unlink()
-                except Exception as err:
-                    logging.error(f"Error removing temporary file {tmp_file}: {err}")
-            gc.collect()
-
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-
+            cleanup_and_reload_resources()
+            # Continue with the reloaded index and metadata
         except Exception as err:
-            logging.error(f"Error during cleanup: {err}", exc_info=True)
+            logging.error(f"Failed to cleanup and reload resources: {err}")
 
 
 if __name__ == "__main__":

@@ -2,12 +2,9 @@
 
 * Visualize the document processing with progress bar - over the "processing" button (processing batches)
 * Attach Image on the frontend is not not loading correctly without reset, after images been founded in query
+  Reset cache after the query?
 * Update documentation
-* Maybe processing chunks and images asynchronously?
-* Try embedding dimensions 512 instead of 1024
-* upload and remove (and query) documents processes sometimes stuck. May be related to "Windows event loop policy"
-* Need to free torch memory after processing of each query. Maybe after each document. An on reset as well
-* Resolve image relevance issue
+* Resolve image relevance issue - if no images found by similarity - find top similar images from the references
 
 # TBDs for development:
 * Add complicated reasoning (SMoA) to the model (TBD)
