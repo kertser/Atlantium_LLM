@@ -83,7 +83,6 @@ class Config:
     DETAIL_MAX_TOKENS: int = 4000  # Setting for detailed responses
 
     # Document Processing
-    BATCH_SIZE: int = 5  # Document processing in batches. For limited RAM it is 2-5. For GPU 8-16GB it is 8-16
     CHUNK_OVERLAP: int = 100  # The number of words overlapped between consecutive chunks
     MIN_CHUNK_SIZE: int = 50  # The minimum number of words required in a chunk for it to be considered meaningful
     CHUNK_SIZE: int = 400  # The default number of words in each chunk

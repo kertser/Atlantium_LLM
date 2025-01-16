@@ -722,7 +722,7 @@ td .select-checkbox {
 
 .whatsapp-button {
     position: fixed;
-    top: 20px;          /* Changed from bottom: 20px to top: 20px */
+    top: 20px;
     right: 20px;
     z-index: 1000;
     background-color: #25D366;  /* WhatsApp green */

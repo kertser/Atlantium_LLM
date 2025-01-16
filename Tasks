@@ -7,6 +7,7 @@
 * Try embedding dimensions 512 instead of 1024
 * upload and remove (and query) documents processes sometimes stuck. May be related to "Windows event loop policy"
 * Need to free torch memory after processing of each query. Maybe after each document. An on reset as well
+* Resolve image relevance issue
 
 # TBDs for development:
 * Add complicated reasoning (SMoA) to the model (TBD)

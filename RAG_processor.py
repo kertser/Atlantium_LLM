@@ -3,10 +3,12 @@ import hashlib
 import json
 import logging
 import sys
+import warnings
 from pathlib import Path
 from typing import Any, Tuple, List, Dict, Optional, Union
 import gc
 import torch
+import psutil
 
 import faiss
 import numpy as np
@@ -36,23 +38,74 @@ from contextlib import contextmanager
 
 def setup_logger():
     """
-    Setup logging configuration
+    Setup internal logging configuration with separated file and console output levels
     """
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s: %(message)s',
-        handlers=[
-            logging.FileHandler(CONFIG.LOG_PATH / "system.log"),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
+    # Disable the UserWarning from Flash-Attention (GPU capabilities >8.0)
+    warnings.simplefilter("ignore", UserWarning)
 
-    # Create a separate console handler for critical/final information
+    # Clear any existing handlers
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+
+    # Create formatters
+    file_formatter = logging.Formatter('%(asctime)s - %(levelname)s: %(message)s')
+    console_formatter = logging.Formatter('%(levelname)s: %(message)s')
+
+    # File handler - for all logs (INFO and above)
+    file_handler = logging.FileHandler(CONFIG.LOG_PATH / "system.log")
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(file_formatter)
+
+    # Console handler - for warnings and errors only
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.WARNING)  # Only WARNING and above go to console
-    console_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
-    logging.getLogger().addHandler(console_handler)
+    console_handler.setLevel(logging.WARNING)
+    console_handler.setFormatter(console_formatter)
 
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)  # Base level for the logger
+
+    # Add handlers
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
+
+    # Optional: Add a debug log file for detailed logging
+    debug_handler = logging.FileHandler(CONFIG.LOG_PATH / "debug.log")
+    debug_handler.setLevel(logging.ERROR)
+    debug_handler.setFormatter(file_formatter)
+    root_logger.addHandler(debug_handler)
+
+
+def get_optimal_processing_params():
+    """ Initially for multiprocessing """
+    # Get system info
+    cpu_count = psutil.cpu_count(logical=False)  # Physical cores only
+    if torch.cuda.is_available():
+        gpu_mem = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)  # GB
+    else:
+        gpu_mem = 0
+
+    # Calculate optimal values
+    max_concurrent = max(2, min(cpu_count - 2, 12))  # Leave 2 cores for system
+
+    if gpu_mem > 0:
+        # GPU available
+        max_batch = int(min(64, gpu_mem * 4))  # 4 samples per GB of VRAM
+        batch_size = max(8, max_batch // 2)  # Half of max batch size
+        min_batch = max(4, batch_size // 4)  # Quarter of batch size
+    else:
+        # CPU only
+        max_batch = 16
+        batch_size = 8
+        min_batch = 4
+
+    return {
+        'MAX_CONCURRENT_DOCS': max_concurrent,
+        'BATCH_SIZE': batch_size,
+        'MIN_BATCH_SIZE': min_batch,
+        'MAX_BATCH_SIZE': max_batch,
+        'MEMORY_BUFFER': 0.2
+    }
 
 @contextmanager
 def silent_tqdm():
@@ -79,28 +132,17 @@ def filter_technical_images(images_data, model, source_doc):
     filtered_images = []
     logging.info(f"Processing {len(images_data)} images for technical content")
 
-    # Define classification prompts
-    technical_text = [
-        "a detailed technical diagram",
-        "an engineering schematic",
-        "a technical drawing of a device or part",
-        "a mechanical assembly drawing",
-        "an industrial equipment diagram"
-    ]
-    non_technical_text = [
-        "a company logo",
-        "a decorative banner",
-        "a marketing image",
-        "an icon",
-        "a decorative header image"
-    ]
+    # Define classification prompts - ensure all have the same length
+    technical_text = "this is a technical diagram or schematic drawing or engineering blueprint"
+    non_technical_text = "this is a logo or banner or marketing image or decorative element"
 
     try:
         # Pre-encode the classification text prompts
         with torch.no_grad():
             with silent_tqdm():
-                tech_embedding = model.encode_text(technical_text)
-                non_tech_embedding = model.encode_text(non_technical_text)
+                # Encode both text prompts as single strings
+                tech_embedding = model.encode_text([technical_text])
+                non_tech_embedding = model.encode_text([non_technical_text])
 
             if isinstance(tech_embedding, torch.Tensor):
                 tech_embedding = tech_embedding.cpu().numpy()
@@ -120,7 +162,7 @@ def filter_technical_images(images_data, model, source_doc):
                 logging.debug(f"Skipping small image: {image.width}x{image.height}")
                 continue
 
-            # Skip images with extreme aspect ratios (likely banners or headers)
+            # Skip images with extreme aspect ratios
             aspect_ratio = image.width / image.height
             if aspect_ratio > 3 or aspect_ratio < 0.33:
                 logging.debug(f"Skipping image with extreme aspect ratio: {aspect_ratio:.2f}")
@@ -148,24 +190,20 @@ def filter_technical_images(images_data, model, source_doc):
                     if isinstance(image_embedding, torch.Tensor):
                         image_embedding = image_embedding.cpu().numpy()
 
-                    # Calculate similarities with each prompt
-                    tech_similarities = np.dot(image_embedding, tech_embedding.T)[0]
-                    non_tech_similarities = np.dot(image_embedding, non_tech_embedding.T)[0]
-
-                    # Use max similarity for each category
-                    tech_score = np.max(tech_similarities)
-                    non_tech_score = np.max(non_tech_similarities)
+                    # Calculate similarities using single embeddings
+                    tech_similarity = np.dot(image_embedding.flatten(), tech_embedding.flatten())
+                    non_tech_similarity = np.dot(image_embedding.flatten(), non_tech_embedding.flatten())
 
                     # Calculate confidence score
-                    total = tech_score + non_tech_score
+                    total = tech_similarity + non_tech_similarity
                     if total > 0:
-                        tech_confidence = tech_score / total
+                        tech_confidence = tech_similarity / total
                     else:
                         tech_confidence = 0.5
 
                     if tech_confidence > CONFIG.TECHNICAL_CONFIDENCE_THRESHOLD:
                         img_data['technical_similarity'] = float(tech_confidence)
-                        img_data['technical_score'] = float(tech_score)
+                        img_data['technical_score'] = float(tech_similarity)
                         filtered_images.append(img_data)
                         logging.info(
                             f"Technical image found in {source_doc} "
@@ -721,7 +759,7 @@ def document_processing_sequence(clip_model=None, index=None, metadata=None):
             index, metadata = init_FAISS_model()
 
         # Process documents in batches
-        batch_size = CONFIG.BATCH_SIZE
+        batch_size = get_optimal_processing_params()['BATCH_SIZE']
         num_batches = (len(new_docs) + batch_size - 1) // batch_size
         with ImageStore() as image_store:
             with tqdm(total=num_batches, desc="Processing batches", unit="batch", position=0, leave=True) as batch_pbar:
@@ -808,6 +846,13 @@ def document_processing_sequence(clip_model=None, index=None, metadata=None):
 
 if __name__ == "__main__":
     setup_logger()
+
+    # Show optimal parameters for your system
+    optimal_params = get_optimal_processing_params()
+    print("Recommended parameters for your system:")
+    for param, value in optimal_params.items():
+        print(f"{param} = {value}")
+
     try:
         result = document_processing_sequence()
         sys.exit(result)

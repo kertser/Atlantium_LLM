@@ -487,40 +487,6 @@ class ImageStore(ImageProcessor):
             logging.error(f"Error deleting image: {e}")
             return False
 
-    def deduplicate_images(self, batch_size: int = 100) -> None:
-        """Remove duplicate images based on perceptual hashing with batch processing."""
-        hash_map: Dict[str, List[str]] = {}
-        total = len(self.metadata)
-
-        for i in range(0, total, batch_size):
-            batch_ids = list(self.metadata.keys())[i:i + batch_size]
-            for image_id in batch_ids:
-                try:
-                    image, _ = self.get_image(image_id)
-                    if image is None:
-                        continue
-
-                    image_hash = self.calculate_hash(image)
-                    if image_hash is None:
-                        continue
-
-                    hash_map.setdefault(image_hash, []).append(image_id)
-
-                except Exception as e:
-                    logging.error(f"Error processing {image_id}: {e}")
-                    continue
-
-        # Remove duplicates keeping oldest version
-        for image_hash, id_list in hash_map.items():
-            if len(id_list) > 1:
-                keep_id = min(id_list)  # Keep oldest
-                for dup_id in id_list:
-                    if dup_id != keep_id:
-                        self.delete_image(dup_id)
-
-        self._save_metadata()
-        logging.info("Deduplication complete")
-
     @staticmethod
     def merge_metadata(primary: Dict, secondary: Dict) -> Dict:
         """Merge metadata from two images."""
