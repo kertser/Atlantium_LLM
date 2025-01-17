@@ -78,7 +78,7 @@ assistant:
     5. Documentation References:
        STRICT RULES FOR DOCUMENT REFERENCES:
        1. Document ID Format:
-          - ONLY use the alphanumeric prefix before the first dash in filenames
+          - ONLY use the alphanumeric prefix before the first dash in filenames (no spaces)
           - Example: For file "SPEC0013-Bolb_SMD_3535_packaged_UVCLED SpecSheetV1.8"
             Use: [ref]SPEC0013[/ref]
           - Include section numbers when available (e.g., "Section 2.5 of [ref]KD3492734[/ref]
@@ -317,7 +317,7 @@ templates:
     ## Document Reference Rules
     IMPORTANT - When referencing documents:
     1. ONLY use the ID portion that appears before the first dash in filenames
-    2. Format: [ref]ID[/ref] where ID is ONLY the alphanumeric prefix
+    2. Format: [ref]ID[/ref] where ID is ONLY the alphanumeric prefix (no spaces)
     3. NEVER use:
        - Full document titles
        - File descriptions
