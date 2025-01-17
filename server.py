@@ -261,9 +261,6 @@ class EnhancedResponseFormatter:
                 text (str): The text containing document references
             """
             try:
-                # Debug print:
-                print(text)
-
                 # Load processed files for fallback
                 processed_files_path = CONFIG.PROCESSED_FILES_PATH
                 if not processed_files_path.exists():
@@ -756,7 +753,15 @@ class RAGQueryServer:
                 for result in results[0]:
                     metadata = result['metadata']
                     if metadata.get('type') == 'text-chunk' and 'get_content' in metadata:
-                        contexts.append(metadata['get_content']().strip())
+                        # Get the filename from the path
+                        path = metadata.get('path', '')
+                        filename = os.path.basename(path) if path else 'Unknown document'
+
+                        # Get the content and add the filename prefix
+                        content = metadata['get_content']().strip()
+                        content_with_filename = f"Document filename: {filename}\n{content}"
+
+                        contexts.append(content_with_filename)
                         chunk_metadata.append(metadata)
                     elif metadata.get('type') == 'image':
                         processed_images = await self._process_image_result(result, query_text)

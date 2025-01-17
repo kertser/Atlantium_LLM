@@ -3,6 +3,7 @@
 * Update documentation
 * Resolve image relevance issue - if no images found by similarity - find top similar images from the references
 * Divide prompts.yaml into prompts and templates files
+* Add "do" and "dont" to the prompt alignment - what model shall know and what not
 
 # TBDs for development:
 * Add complicated reasoning (SMoA) to the model (TBD)
