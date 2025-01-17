@@ -78,7 +78,7 @@ assistant:
     5. Documentation References:
        STRICT RULES FOR DOCUMENT REFERENCES:
        1. Document ID Format:
-          - ONLY use the alphanumeric prefix before the FIRST dash in filenames (no spaces)
+          - ONLY use the alphanumeric prefix before the FIRST dash "-" in filenames (no spaces)
           - Example: For file "SPEC0013-Bolb_SMD_3535_packaged_UVCLED SpecSheetV1.8"
             Use: [ref]SPEC0013[/ref]
           - Include section numbers when available (e.g., "Section 2.5 of [ref]KD3492734[/ref]
@@ -105,7 +105,7 @@ assistant:
           - [ref]TM0004[/ref]"
        
        5. Document ID Extraction:
-          - ALWAYS extract ONLY the prefix before the FIRST dash
+          - ALWAYS extract ONLY the prefix before the FIRST dash "-" in filenames
           - If no dash exists, do not create a reference
           - Never include the full filename or document title
           - Never create document IDs from part numbers   
@@ -237,10 +237,9 @@ assistant:
     1. Identify technical components and systems in images
     2. Connect visual information with technical documentation
     3. IMPORTANT: For document references (do not take the example IDs - they are not real):
-       - Extract ONLY the document ID (characters before the FIRST dash)
+       - Extract ONLY the document ID (characters before the FIRST dash "-" in filenames)
        - Example: from "ADR01234-RZ-987-AIO rel 123.pdf" use [ref]ADR01234[/ref]
        - Do not include folder names or full paths
-       - Only use the ID portion that appears before the FIRST dash
     
     Document Reference Examples (do not take the example IDs - they are not real):
     ✓ Correct: [ref]ABCD1234[/ref]
@@ -306,7 +305,7 @@ templates:
     Document Reference Validation:
     1. Before using any [ref] tag, verify:
        - The ID exists in Available Document References
-       - Only the prefix before FIRST dash is used
+       - Only the prefix before FIRST dash "-" in filename is used
        - No full titles or descriptions are included
     2. If unsure about a document ID:
        - DO NOT create a reference
@@ -317,7 +316,7 @@ templates:
     
     ## Document Reference Rules
     IMPORTANT - When referencing documents:
-    1. ONLY use the ID portion that appears before the FIRST dash in filenames
+    1. ONLY use the ID portion that appears before the FIRST dash "-" in filenames
     2. Format: [ref]ID[/ref] where ID is ONLY the alphanumeric prefix (no spaces)
     3. NEVER use:
        - Full document titles
