@@ -114,6 +114,9 @@ assistant:
     6. URLs, email addresses and hyperlinks
       - For URLs: Use `<a href="URL" target="_blank">text</a>`
       - For Email addresses: Use `<a href="mailto:email">email</a>`
+      - For hyperlinks: Use `<a href="link" target="_blank">text</a>`
+      Example: <a href="https://www.atlantium.com" target="_blank">Atlantium Technologies</a>
+      Example: <a href="mailto:info@atlantium.com">Contact Atlantium</a>
     
     7. Mathematical Content:
       - Inline Math: $equation$

@@ -43,6 +43,7 @@ from urllib.parse import unquote
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from sentence_transformers import SentenceTransformer
 
 import faiss
 import torch
@@ -217,6 +218,76 @@ class QueryType(BaseModel):
     is_summary: bool = False
     is_general: bool = True
 
+class QueryClassifier:
+    def __init__(self):
+        # Load a small sentence transformer model
+        self.model = SentenceTransformer('all-MiniLM-L6-v2')
+
+        # Define the candidate labels and their embeddings
+        self.labels = [
+            "detailed technical question about specifications, parameters, or technical issues",
+            "request for summarizing technical documentation or technical information",
+            "high-level description request about technical concepts, architecture, or specifications",
+            "general non-technical or unrelated question"
+        ]
+        # Pre-compute label embeddings
+        self.label_embeddings = self.model.encode(self.labels)
+
+    async def determine_query_type(self, query_text: str) -> QueryType:
+        """Determine the type of query based on semantic similarity."""
+        try:
+            # Encode the query
+            query_embedding = self.model.encode(query_text)
+
+            # Calculate cosine similarities
+            similarities = torch.nn.functional.cosine_similarity(
+                torch.tensor(query_embedding).unsqueeze(0),
+                torch.tensor(self.label_embeddings),
+                dim=1
+            )
+
+            # Get the most similar label
+            predicted_label = self.labels[torch.argmax(similarities).item()]
+
+            # Map the prediction to QueryType
+            if "high-level overview" in predicted_label:
+                return QueryType(
+                    is_overview=True,
+                    is_technical=False,
+                    is_summary=False,
+                    is_general=False
+                )
+            elif "summary request" in predicted_label:
+                return QueryType(
+                    is_overview=False,
+                    is_technical=False,
+                    is_summary=True,
+                    is_general=False
+                )
+            elif "general non-technical" in predicted_label:
+                return QueryType(
+                    is_overview=False,
+                    is_technical=False,
+                    is_summary=False,
+                    is_general=True
+                )
+            else:  # technical
+                return QueryType(
+                    is_overview=False,
+                    is_technical=True,
+                    is_summary=False,
+                    is_general=False
+                )
+
+        except Exception as e:
+            logging.error(f"Error determining query type: {e}")
+            # Fallback to default query type
+            return QueryType(
+                is_overview=False,
+                is_technical=False,
+                is_summary=False,
+                is_general=True  # Default fallback assumption
+            )
 
 class QueryResponse(BaseModel):
     text_response: str
@@ -461,6 +532,8 @@ class RAGQueryServer:
             device=self.device,
         )
 
+        self.query_classifier = QueryClassifier()
+
         # Load processed files from metadata
         self.processed_files = self._load_processed_files()
 
@@ -499,82 +572,6 @@ class RAGQueryServer:
             self.metadata = []
             save_faiss_index(self.index, CONFIG.FAISS_INDEX_PATH)
             save_metadata(self.metadata, CONFIG.METADATA_PATH)
-
-    async def determine_query_type(self, query_text: str) -> QueryType:
-        """Determine the type of query based on semantic analysis."""
-        try:
-            # GPT prompt messages
-            messages = [
-                {
-                    "role": "system",
-                    "content": """
-                        You are a classification specialist trained to identify the nature of queries.
-                        Analyze each query thoroughly based on its semantic content and classify it into one of the following categories:
-                        - "technical" for detailed technical questions or issues
-                        - "summary" for requests to summarize technical topics
-                        - "overview" for high-level descriptions of technical concepts or specifications
-                        - "general" for non-technical or unrelated questions
-
-                        Always select the single most appropriate category. Only classify a query as "general" if it is clearly unrelated to the other types.
-                        Ensure your decision is based on the query's full meaning and context.
-                    """
-                },
-                {
-                    "role": "user",
-                    "content": f"Classify this query: {query_text}"
-                }
-            ]
-
-            response = openai_post_request(
-                messages=messages,
-                model_name=CONFIG.BASE_LLM_MODEL,
-                max_tokens=CONFIG.SUMMARY_MAX_TOKENS,
-                temperature=0,
-                api_key=self.openai_api_key
-            )
-
-            # Extract and parse response content
-            classification = response['choices'][0]['message']['content'].strip()
-
-            # Default is_technical:
-            if classification == "overview":
-                return QueryType(
-                    is_overview=True,
-                    is_technical=False,
-                    is_summary=False,
-                    is_general=False
-                )
-            elif classification == "summary":
-                return QueryType(
-                    is_overview=False,
-                    is_technical=False,
-                    is_summary=True,
-                    is_general=False
-                )
-            elif classification == "general":
-                return QueryType(
-                    is_overview=False,
-                    is_technical=False,
-                    is_summary=False,
-                    is_general=True
-                )
-            else:
-                return QueryType(
-                    is_overview=False,
-                    is_technical=True,
-                    is_summary=False,
-                    is_general=False
-                )
-
-        except Exception as e:
-            logging.error(f"Error determining query type: {e}")
-            # Fallback to default query type
-            return QueryType(
-                is_overview=False,
-                is_technical=False,
-                is_summary=False,
-                is_general=True  # Default fallback assumption
-            )
 
     async def _process_image_result(self, result: Dict, query_text: str) -> List[Dict]:
         """Process individual image search result to extract basic image information."""
@@ -771,7 +768,7 @@ class RAGQueryServer:
                         if processed_images:
                             initial_images.extend(processed_images)
 
-            query_type = await self.determine_query_type(query_text)
+            query_type = await self.query_classifier.determine_query_type(query_text)
 
             if not contexts and query_type.is_general:
                 contexts = self._create_no_results_response(query_text)
