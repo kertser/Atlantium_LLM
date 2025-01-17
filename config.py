@@ -55,7 +55,7 @@ class Config:
 
     # Thresholds (not percentiles)
     MINIMUM_TEXT_SIMILARITY:  float = 0.6  # Minimum text similarity
-    MINIMUM_IMAGE_SIMILARITY: float = 0.1  # Minimum image similarity
+    MINIMUM_IMAGE_SIMILARITY: float = 0.25  # Minimum image similarity
     IMAGE_SIMILARITY_THRESHOLD: float = 0.3  # Similarity between images
     TECHNICAL_CONFIDENCE_THRESHOLD: float = 0.6  # Technical confidence
     DEDUPLICATION_THRESHOLD = 0.70  # Threshold for image deduplication

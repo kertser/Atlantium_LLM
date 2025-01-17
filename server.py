@@ -41,6 +41,9 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 from urllib.parse import unquote
 
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
 import faiss
 import torch
 from PIL import Image
@@ -613,87 +616,87 @@ class RAGQueryServer:
             device=self.device
         )
 
-    async def _get_referenced_images(self, response_text: str) -> List[Dict]:
-        """Get images from documents referenced in the response text."""
-        # Meanwhile disabled function
-        try:
-            # Extract document references using pattern
-            referenced_docs = set()
-            matches = re.finditer(r'\[ref](.*?)\[/ref]', response_text)
+    async def _get_referenced_images(self, response_text: str):
+        """
+        Get images from documents referenced in the response text.
+        Returns up to 12 most relevant images based on context similarity to query.
 
-            for match in matches:
-                doc_ref = match.group(1).strip()
-                # Remove any spaces from reference for matching
-                doc_ref = doc_ref.replace(' ', '')
-                referenced_docs.add(doc_ref)
-                logging.info(f"Found document reference: {doc_ref}")
+        Args:
+            response_text: The response text containing references
+        """
+        try:
+            # Extract references from [ref] tags
+            referenced_docs = {match.group(1).strip()
+                               for match in re.finditer(r'\[ref](.*?)\[/ref]', response_text)}
 
             if not referenced_docs:
-                logging.info("No document references found in response")
                 return []
 
             # Load image metadata
-            with open(CONFIG.IMAGE_METADATA_PATH, 'r', encoding='utf-8') as f:
-                image_metadata = json.load(f)
+            try:
+                with open(CONFIG.IMAGE_METADATA_PATH, 'r', encoding='utf-8') as f:
+                    image_metadata = json.load(f)
+            except Exception as e:
+                logging.error(f"Failed to load image metadata: {e}")
+                return []
 
-            # Get images from referenced documents
-            image_candidates = []
-            processed_ids = set()
+            # Collect contexts and candidate data
+            contexts = []
+            candidate_data = []
 
             for image_id, img_data in image_metadata.items():
                 source_doc = img_data.get('source_document', '')
+                if not source_doc:
+                    continue
 
-                # Remove spaces and special characters from source_doc for matching
-                clean_source = re.sub(r'[\s\-_.]', '', source_doc)
+                filename = os.path.basename(source_doc)
 
-                # Check if any reference matches this source
-                for doc_ref in referenced_docs:
-                    if doc_ref in clean_source:
-                        if image_id not in processed_ids:
-                            try:
-                                base64_image = self.image_processor.image_store.get_base64(image_id)
-                                if base64_image:
-                                    image_info = {
-                                        'image': base64_image,
-                                        'image_id': image_id,
-                                        'caption': img_data.get('caption', ''),
-                                        'context': img_data.get('context', ''),
-                                        'source': source_doc,
-                                        'page_number': img_data.get('page_number'),
-                                        'width': img_data.get('width'),
-                                        'height': img_data.get('height')
-                                    }
-                                    image_candidates.append(image_info)
-                                    processed_ids.add(image_id)
-                                    logging.info(f"Added image {image_id} from document {source_doc}")
-                            except Exception as e:
-                                logging.error(f"Error processing image {image_id}: {e}")
-                            break
+                if any(filename.upper().startswith(f"{ref}-".upper()) for ref in referenced_docs):
+                    try:
+                        base64_image = self.image_processor.image_store.get_base64(image_id)
+                        if base64_image:
+                            context = img_data.get('context', '')
+                            contexts.append(context)
+                            candidate_data.append({
+                                'image': base64_image,
+                                'image_id': image_id,
+                                'caption': img_data.get('caption', ''),
+                                'context': context,
+                                'source': filename,
+                                'page_number': img_data.get('page_number'),
+                                'width': img_data.get('width'),
+                                'height': img_data.get('height')
+                            })
+                    except Exception as err:
+                        logging.error(f"Error processing image {image_id}: {err}")
 
-            if not image_candidates:
-                logging.info("No images found in referenced documents")
+            if not candidate_data:
                 return []
 
-            try:
-                # Use ImageClassifier to rank images by relevance
-                if hasattr(self, 'image_classifier'):
-                    ranked_images = self.image_classifier.rank_images_by_relevance(
-                        image_store=self.image_processor.image_store,
-                        images=image_candidates,
-                        query_text=response_text
-                    )
-                    logging.info(f"Selected {len(ranked_images)} most relevant images")
-                    return ranked_images[:13]  # Limit to 12 most relevant images
-                else:
-                    logging.info("No image classifier available, returning unranked images")
-                    return image_candidates[:13]  # Return first 12 images if no classifier
+            # Add query to contexts for vectorization
+            contexts.append(response_text)
 
-            except Exception as e:
-                logging.error(f"Error ranking images: {e}", exc_info=True)
-                return image_candidates[:13]  # Fallback to first 12 images if ranking fails
+            # Calculate TF-IDF similarities
+            vectorizer = TfidfVectorizer(stop_words='english')
+            tfidf_matrix = vectorizer.fit_transform(contexts)
+
+            # Get similarity scores
+            query_vector = tfidf_matrix[-1:]
+            similarities = cosine_similarity(query_vector, tfidf_matrix[:-1])[0]
+
+            # Filter and sort candidates by similarity score
+            image_candidates = []
+            for idx, candidate in enumerate(candidate_data):
+                if similarities[idx] > 0:
+                    candidate['relevance_score'] = float(similarities[idx])
+                    image_candidates.append(candidate)
+
+            # Sort by similarity score and return top 12
+            image_candidates.sort(key=lambda x: x['relevance_score'], reverse=True)
+            return image_candidates[:12]
 
         except Exception as e:
-            logging.error(f"Error getting images from response: {e}")
+            logging.error(f"Error in _get_referenced_images: {e}")
             return []
 
     async def process_text_query(self, query_text: str) -> QueryResponse:
@@ -803,11 +806,25 @@ class RAGQueryServer:
 
             # Process images
             all_images = initial_images if initial_images else []
+
+            # If we have less than 12 images, try to get more from references
+            if len(all_images) < 12:
+                # Get referenced images
+                referenced_images = await self._get_referenced_images(text_response)
+                if referenced_images:
+                    # Calculate how many more images we can add
+                    remaining_slots = 12 - len(all_images)
+                    # Add only the top N referenced images where N is remaining_slots
+                    all_images.extend(referenced_images[:remaining_slots])
+
+            # Deduplicate if we have any images
             if all_images:
                 all_images = self.image_processor.image_classifier.deduplicate(
                     all_images,
                     CONFIG.DEDUPLICATION_THRESHOLD
                 )
+                # Ensure we still don't exceed 12 images after deduplication
+                all_images = all_images[:12]
 
             self.update_chat_history(query_text, formatted_response)
 
