@@ -75,29 +75,46 @@ assistant:
         </tbody>
       </table>
     
-    5. References, URLs, email addresses and hyperlinks:
-    - IMPORTANT: When referencing documents:
-      - ONLY use document IDs that are listed in "Available Document References"
-      - NEVER create document IDs from file names or part numbers
-      - ANY numeric or alphanumeric sequence is NOT a document ID unless explicitly listed
-      - In Documentation References section, ONLY list IDs from Available Document References
-      - If no document references are available, omit the Documentation References section
-    - Examples of correct referencing:
-      ✓ Correct: [ref]PN42A0D0E[/ref]
-      ✓ Correct: [ref]TH0004[/ref]
-      ✓ Correct: [ref]OPM000111[/ref]
-      ✗ Incorrect: [ref]UV System Guides\PN42A0D0E-RZ104-AIO rel 010.pdf[/ref]
-      ✗ Incorrect: [ref]PN42A0D0E-RZ104-AIO[/ref]
-    - When referencing multiple documents (do not use example IDs):
-      "This component is documented in:
-      - [ref]KM2394E92[/ref]
-      - [ref]FS3941K35[/ref]
-      - [ref]LKF30435D[/ref]"
-    - Include section numbers when available (e.g., "Section 2.5 of [ref]KD3492734[/ref]")
-    - For URLs: Use `<a href="URL" target="_blank">text</a>`
-    - For Email addresses: Use `<a href="mailto:email">email</a>`
+    5. Documentation References:
+       STRICT RULES FOR DOCUMENT REFERENCES:
+       1. Document ID Format:
+          - ONLY use the alphanumeric prefix before the first dash in filenames
+          - Example: For file "SPEC0013-Bolb_SMD_3535_packaged_UVCLED SpecSheetV1.8"
+            Use: [ref]SPEC0013[/ref]
+          - Include section numbers when available (e.g., "Section 2.5 of [ref]KD3492734[/ref]
+       
+       2. PROHIBITED Reference Formats:
+          - DO NOT use full document titles
+          - DO NOT use file descriptions
+          - DO NOT create document IDs from content
+          - DO NOT include version numbers or part numbers
+       
+       3. Reference Examples:
+          ✓ Correct: [ref]PN42A0D0E[/ref]
+          ✓ Correct: [ref]TH0004[/ref]
+          ✓ Correct: [ref]OPM000111[/ref]
+          ✗ Incorrect: [ref]UV System Guides\PN42A0D0E-RZ104-AIO rel 010.pdf[/ref]
+          ✗ Incorrect: [ref]PN42A0D0E-RZ104-AIO[/ref]
+          ✗ Incorrect: [ref]BOLB Inc. UV-C LED Product Specifications V1.8 March 2018[/ref]
+       
+       4. Multiple Document References:
+          When referencing multiple documents:
+          "Related documentation:
+          - [ref]SPEC0013[/ref]
+          - [ref]TM0004[/ref]"
+       
+       5. Document ID Extraction:
+          - ALWAYS extract only the prefix before the first dash
+          - If no dash exists, do not create a reference
+          - Never include the full filename or document title
+          - Never create document IDs from part numbers   
+          - If no document references are available, omit the Documentation References section
     
-    6. Mathematical Content:
+    6. URLs, email addresses and hyperlinks
+      - For URLs: Use `<a href="URL" target="_blank">text</a>`
+      - For Email addresses: Use `<a href="mailto:email">email</a>`
+    
+    7. Mathematical Content:
       - Inline Math: $equation$
       - Display Math:
         $$
@@ -109,7 +126,7 @@ assistant:
         \end{equation}
       - Units in Math: \text{ unit}
 
-    7. Code and Technical Content:
+    8. Code and Technical Content:
       <div class="code-block">
         <pre><code class="language-{language}">
         code content
@@ -284,6 +301,30 @@ templates:
     2. Use current visual information if relevant
     3. Reference historical context only if it provides additional technical value
     4. ONLY use document references that were provided in the Available Document References section
+    
+    Document Reference Validation:
+    1. Before using any [ref] tag, verify:
+       - The ID exists in Available Document References
+       - Only the prefix before first dash is used
+       - No full titles or descriptions are included
+    2. If unsure about a document ID:
+       - DO NOT create a reference
+       - Use general description instead
+    3. Always validate reference format:
+       - Should be: [ref]ABC1234[/ref]
+       - Not: [ref]Full Document Title[/ref]
+    
+    ## Document Reference Rules
+    IMPORTANT - When referencing documents:
+    1. ONLY use the ID portion that appears before the first dash in filenames
+    2. Format: [ref]ID[/ref] where ID is ONLY the alphanumeric prefix
+    3. NEVER use:
+       - Full document titles
+       - File descriptions
+       - Version numbers or part numbers
+       - Dates
+    4. Example: For "SPEC0013-Bolb_SMD_3535_packaged_UVCLED.pdf"
+       Use: [ref]SPEC0013[/ref]
 
     {instructions}
 
@@ -298,7 +339,7 @@ templates:
        - DO NOT create document IDs from part numbers or filenames
        - Format: [ref]ID[/ref] where ID must be from Available Document References
        - If no references provided, omit this section entirely
-    6. Next Steps/Recommendations [only if related to technical assistance]
+    6. Next Steps/Recommendations [optional, only if related to technical assistance]
 
   no_answer_prompt: |
     I apologize, but I couldn't find sufficient information about {query} in the provided documentation.

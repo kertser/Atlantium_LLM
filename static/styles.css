@@ -129,7 +129,7 @@ header h1 {
 .image-header {
     font-size: 1em;
     font-weight: bold;
-    margin-bottom: 0;
+    margin-bottom: 10px;
     color: #2C5282;
 }
 

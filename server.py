@@ -261,6 +261,9 @@ class EnhancedResponseFormatter:
                 text (str): The text containing document references
             """
             try:
+                # Debug print:
+                print(text)
+
                 # Load processed files for fallback
                 processed_files_path = CONFIG.PROCESSED_FILES_PATH
                 if not processed_files_path.exists():
