@@ -133,8 +133,16 @@ def filter_technical_images(images_data, model, source_doc):
     logging.info(f"Processing {len(images_data)} images for technical content")
 
     # Define classification prompts - ensure all have the same length
-    technical_text = "this is a technical diagram or schematic drawing or engineering blueprint"
-    non_technical_text = "this is a logo or banner or marketing image or decorative element"
+    technical_text = (
+        "This image contains a technical diagram, mechanical component, engineering blueprint, schematic drawing, "
+        "circuit diagram, mechanical assembly drawing, CAD model, flowchart, or architectural plan. "
+        "It is used for technical, engineering, or scientific purposes."
+    )
+    non_technical_text = (
+        "This image contains a logo, marketing banner, decorative artwork, abstract graphic, "
+        "advertisement, illustration, or photo of a product. "
+        "It is used for branding, marketing, or decorative purposes."
+    )
 
     try:
         # Pre-encode the classification text prompts
