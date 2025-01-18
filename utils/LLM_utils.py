@@ -12,6 +12,7 @@ from openai import OpenAI
 
 from transformers import AutoModel, BlipProcessor, BlipForConditionalGeneration
 from transformers.dynamic_module_utils import get_imports
+from transformers import BeitImageProcessor, BeitForImageClassification
 from config import CONFIG
 
 
@@ -325,3 +326,32 @@ def encode_with_clip(texts, images, model, device):
             raise
 
     return text_embeddings, image_embeddings
+
+def BEIT_init():
+    # Load the feature extractor and model
+    feature_extractor = BeitImageProcessor.from_pretrained('amaye15/Beit-Base-Image-Orientation-Fixer')
+    model = BeitForImageClassification.from_pretrained('amaye15/Beit-Base-Image-Orientation-Fixer')
+
+    return model, feature_extractor
+
+def correct_image_orientation(image: Image.Image, model, feature_extractor) -> Image.Image:
+    # Preprocess the image
+    inputs = feature_extractor(images=image, return_tensors="pt")
+
+    # Perform inference
+    with torch.no_grad():
+        outputs = model(**inputs)
+
+    # Get the predicted label
+    logits = outputs.logits
+    predicted_class_idx = logits.argmax(-1).item()
+
+    # Define rotation angles based on model's class indices
+    rotation_angles = {0: 0, 1: 90, 2: 180, 3: 270}
+    rotation_angle = rotation_angles.get(predicted_class_idx, 0)
+
+    # Rotate the image to correct orientation
+    if rotation_angle != 0:
+        image = image.rotate(-rotation_angle, expand=True)
+
+    return image

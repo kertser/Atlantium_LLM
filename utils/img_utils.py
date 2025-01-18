@@ -9,6 +9,7 @@ import logging
 import pymupdf
 from contextlib import contextmanager
 from utils.LLM_utils import encode_with_clip, blip_vision_request, BLIP_init
+# from utils.LLM_utils import BEIT_init, correct_image_orientation
 
 import imagehash
 import torch
@@ -42,65 +43,6 @@ class ImageProcessor:
 
         # Direct conversion for other modes
         return image.convert('RGB')
-
-    @staticmethod
-    def ensure_correct_orientation(image: Image.Image) -> Image.Image:
-        """
-        Ensure image is saved with correct orientation by checking EXIF data.
-
-        Args:
-            image: PIL Image to process
-
-        Returns:
-            PIL Image with correct orientation
-        """
-        try:
-            # Make a copy of the image to avoid modifying the original
-            image = image.copy()
-
-            # Get EXIF data
-            exif = image.getexif()
-            if not exif:
-                return image
-
-            # Find orientation tag (tag 274 is the orientation tag)
-            orientation = exif.get(274)  # 274 is the orientation tag ID
-            if not orientation:
-                return image
-
-            # Define rotation operations based on EXIF orientation value
-            angle_map = {
-                3: Image.Transpose.ROTATE_180,
-                6: Image.Transpose.ROTATE_270,
-                8: Image.Transpose.ROTATE_90
-            }
-            flip_map = {
-                2: Image.Transpose.FLIP_LEFT_RIGHT,
-                4: Image.Transpose.FLIP_TOP_BOTTOM,
-                5: Image.Transpose.TRANSPOSE,
-                7: Image.Transpose.TRANSVERSE
-            }
-
-            try:
-                if orientation in angle_map:
-                    image = image.transpose(angle_map[orientation])
-                elif orientation in flip_map:
-                    image = image.transpose(flip_map[orientation])
-
-                # Remove the orientation EXIF tag to prevent double rotation
-                if orientation in exif:
-                    del exif[274]
-                    image.info['exif'] = exif.tobytes()
-
-            except Exception as transform_error:
-                logging.warning(f"Error applying transformation: {transform_error}")
-                return image
-
-            return image
-
-        except Exception as e:
-            logging.warning(f"Error processing image orientation: {e}")
-            return image
 
     @staticmethod
     def resize_image(image: Image.Image, max_size: Tuple[int, int] = (512, 512)) -> Image.Image:
@@ -306,6 +248,9 @@ class ImageStore(ImageProcessor):
         # Initialize BLIP model
         self.blip_processor, self.blip_model = BLIP_init()
 
+        # Initialize BEIT model
+        # self.beit_model, self.feature_extractor = BEIT_init()
+
         self.device = 'cuda' if CONFIG.USE_GPU and torch.cuda.is_available() else 'cpu'
 
     def __enter__(self):
@@ -393,7 +338,9 @@ class ImageStore(ImageProcessor):
     ) -> str:
         """Store an image and return its ID."""
         try:
-            image = self.ensure_correct_orientation(image)
+            # NN-based image processing rotation
+            # image = correct_image_orientation(image, self.beit_model, self.feature_extractor)
+
             image_id = self._generate_id(image, source_doc, page_num)
             original_mode = image.mode
 
@@ -749,7 +696,7 @@ class ImageClassifier(ImageProcessor):
                 current_image = Image.open(BytesIO(base64.b64decode(img['image'])))
 
                 # Use configured constant for size check
-                if current_image.size[0] < CONFIG.MIN_ICON_SIZE or current_image.size[1] < CONFIG.MIN_ICON_SIZE:
+                if current_image.size[0] < CONFIG.MIN_IMAGE_SIZE or current_image.size[1] < CONFIG.MIN_IMAGE_SIZE:
                     continue
 
                 # Calculate hash for the current image

@@ -86,6 +86,7 @@ def extract_text_around_image(page, image_bbox, context_range=CONFIG.MAX_CONTEXT
         logger.error(f"Error extracting text context: {e}")
         return ""
 
+
 def extract_text_and_images_from_pdf(pdf_path):
     """Extracts text and images with their context from a PDF file."""
     text = ""
@@ -116,10 +117,32 @@ def extract_text_and_images_from_pdf(pdf_path):
 
                         try:
                             image_bytes = base_image["image"]
-                            image = Image.open(BytesIO(image_bytes))
+                            original_image = Image.open(BytesIO(image_bytes))
 
                             # Force load to verify image is valid
-                            image.load()
+                            original_image.load()
+
+                            # Try to get image placement info
+                            image_rects = page.get_image_rects(xref)
+                            if image_rects:
+                                img_rect = image_rects[0]  # Get first instance
+                                # Create high-quality pixmap from the rect
+                                matrix = pymupdf.Matrix(1, 1)  # 1:1 scale
+                                pix = page.get_pixmap(
+                                    matrix=matrix,
+                                    clip=img_rect,
+                                    alpha=True if original_image.mode in ('RGBA', 'LA') else False
+                                )
+
+                                # Convert pixmap to PIL Image
+                                if pix.alpha:
+                                    # Handle images with alpha channel
+                                    image = Image.frombytes("RGBA", (pix.width, pix.height), pix.samples)
+                                else:
+                                    image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+                            else:
+                                # If no rect found, use the original image
+                                image = original_image
 
                             # Get dimensions and calculate aspect ratio
                             width, height = image.size
@@ -128,7 +151,6 @@ def extract_text_and_images_from_pdf(pdf_path):
                             # Filter out small images and icons using CONFIG settings
                             if (width < CONFIG.MIN_IMAGE_SIZE or
                                     height < CONFIG.MIN_IMAGE_SIZE or
-                                    max(width, height) < CONFIG.MIN_ICON_SIZE or
                                     aspect_ratio > CONFIG.MAX_ASPECT_RATIO):
                                 logger.debug(
                                     f"Skipping small/icon image on page {page_num + 1}: "
@@ -138,13 +160,12 @@ def extract_text_and_images_from_pdf(pdf_path):
 
                             # Extract context with CONFIG.MAX_CONTEXT_RANGE
                             context = ""
-                            for img_bbox in page.get_image_rects(xref):
+                            if image_rects:
                                 context = extract_text_around_image(
                                     page,
-                                    img_bbox,
+                                    image_rects[0],
                                     context_range=CONFIG.MAX_CONTEXT_RANGE
                                 )
-                                break
 
                             # Handle color modes while preserving quality
                             if image.mode in ('RGB', 'RGBA'):
@@ -159,8 +180,9 @@ def extract_text_and_images_from_pdf(pdf_path):
                             elif image.mode in ('L', 'LA'):
                                 if image.mode == 'LA':
                                     image = image.convert('RGBA')
-                            else:
-                                image = image.convert('RGB')
+                                else:
+                                    # Keep grayscale as is
+                                    pass
 
                             # Set image DPI if not already set
                             if 'dpi' not in image.info:
@@ -174,12 +196,13 @@ def extract_text_and_images_from_pdf(pdf_path):
                                 'dimensions': f"{width}x{height}",
                                 'dpi': CONFIG.IMAGE_DPI,
                                 'bits': CONFIG.IMAGE_BITS,
-                                'original_mode': image.mode
+                                'original_mode': image.mode,
+                                'source_mode': original_image.mode  # Store original mode for reference
                             })
 
                             logger.info(
                                 f"Processed image {img_index + 1} from page {page_num + 1}: "
-                                f"{width}x{height} pixels, mode={image.mode}"
+                                f"{width}x{height} pixels, mode={image.mode}, original_mode={original_image.mode}"
                             )
 
                         except UnidentifiedImageError:

@@ -94,10 +94,9 @@ class Config:
 
     # Image Processing
     MAX_IMAGE_SIZE: int = 1024  # jina CLIP v2 can process tiles of 512x512, otherwise dividing them
-    MIN_IMAGE_SIZE: int = 200  # Minimum image size
-    MIN_ICON_SIZE: int = 100  # Minimum icon size
+    MIN_IMAGE_SIZE: int = 150  # Minimum image size
     MAX_CONTEXT_RANGE: int = 100  # Leave as is for text context
-    MAX_ASPECT_RATIO: int = 3  # Maximum width/height ratio
+    MAX_ASPECT_RATIO: int = 4  # Maximum width/height ratio
 
     # Image Quality Settings
     IMAGE_DPI: Tuple[int, int] = (300, 300)  # DPI
