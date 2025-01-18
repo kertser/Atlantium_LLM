@@ -1,15 +1,18 @@
+import base64
 import glob
 import hashlib
 import json
 import logging
+import os
 import sys
 import warnings
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Tuple, List, Dict, Optional, Union
 import gc
 import torch
 import psutil
-
+from PIL import Image
 import faiss
 import numpy as np
 from dotenv import load_dotenv
@@ -25,7 +28,7 @@ from utils.FAISS_utils import (
     load_metadata,
     optimize_faiss_index,
 )
-from utils.LLM_utils import CLIP_init, encode_with_clip
+from utils.LLM_utils import CLIP_init, BLIP_init, encode_with_clip, blip_vision_request
 from utils.RAG_utils import (
     extract_text_and_images_from_pdf,
     extract_text_and_images_from_word,
@@ -319,6 +322,8 @@ def cleanup_metadata(metadata, index):
 def process_documents(
         model: Any,
         device: str,
+        blip_processor: Any,
+        blip_model: Any,
         index: Any,
         metadata: List[Dict],
         image_store: ImageStore,
@@ -424,6 +429,40 @@ def process_documents(
 
                         for img_data in filtered_images:
                             try:
+                                # Generate context if none exists
+                                if not img_data.get('context'):
+                                    try:
+                                        # Convert RGBA to RGB if needed
+                                        image = img_data['image']
+                                        if image.mode in ('RGBA', 'LA'):
+                                            # Create a white background
+                                            background = Image.new('RGB', image.size, (255, 255, 255))
+                                            if image.mode == 'RGBA':
+                                                background.paste(image, mask=image.split()[3])
+                                            else:
+                                                background.paste(image, mask=image.split()[1])
+                                            image = background
+                                        elif image.mode != 'RGB':
+                                            image = image.convert('RGB')
+
+                                        # Convert to base64
+                                        buffered = BytesIO()
+                                        image.save(buffered, format="JPEG", quality=95)
+                                        base64_image = base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+                                        # Get description using BLIP model
+                                        api_key = os.getenv('OPENAI_API_KEY')
+                                        if api_key:
+                                            description = blip_vision_request(base64_image, blip_processor, blip_model,
+                                                                              device)
+                                            if description:  # Simple string check
+                                                img_data['context'] = description
+                                                logging.info(f"Generated context for image from {doc_path}")
+                                        else:
+                                            logging.warning("OpenAI API key not found in environment variables")
+                                    except Exception as err:
+                                        logging.warning(f"Failed to generate context: {err}")
+
                                 # Store image and get ID
                                 image_id = image_store.store_image(
                                     image=img_data['image'],
@@ -755,6 +794,10 @@ def document_processing_sequence(clip_model=None, index=None, metadata=None):
             clip_model, device = init_CLIP_model()
         else:
             device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        # Initialize BLIP model
+        blip_processor, blip_model = BLIP_init()
+
         # Initialize FAISS index
         if index is None or metadata is None:
             index, metadata = init_FAISS_model()
@@ -776,6 +819,8 @@ def document_processing_sequence(clip_model=None, index=None, metadata=None):
                         updated_index, new_metadata = process_documents(
                             model=clip_model,
                             device=device,
+                            blip_processor=blip_processor,
+                            blip_model=blip_model,
                             index=index,
                             metadata=metadata,
                             image_store=image_store,

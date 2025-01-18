@@ -1,13 +1,18 @@
+import base64
 import logging
 import time
 import os
 from typing import Dict, Any
 from unittest.mock import patch
 
+from io import BytesIO
+from PIL import Image
+
 import torch
 from fastapi import HTTPException
 from openai import OpenAI
-from transformers import AutoModel
+
+from transformers import AutoModel, BlipProcessor, BlipForConditionalGeneration
 from transformers.dynamic_module_utils import get_imports
 from config import CONFIG
 
@@ -85,6 +90,83 @@ def openai_post_request(messages: list, model_name: str, api_key: str, max_token
                 )
             logging.error(f"OpenAI API error (attempt {attempt + 1}/{max_retries}): {str(e)}")
             time.sleep(base_delay * (2 ** attempt))
+
+
+def gpt_vision_request(base64_image: str, api_key: str) -> str:
+    """
+    Simple synchronous function for getting image description using OpenAI Vision API.
+
+    Args:
+        base64_image: Base64 encoded image string
+        api_key: OpenAI API key
+
+    Returns:
+        str: Description of the image or empty string if failed
+    """
+    try:
+        client = OpenAI(api_key=api_key)
+
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base64_image}"
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "text": "Describe what you see on this image."
+                    }
+                ]
+            }
+        ]
+
+        response = client.chat.completions.create(
+            model=CONFIG.BASE_VISION_MODEL,
+            messages=messages,
+            max_tokens=50
+        )
+
+        if response and response.choices:
+            return response.choices[0].message.content.strip()
+
+        return ""
+
+    except Exception as err:
+        logging.error(f"Vision request failed: {err}")
+        return ""
+
+def BLIP_init(device='cuda'):
+    try:
+        logging.info(f"Initializing Blip model on device: {device}")
+
+        processor = BlipProcessor.from_pretrained(CONFIG.BLIP_MODEL_NAME)
+        model = BlipForConditionalGeneration.from_pretrained(CONFIG.BLIP_MODEL_NAME).to(device)
+
+        logging.info("Blip model initialized successfully")
+        return processor, model
+
+    except Exception as e:
+        logging.error(f"Blip initialization failed with error: {str(e)}")
+        logging.error("Full traceback:", exc_info=True)
+        return None, None
+
+def blip_vision_request(base64_image: str, processor, model, device='cuda') -> str:
+    try:
+        image_data = base64.b64decode(base64_image)
+        image = Image.open(BytesIO(image_data)).convert('RGB')
+
+        inputs = processor(image, return_tensors="pt").to(device)
+
+        out = model.generate(**inputs)
+        return processor.decode(out[0], skip_special_tokens=True)
+
+    except Exception as err:
+        logging.error("Blip model failed: {err}")
+        return ""
 
 
 def grok_post_request(messages, model_name="grok-beta", max_tokens=128, temperature=0, api_key=""):

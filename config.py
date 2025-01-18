@@ -47,10 +47,10 @@ class Config:
     RED_CALCULATOR_DEFAULT_DRIVE: float = 100
     RED_CALCULATOR_DEFAULT_EFFICIENCY: float = 80  # May be set to 100% by default.
 
-    # CLIP Configuration
-    # CLIP_MODEL_NAME: str = "openai/clip-vit-base-patch32"
+    # CLIP/BLIP Configuration
     CLIP_MODEL_NAME: str = "jinaai/jina-clip-v2"
-    EMBEDDING_DIMENSION: int = 1024
+    BLIP_MODEL_NAME: str = "Salesforce/blip-image-captioning-base"
+    EMBEDDING_DIMENSION: int = 1024  # Dimension of the CLIP embeddings
     USE_GPU: bool = True
 
     # Thresholds (not percentiles)
@@ -94,7 +94,7 @@ class Config:
 
     # Image Processing
     MAX_IMAGE_SIZE: int = 1024  # jina CLIP v2 can process tiles of 512x512, otherwise dividing them
-    MIN_IMAGE_SIZE: int = 300  # Set to 150?  # Minimum image size
+    MIN_IMAGE_SIZE: int = 200  # Minimum image size
     MIN_ICON_SIZE: int = 100  # Minimum icon size
     MAX_CONTEXT_RANGE: int = 100  # Leave as is for text context
     MAX_ASPECT_RATIO: int = 3  # Maximum width/height ratio

@@ -16,7 +16,7 @@ from docx import Document
 
 import nltk
 # Download NLTK data (if not already downloaded)
-nltk.download('punkt')
+nltk.download('punkt', quiet=True)
 
 # Suppress MuPDF warnings
 logging.getLogger("fitz").setLevel(logging.CRITICAL)
