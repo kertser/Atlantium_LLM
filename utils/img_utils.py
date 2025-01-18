@@ -8,7 +8,7 @@ from typing import Tuple, List, Dict, Optional, Union, Any, Generator
 import logging
 import pymupdf
 from contextlib import contextmanager
-from utils.LLM_utils import encode_with_clip
+from utils.LLM_utils import encode_with_clip, blip_vision_request, BLIP_init
 
 import imagehash
 import torch
@@ -55,6 +55,9 @@ class ImageProcessor:
             PIL Image with correct orientation
         """
         try:
+            # Make a copy of the image to avoid modifying the original
+            image = image.copy()
+
             # Get EXIF data
             exif = image.getexif()
             if not exif:
@@ -78,11 +81,20 @@ class ImageProcessor:
                 7: Image.Transpose.TRANSVERSE
             }
 
-            # Apply the appropriate transformation
-            if orientation in angle_map:
-                return image.transpose(angle_map[orientation])
-            elif orientation in flip_map:
-                return image.transpose(flip_map[orientation])
+            try:
+                if orientation in angle_map:
+                    image = image.transpose(angle_map[orientation])
+                elif orientation in flip_map:
+                    image = image.transpose(flip_map[orientation])
+
+                # Remove the orientation EXIF tag to prevent double rotation
+                if orientation in exif:
+                    del exif[274]
+                    image.info['exif'] = exif.tobytes()
+
+            except Exception as transform_error:
+                logging.warning(f"Error applying transformation: {transform_error}")
+                return image
 
             return image
 
@@ -291,6 +303,11 @@ class ImageStore(ImageProcessor):
         self.metadata = self._load_metadata()
         self._verify_stored_images()
 
+        # Initialize BLIP model
+        self.blip_processor, self.blip_model = BLIP_init()
+
+        self.device = 'cuda' if CONFIG.USE_GPU and torch.cuda.is_available() else 'cpu'
+
     def __enter__(self):
         """Context manager entry."""
         return self
@@ -418,6 +435,19 @@ class ImageStore(ImageProcessor):
                 "height": image.height,
                 "original_mode": original_mode
             }
+
+            # Generate context if none exists
+            if not self.metadata[image_id].get('context'):
+                try:
+                    # Get description using BLIP model
+                    description = blip_vision_request(image, self.blip_processor, self.blip_model,
+                                                      self.device)
+                    if description:  # Simple string check
+                        self.metadata[image_id]['context'] = description
+                        logging.info(f"Generated context by Blip for image {image_id}")
+
+                except Exception as err:
+                    logging.warning(f"Failed to generate context: {err}")
 
             self._save_metadata()
             return image_id

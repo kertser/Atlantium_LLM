@@ -7,6 +7,7 @@
 * Many images are not retrieved - increase minimum size and eliminate icon size
 * Move the functionality from image_processor to img_utils (duplicated code)
 * Remove "analyze_technical_context" from the code (image_processor)
+* Rotation not always works - no exif info in images
 
 # TBDs for development:
 ------------------------------------------------------------------------------------------------------------

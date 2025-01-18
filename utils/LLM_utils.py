@@ -1,11 +1,9 @@
-import base64
 import logging
 import time
 import os
 from typing import Dict, Any
 from unittest.mock import patch
 
-from io import BytesIO
 from PIL import Image
 
 import torch
@@ -154,18 +152,15 @@ def BLIP_init(device='cuda'):
         logging.error("Full traceback:", exc_info=True)
         return None, None
 
-def blip_vision_request(base64_image: str, processor, model, device='cuda') -> str:
+def blip_vision_request(image: Image.Image, processor, model, device='cuda') -> str:
     try:
-        image_data = base64.b64decode(base64_image)
-        image = Image.open(BytesIO(image_data)).convert('RGB')
-
         inputs = processor(image, return_tensors="pt").to(device)
 
         out = model.generate(**inputs)
         return processor.decode(out[0], skip_special_tokens=True)
 
-    except Exception as err:
-        logging.error("Blip model failed: {err}")
+    except Exception:
+        logging.error("Blip model failed:")
         return ""
 
 
