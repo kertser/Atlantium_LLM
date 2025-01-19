@@ -150,7 +150,8 @@ class PromptBuilder:
             if history_entries:
                 chat_context = self.loader.format_template(
                     'chat_history_format',
-                    history_entries="\n".join(history_entries)
+                    history_entries="\n".join(history_entries),
+                    query_text=query_text
                 )
 
         # Process image information with current context priority

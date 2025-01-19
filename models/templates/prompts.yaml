@@ -264,7 +264,7 @@ assistant:
        - Use technical documentation as the main source of information
     
     2. Historical Context Usage:
-       - Reference history having relevance to current query.
+       - Reference response from history having relevance to current query.
        - Use the history as a context for query, when relevant
        - Prioritize recent technical specifications over historical ones
        - Use historical context for:
@@ -334,15 +334,15 @@ templates:
     Required Response Structure:
     1. Direct Answer to Current Query
     2. Technical Details from Current Context [optional]
-    3. Relevant Historical References (only if directly applicable) [optional]
-    4. Additional Considerations [optional]
+    3. Relevant Historical References [optional - omit if not present]
+    4. Additional Considerations [optional - omit if not present]
     5. Documentation References section:
        - ONLY include if document IDs were provided in Available Document References
        - ONLY use IDs from Available Document References
        - DO NOT create document IDs from part numbers or filenames
        - Format: [ref]ID[/ref] where ID must be from Available Document References
        - If no references provided, omit this section entirely
-    6. Next Steps/Recommendations [optional, only if related to technical assistance]
+    6. Next Steps/Recommendations [optional, only if related to technical assistance, otherwise omit]
 
   no_answer_prompt: |
     I apologize, but I couldn't find sufficient information about {query} in the provided documentation.
@@ -366,15 +366,17 @@ templates:
     {verification_steps}
 
   chat_history_format: |
-    Previous Relevant Technical Discussions:
-    Note: Only reference these if directly applicable to current query
+    Previous Context:
     {history_entries}
+    
+    Current Query Context:
+    [Extract relevant elements from previous interaction]
+    {query_text}
 
   chat_history_entry: |
-    Previous Discussion [{timestamp}]:
+    TimeStamp: {timestamp}
     Query: {user_query}
-    Technical Response: {response}
-    Relevance: Consider only technical specifications and documented procedures that directly relate to current query.
+    Response: {response}
 
   image_description: |
     Technical Image Analysis: [optional]
