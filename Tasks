@@ -5,6 +5,7 @@
 * Divide prompts.yaml into prompts and templates files
 * Add "do" and "dont" to the prompt alignment - what model shall know and what not
 * Replace "\\" with "/" - add .as_posix() to the path to convert it to string object with "/"
+(May be replace absolute paths with relative, for compatibility with Linux)
 * treat history as content - improve
 
 # TBDs for development:
