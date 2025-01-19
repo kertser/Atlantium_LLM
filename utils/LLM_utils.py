@@ -140,6 +140,9 @@ def gpt_vision_request(base64_image: str, api_key: str) -> str:
 
 def BLIP_init(device='cuda'):
     try:
+        if device == 'cuda' and not torch.cuda.is_available():
+            logging.warning("CUDA is not available. Using CPU for BLIP.")
+            device = 'cpu'
         logging.info(f"Initializing Blip model on device: {device}")
 
         processor = BlipProcessor.from_pretrained(CONFIG.BLIP_MODEL_NAME)
