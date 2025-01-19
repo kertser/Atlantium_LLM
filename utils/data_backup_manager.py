@@ -5,6 +5,7 @@ import zipfile
 import sys
 import time
 import threading
+from config import CONFIG
 
 
 class Spinner:
@@ -48,9 +49,9 @@ class Spinner:
 
 class DataBackupManager:
     def __init__(self):
-        self.base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        self.rag_data_path = os.path.join(self.base_dir, 'RAG_Data')
-        self.processed_files_path = os.path.join(self.base_dir, 'processed_files.json')
+        self.base_dir = CONFIG.BASE_DIR
+        self.rag_data_path = CONFIG.RAG_DATA
+        self.processed_files_path = CONFIG.PROCESSED_FILES_PATH
         self.backup_dir = os.path.join(self.base_dir, 'backups')
 
         print("Initializing DataBackupManager...")

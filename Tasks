@@ -5,6 +5,8 @@
 * Divide prompts.yaml into prompts and templates files
 * Add "do" and "dont" to the prompt alignment - what model shall know and what not
 * Move the functionality from image_processor to img_utils (duplicated code)
+* Replace "\\" with "/"
+* treat history as content - improve
 
 # TBDs for development:
 ------------------------------------------------------------------------------------------------------------
