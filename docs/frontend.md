@@ -5,45 +5,45 @@
 The frontend implements several key functional pipelines for document management and chat interaction:
 
 ### Document Processing Pipeline
-1. Document Upload
-   - User uploads files through drag-drop or file selector
-   - Files are validated (type, size, count limits)
-   - Files are uploaded to server via `/upload/document` endpoint
-   - Server processes documents using RAG system
 
-2. Document Management
-   - Files are organized in hierarchical folder structure
-   - Each file/folder supports context menu operations
-   - Bulk operations available through multi-select
-   - Real-time document count and status updates
+#### Document Upload
+- Users upload files through drag-and-drop or a file selector.
+- Files are validated based on type, size, and count limits.
+- Files are uploaded to the server via the `/upload/document` endpoint.
+- The server processes documents using the RAG system.
+
+#### Document Management
+- Files are organized in a hierarchical folder structure.
+- Each file/folder supports context menu operations.
+- Bulk operations are available through multi-select.
+- Real-time document count and status updates are displayed.
 
 ### Chat Interaction Pipeline
-1. Text Queries
-   - User input is processed for special characters and formatting
-   - Queries are sent to server for RAG-enhanced processing
-   - Responses include text and relevant images
-   - Chat history is maintained and can be reset
 
-2. Image Queries
-   - Images can be attached to messages
-   - Preview system shows attached images
-   - Images are processed with optional text queries
-   - Responses include image analysis and relevant documentation
+#### Text Queries
+- User input is processed for special characters and formatting.
+- Queries are sent to the server for RAG-enhanced processing.
+- Responses include text and relevant images.
+- Chat history is maintained and can be reset.
+
+#### Image Queries
+- Images can be attached to messages.
+- A preview system shows attached images.
+- Images are processed with optional text queries.
+- Responses include image analysis and relevant documentation.
 
 ### Authentication Flow
-1. Protected Operations
-   - Document deletion
-   - Folder management
-   - System initialization
-   - Batch operations
-2. Authentication Modal
-   - Password-based verification
-   - Session-based authentication state
-   - Protected operation handling
 
-## Core Components
+#### Protected Operations
+- Document deletion
+- Folder management
+- System initialization
+- Batch operations
 
-The frontend provides a web-based interface for document management, chat interaction, and system control, implemented using vanilla JavaScript for maximum compatibility.
+#### Authentication Modal
+- Password-based verification
+- Session-based authentication state
+- Handling of protected operations
 
 ## Core Components
 
@@ -59,220 +59,129 @@ static/
 
 ## Component Architecture
 
-### Document Management
-```javascript
-// File Upload
-const handleFiles = (files) => {
-    if (fileMap.size + files.length > maxfiles) {
-        alert(`Maximum ${maxfiles} files allowed`);
-        return;
-    }
-    // Process files...
-}
+### Document Management Functions
+- **handleFiles()**: Processes file uploads with size and count validation.
+- **loadDocuments()**: Retrieves and displays the document list.
+- **createFolder()**: Creates new folders in the hierarchy.
+- **deleteDocument()**: Removes documents from the system.
+- **validatePath()**: Ensures valid file/folder paths.
+- **moveDocument()**: Handles document relocation.
+- **renameDocument()**: Manages document renaming.
 
-// Document List
-const loadDocuments = async (currentPath = '') => {
-    // Load and display documents...
-}
+### Chat Interface Functions
+- **addMessage()**: Adds messages to the chat display.
+- **sendMessageWithImage()**: Processes messages with optional images.
+- **handleReset()**: Clears chat history.
+- **adjustTextareaHeight()**: Manages input field size.
+- **formatResponse()**: Formats chat responses.
 
-// Document Operations
-const createFolder = async (parentPath, folderName) => {
-    // Create new folder...
-}
-
-const deleteDocument = async (path) => {
-    // Delete document...
-}
-```
-
-### Chat Interface
-```javascript
-// Message Handling
-const addMessage = (content, isUser = false) => {
-    // Add message to chat...
-}
-
-// Query Processing
-const sendMessageWithImage = async (message, imageFile = null) => {
-    // Process and send message...
-}
-
-// Chat Reset
-const handleReset = async () => {
-    // Reset chat history...
-}
-```
-
-### Image Management
-```javascript
-// Image Preview
-const handleImageAttachment = (event) => {
-    // Handle image preview...
-}
-
-// Image Upload
-const processImageUpload = async (file) => {
-    // Process image upload...
-}
-```
+### Image Management Functions
+- **handleImageAttachment()**: Manages image previews.
+- **processImageUpload()**: Handles image processing.
+- **validateImage()**: Checks image requirements.
+- **createImagePreview()**: Generates image previews.
 
 ## Event Handlers
 
 ### Document Events
-```javascript
-// Drag and Drop
-dropZone.addEventListener('drop', handleDrop);
-dropZone.addEventListener('dragover', preventDefaults);
-
-// File Selection
-fileInput.addEventListener('change', handleFiles);
-
-// Context Menu
-const createContextMenu = (e, fileName, filePath) => {
-    // Create context menu...
-}
-```
+- Drag-and-drop zone handling
+- File input change detection
+- Context menu creation and handling
+- Folder navigation
 
 ### Chat Events
-```javascript
-// Message Input
-input.addEventListener('input', adjustTextareaHeight);
-
-// Send Button
-sendButton.addEventListener('click', handleSend);
-
-// Reset Button
-resetButton.addEventListener('click', handleReset);
-```
+- Message input handling
+- Send button functionality
+- Reset button operations
+- Image attachment events
 
 ## API Integration
 
 ### Document Endpoints
-```javascript
-// Upload Document
-const uploadDocument = async (file, folder = '') => {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('folder', folder);
-    
-    const response = await fetch('/upload/document', {
-        method: 'POST',
-        body: formData
-    });
-    // Handle response...
-}
-
-// Process Documents
-const processDocuments = async () => {
-    const response = await fetch('/process/documents', {
-        method: 'POST'
-    });
-    // Handle response...
-}
-```
+- **POST /upload/document**: Uploads new documents.
+- **POST /process/documents**: Processes uploaded files.
+- **GET /documents/list**: Retrieves the document list.
+- **DELETE /documents/delete**: Removes a document.
+- **PUT /documents/move**: Relocates a document.
+- **PUT /documents/rename**: Renames a document.
 
 ### Query Endpoints
-```javascript
-// Text Query
-const sendTextQuery = async (query) => {
-    const formData = new FormData();
-    formData.append('query', query);
-    
-    const response = await fetch('/query/text', {
-        method: 'POST',
-        body: formData
-    });
-    // Handle response...
-}
+- **POST /query/text**: Processes text queries.
+- **POST /query/image**: Processes image queries.
+- **POST /query/reset**: Resets chat history.
+- **WebSocket /query/stream**: Streams query responses.
 
-// Image Query
-const sendImageQuery = async (image, query = null) => {
-    const formData = new FormData();
-    formData.append('image', image);
-    if (query) formData.append('query', query);
-    
-    const response = await fetch('/query/image', {
-        method: 'POST',
-        body: formData
-    });
-    // Handle response...
-}
-```
+### Authentication Endpoints
+- **POST /auth/verify**: Verifies user credentials.
+- **GET /auth/status**: Retrieves authentication status.
+- **POST /auth/logout**: Ends the user session.
 
 ## UI Components
 
 ### Message Display
-```javascript
-const formatMessageText = (text) => {
-    // Format message content...
-}
-
-const createImageElement = (imageData) => {
-    // Create image element...
-}
-```
+- Text formatting with markdown support
+- Code block highlighting
+- Image rendering with zoom capability
+- Response streaming indicators
 
 ### Document List
-```javascript
-const updateFileCount = () => {
-    // Update file counter...
-}
-
-const createFileItem = (file) => {
-    // Create file list item...
-}
-```
+- Hierarchical folder view
+- File type indicators
+- Selection highlighting
+- Status indicators
+- Context menu integration
 
 ## Error Handling
 
-### Common Patterns
-1. Network Errors
-2. File Size Limits
-3. Invalid File Types
-4. Authentication Errors
-5. Server Response Errors
+### Common Error Scenarios
+1. Network Errors:
+   - Connection timeouts
+   - Server unavailable
+   - Rate limiting
+2. File Operations:
+   - Size limit exceeded
+   - Invalid file types
+   - Storage capacity reached
+   - Permission denied
+3. Authentication:
+   - Invalid credentials
+   - Session expired
+   - Unauthorized access
+4. Processing Errors:
+   - Document conversion failed
+   - Image processing failed
+   - Query processing timeout
 
-### Error Display
-```javascript
-const showError = (message) => {
-    // Display error message...
-}
-
-const handleAPIError = async (response) => {
-    // Handle API errors...
-}
-```
-
-## Authentication
-
-```javascript
-const createAuthModal = async () => {
-    // Create authentication modal...
-}
-
-const checkAuthentication = async () => {
-    // Check authentication status...
-}
-```
+### Error Display Functions
+- **showError()**: Displays error messages.
+- **handleAPIError()**: Processes API error responses.
+- **logError()**: Records errors for debugging.
+- **recoverFromError()**: Implements error recovery.
 
 ## CSS Structure
 
-### Core Components
+### Layout Components
 ```css
-/* Layout */
 .app-container { ... }
 .chat-container { ... }
 .documents-container { ... }
+.auth-modal { ... }
+```
 
-/* Messages */
+### Message Styling
+```css
 .message { ... }
 .user-message { ... }
 .assistant-message { ... }
+.code-block { ... }
+```
 
-/* Documents */
+### Document List Styling
+```css
 .upload-container { ... }
 .file-item { ... }
 .folder-row { ... }
+.context-menu { ... }
 ```
 
 ## Related Documentation
@@ -281,3 +190,4 @@ const checkAuthentication = async () => {
 - [Installation Guide](../docs/installation.md)
 - [Models Documentation](../docs/models.md)
 - [Utils Documentation](../docs/utils.md)
+
