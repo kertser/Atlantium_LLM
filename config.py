@@ -24,7 +24,7 @@ class Config:
     IMAGE_METADATA_PATH: Path = RAG_DATA / "image_metadata.json"
     STORED_IMAGES_PATH: Path = RAG_DATA / "stored_images"
     STORED_TEXT_CHUNKS_PATH: Path = RAG_DATA / "stored_text_chunks"
-    PROCESSED_FILES_PATH: Path = BASE_DIR / "processed_files.json"
+    PROCESSED_FILES_PATH: Path = RAG_DATA / "processed_files.json"
 
     # Logging
     LOG_PATH: Path = BASE_DIR / "logs"
