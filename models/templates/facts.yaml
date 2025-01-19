@@ -37,7 +37,7 @@ technologies:
 products:
   current_systems:
     - name: "RZ Series"
-      models: ["RZ-104", "RZ-163", "RZ-163HP", "RZ-163UHP", "RZM200", "RZM-350", "RZMW-350", "R-200"]  # List actual models
+      models: ["RZ-104", "RZ-163", "RZ-163HP", "RZ-163UHP", "RZM200", "RZM-350", "RZMW-350", "R-200"]
       applications:
         - "Municipal water disinfection"
         - "Industrial water treatment"
@@ -54,8 +54,8 @@ technical_specs:
     log_reduction: "Up to 6-log"
     flow_rates:
       min: "1 m³/h"
-      max: "1000 m³/h"  # Example - replace with actual
-    uv_wavelength: "200-300nm"
+      max: "1000 m³/h"
+    uv_wavelength: "200-350nm"
 
   monitoring:
     parameters:
@@ -69,11 +69,11 @@ certifications:
   regulatory:
     - authority: "USEPA"
       standard: "UVDGM"
-      year: 2020  #
+      year: 2020
 
     - authority: "NSF"
       standard: "NSF/ANSI 55"
-      year: 2021  #
+      year: 2021
 
 # Public Performance Data
 performance:
