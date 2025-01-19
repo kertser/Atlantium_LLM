@@ -17,6 +17,7 @@ imagehash>=4.3.1
 pydantic>=2.10.3
 pyyaml>=6.0.2
 tqdm>=4.67.1
+psutil>=6.1.0
 python-dotenv>=1.0.1
 requests>=2.32.3
 duckduckgo_search>=7.2.0
