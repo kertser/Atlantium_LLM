@@ -1,0 +1,135 @@
+version: "1.0.0"
+last_updated: "2025-01-19 14:46:46"
+maintained_by: "Atlantium"
+
+# Core Company Information
+company:
+  name: "Atlantium Technologies Ltd."
+  founding_year: 2003
+  headquarters: "Beit Shemesh, Israel"
+  mission: "To provide sustainable water treatment solutions using advanced UV technology"
+  website: "www.atlantium.com"
+
+# Leadership & Structure
+leadership:
+  current:
+    ceo: "Name"  # Current CEO
+    cto: "Name"  # Current CTO
+    board_chairman: "Name"  # Current Chairman
+
+# Core Technologies
+technologies:
+  uv_systems:
+    core_technology: "Hydro-Optic™ UV Technology"
+    key_features:
+      - "Medium Pressure UV technology"
+      - "Total Internal Reflection"
+      - "Real-time monitoring and control"
+      - "Dose assurance"
+
+    applications:
+      - "Municipal water treatment"
+      - "Food & Beverage industry"
+      - "Aquaculture"
+      - "Industrial processes"
+
+# Product Lines
+products:
+  current_systems:
+    - name: "RZ Series"
+      models: ["RZ-104", "RZ-163", "RZ-163HP", "RZ-163UHP", "RZM200", "RZM-350", "RZMW-350", "R-200"]  # List actual models
+      applications:
+        - "Municipal water disinfection"
+        - "Industrial water treatment"
+
+    - name: "RZB Series"
+      models: ["RZB-300"]
+      applications:
+        - "Beverage water disinfection"
+        - "Food & Beverage industry"
+
+# Technical Specifications (Public)
+technical_specs:
+  treatment_capabilities:
+    log_reduction: "Up to 6-log"
+    flow_rates:
+      min: "1 m³/h"
+      max: "1000 m³/h"  # Example - replace with actual
+    uv_wavelength: "200-300nm"
+
+  monitoring:
+    parameters:
+      - "UV intensity"
+      - "Flow rate"
+      - "UVT (UV transmission)"
+      - "Lamp status"
+
+# Certifications & Validations
+certifications:
+  regulatory:
+    - authority: "USEPA"
+      standard: "UVDGM"
+      year: 2020  #
+
+    - authority: "NSF"
+      standard: "NSF/ANSI 55"
+      year: 2021  #
+
+# Public Performance Data
+performance:
+  validated_applications:
+    - pathogen: "Cryptosporidium"
+      log_reduction: "4-log"
+      conditions: "Standard testing conditions"
+
+    - pathogen: "Giardia"
+      log_reduction: "4-log"
+      conditions: "Standard testing conditions"
+
+# Service & Support
+service:
+  global_presence:
+    regions: ["Americas", "Europe", "Asia Pacific", "Middle East"]
+
+  support_channels:
+    - type: "Technical Support"
+      contact: "support@atlantium.com"
+
+    - type: "Sales Inquiries"
+      contact: "sales@atlantium.com"
+
+# Public Case Studies
+case_studies:
+  - industry: "Municipal"
+    location: "City, Country"
+    challenge: "Cryptosporidium inactivation"
+    solution: "RZ Series installation"
+    results: "Achieved 4-log reduction"
+
+# Innovation & Research
+public_research:
+  publications:
+    - title: "UV Technology in Water Treatment"
+      year: 2022
+      type: "White Paper"
+
+  patents:
+    - number: "US1234567"
+      title: "Method for UV water treatment"
+      year: 2015
+
+# Environmental Impact
+sustainability:
+  benefits:
+    - "Chemical-free water treatment"
+    - "Energy-efficient operation"
+    - "Reduced environmental impact"
+    - "Sustainable water management"
+
+# Industry Standards Compliance
+standards_compliance:
+  - standard: "ISO 9001"
+    scope: "Quality Management"
+
+  - standard: "ISO 14001"
+    scope: "Environmental Management"

@@ -1,0 +1,90 @@
+version: "1.0.0"
+last_updated: "2025-01-19 14:05:20"
+maintained_by: "Atlantium"
+
+# Restricted Information - Information that must never be revealed
+restricted_facts:
+  business_sensitive:
+    pricing:
+      - "Internal price lists"
+      - "Pricing strategies"
+      - "Discount structures"
+      - "Cost of production"
+      - "Profit margins"
+
+    strategy:
+      - "Future product roadmap"
+      - "Market expansion plans"
+      - "Acquisition targets"
+      - "Investment strategies"
+      - "Board meeting discussions"
+
+    partnerships:
+      - "Undisclosed partnerships"
+      - "Partnership terms"
+      - "Negotiation details"
+      - "Partner selection criteria"
+
+  technical_sensitive:
+    manufacturing:
+      - "Manufacturing process details"
+      - "Quality control methodologies"
+      - "Production capacity limits"
+      - "Manufacturing locations"
+
+    research_development:
+      - "Ongoing research projects"
+      - "Unpublished test results"
+      - "Development timelines"
+      - "Research methodologies"
+      - "Prototype specifications"
+
+    intellectual_property:
+      - "Unpatented innovations"
+      - "Trade secrets"
+      - "Proprietary algorithms"
+      - "Internal technical specifications"
+      - "System architecture details"
+
+  customer_sensitive:
+    client_data:
+      - "Customer names without consent"
+      - "Installation specifics"
+      - "Usage data"
+      - "Performance metrics"
+      - "Contract terms"
+
+# Alignment Rules - How to handle sensitive information
+alignment_rules:
+  response_validation:
+    - rule: "Check response against restricted_facts before sending"
+      priority: 1
+      action: "block_if_match"
+
+    - rule: "Detect indirect references to restricted information"
+      priority: 2
+      action: "analyze_context"
+
+    - rule: "Monitor for combination of facts that could reveal restricted info"
+      priority: 3
+      action: "check_combinations"
+
+  redirection_strategies:
+    - when: "pricing_requested"
+      respond: "Please contact our sales team for pricing information"
+
+    - when: "technical_details_restricted"
+      respond: "This information is proprietary and cannot be shared"
+
+    - when: "customer_specific"
+      respond: "We maintain customer confidentiality and cannot share specific details"
+
+  sensitive_topics:
+    - category: "financials"
+      redirect_to: "public_financial_reports"
+
+    - category: "research"
+      redirect_to: "published_papers"
+
+    - category: "customers"
+      redirect_to: "public_case_studies"
