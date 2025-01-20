@@ -1375,72 +1375,87 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             processBtn.disabled = true;
-            processBtn.textContent = "Uploading Files...";
             processBtn.classList.add('processing');
+            const progressBar = processBtn.querySelector('.progress-bar');
+            const buttonText = processBtn.querySelector('.button-text');
+            const totalFiles = fileMap.size;
+            let processedFiles = 0;
 
-            // Upload all files from the fileMap
-            const uploadPromises = Array.from(fileMap.values()).map(async (file) => {
+            // Process each file one at a time
+            for (const [filename, file] of fileMap.entries()) {
+                // Update status text
+                buttonText.textContent = `Processing ${processedFiles + 1}/${totalFiles}: ${filename}`;
+
+                // Upload current file
                 const formData = new FormData();
                 formData.append('file', file);
-                formData.append('folder', currentFolderPath); // Add current folder path
+                formData.append('folder', currentFolderPath);
 
-                const response = await fetch('/upload/document', {
-                    method: 'POST',
-                    body: formData
-                });
+                try {
+                    const uploadResponse = await fetch('/upload/document', {
+                        method: 'POST',
+                        body: formData
+                    });
 
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.detail || `Failed to upload ${file.name}`);
+                    if (!uploadResponse.ok) {
+                        const error = await uploadResponse.json();
+                        throw new Error(error.detail || `Failed to upload ${filename}`);
+                    }
+
+                    // Process all documents (backend will handle the new file)
+                    const processResponse = await fetch('/process/documents', {
+                        method: 'POST'
+                    });
+
+                    if (!processResponse.ok) {
+                        const error = await processResponse.json();
+                        throw new Error(error.detail || 'Processing failed');
+                    }
+
+                    // Update progress
+                    processedFiles++;
+                    progressBar.style.width = `${(processedFiles / totalFiles) * 100}%`;
+
+                } catch (error) {
+                    console.error(`Error processing ${filename}:`, error);
+                    continue; // Continue with next file if one fails
                 }
-
-                return response.json();
-            });
-
-            await Promise.all(uploadPromises);
-
-            // Process documents
-            processBtn.textContent = "Processing Documents...";
-            const processResponse = await fetch('/process/documents', {
-                method: 'POST'
-            });
-
-            if (!processResponse.ok) {
-                const error = await processResponse.json();
-                throw new Error(error.detail || 'Processing failed');
             }
 
             // Success handling
-            processBtn.textContent = "Processing Complete";
-            processBtn.classList.remove('processing');
+            buttonText.textContent = "Processing Complete";
             processBtn.style.backgroundColor = '#28a745';
+            progressBar.style.width = '100%';
 
             // Clean up
             uploadList.innerHTML = '';
             fileMap.clear();
             updateFileCount();
-
-            // Refresh documents list for current folder
             await loadDocuments(currentFolderPath);
 
             // Reset button after delay
             setTimeout(() => {
-                processBtn.textContent = "Process Documents";
+                buttonText.textContent = "Process Documents";
                 processBtn.style.backgroundColor = '';
                 processBtn.disabled = false;
                 processBtn.style.display = 'none';
+                progressBar.style.width = '0%';
+                processBtn.classList.remove('processing');
             }, 3000);
 
         } catch (error) {
             console.error('Processing error:', error);
-            processBtn.textContent = "Process Documents";
-            processBtn.classList.remove('processing');
+            processBtn.querySelector('.button-text').textContent = "Error";
             processBtn.style.backgroundColor = '#dc3545';
             processBtn.disabled = false;
 
-            // Reset error state after delay
             setTimeout(() => {
+                processBtn.querySelector('.button-text').textContent = "Process Documents";
                 processBtn.style.backgroundColor = '';
+                processBtn.classList.remove('processing');
+                if (progressBar) {
+                    progressBar.style.width = '0%';
+                }
             }, 3000);
 
             alert(`Error: ${error.message}`);

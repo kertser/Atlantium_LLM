@@ -1,7 +1,7 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.5.1+cpu
-torchvision==0.20.1+cpu
-# torchaudio==2.5.1+cpu
+torch~=2.5.1+cpu
+torchvision~=0.20.1+cpu
+# torchaudio~=2.5.1+cpu
 
 numpy>=2.2.0
 pillow>=11.0.0
