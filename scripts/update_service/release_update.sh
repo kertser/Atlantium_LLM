@@ -3,7 +3,7 @@
 # release_update.sh
 #
 # Purpose: Automatically update Atlantium RAG application from GitHub release branch
-# Author: Your Name
+# Author: Mike Kertser
 # Date: December 2024
 
 set -e
