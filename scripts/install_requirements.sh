@@ -18,7 +18,7 @@ fi
 
 pip cache purge
 echo "Installing from: $REQ_FILE"
-pip install --no-cache-dir --trusted-host download.pytorch.org --trusted-host pypi.org --trusted-host pypi.python.org -r "$REQ_FILE" || {
+pip install --no-cache-dir -r "$REQ_FILE" || {
     echo "Error installing dependencies. Check for version compatibility issues."
     exit 1
 }
