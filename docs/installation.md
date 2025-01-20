@@ -3,24 +3,22 @@
 ## System Requirements
 
 ### Hardware Requirements
-- CPU: 4+ cores recommended (minimum 2 cores)
-- RAM: 16GB recommended (8GB minimum)
-- Storage: 20GB+ available space (SSD recommended)
-- GPU: NVIDIA GPU with 8GB+ VRAM (optional)
-- Network: Stable internet connection
+- **CPU**: 4+ cores recommended (minimum 2 cores)
+- **RAM**: 16GB recommended (8GB minimum)
+- **Storage**: 20GB+ available space (SSD recommended)
+- **GPU**: NVIDIA GPU with 8GB+ VRAM (optional)
+- **Network**: Stable internet connection
 
 ### Software Requirements
-- Ubuntu 22.04 LTS or later
-- Docker 24.0+ and Docker Compose V2
-- Git
-- Python 3.10+ (for local development)
-- OpenAI API key
+- **Operating System**: Ubuntu 22.04 LTS or later
+- **Tools**: Docker 24.0+ and Docker Compose V2, Git, Python 3.10+ (for local development)
+- **API**: OpenAI API key
 
 ## Installation Methods
 
 ### Standard Installation
 
-1. System Updates
+#### System Updates
 ```bash
 # Update package lists
 sudo apt-get update && sudo apt-get upgrade -y
@@ -33,7 +31,7 @@ sudo apt-get install -y \
     software-properties-common
 ```
 
-2. Docker Setup
+#### Docker Setup
 ```bash
 # Install Docker
 curl -fsSL https://get.docker.com | sudo sh
@@ -47,7 +45,7 @@ docker --version
 docker compose version
 ```
 
-3. Application Setup
+#### Application Setup
 ```bash
 # Create project directory
 mkdir -p ~/Projects && cd ~/Projects
@@ -69,7 +67,7 @@ sudo ./deploy.sh --init
 
 ### GPU-Enabled Installation
 
-1. NVIDIA Driver Installation
+#### NVIDIA Driver Installation
 ```bash
 # Check available drivers
 ubuntu-drivers devices
@@ -79,10 +77,10 @@ sudo ubuntu-drivers autoinstall
 sudo reboot
 ```
 
-2. NVIDIA Container Toolkit
+#### NVIDIA Container Toolkit
 ```bash
 # Add NVIDIA repository
-distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+distribution=$(source /etc/os-release; echo $ID$VERSION_ID)
 curl -s -L https://nvidia.github.io/libnvidia-container/gpgkey | \
   sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
 
@@ -108,6 +106,8 @@ Configure your `.env` file:
 OPENAI_API_KEY=your_api_key_here
 CONTAINER_NAME=atlantium_llm-web-app-1
 USE_CPU=0  # Set to 1 for CPU-only mode
+PORT=9000  # Web interface port
+SOCKET_PORT=9001  # WebSocket port
 ```
 
 ### Directory Structure
@@ -196,8 +196,27 @@ tail -f ~/Projects/Atlantium_LLM/logs/system.log
 find ~/Projects/Atlantium_LLM/logs -name "*.log.*" -mtime +30 -delete
 ```
 
-### Updates
-For system updates and maintenance procedures, refer to the [Update Service Guide](../docs/update-service.md).
+## Updates and Maintenance
+
+1. **Stop the Application:**
+   ```bash
+   docker-compose down
+   ```
+
+2. **Update Repository:**
+   ```bash
+   git pull origin main
+   ```
+
+3. **Rebuild and Restart:**
+   ```bash
+   sudo ./deploy.sh --update
+   ```
+
+4. **Verify Updates:**
+   ```bash
+   docker logs atlantium_llm-web-app-1
+   ```
 
 ## Related Documentation
 
@@ -205,3 +224,4 @@ For system updates and maintenance procedures, refer to the [Update Service Guid
 - [Frontend Documentation](../docs/frontend.md)
 - [Models Documentation](../docs/models.md)
 - [Utils Documentation](../docs/utils.md)
+

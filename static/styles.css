@@ -962,6 +962,7 @@ td .select-checkbox {
 .developer-credits {
     margin-top: 2rem;
     font-size: 0.9rem;
+    position: relative;
 }
 
 .developer-label {
@@ -975,6 +976,14 @@ td .select-checkbox {
 
 .developer-year {
     color: #666;
+}
+
+.version {
+    color: #666;
+    font-weight: bold;
+    position: absolute; /* Relative to the footer */
+    bottom: 0; /* Align to the bottom of the footer */
+    right: 0; /* Align to the right of the footer */
 }
 
 /* Modal styles */

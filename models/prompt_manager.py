@@ -12,6 +12,8 @@ class PromptLoader:
     """Singleton class for loading prompts from YAML file."""
     _instance = None
     _prompts = None
+    _facts = None
+    _alignment = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -20,10 +22,26 @@ class PromptLoader:
 
     def __init__(self):
         if self._prompts is None:
-            self._load_prompts()
+            self._load_all()
+
+    def _load_all(self) -> None:
+        """Load all YAML configuration files."""
+        try:
+            templates_dir = Path(__file__).parent / "templates"
+
+            # Load all configuration files
+            with open(templates_dir / "prompts.yaml", 'r', encoding='utf-8') as f:
+                self._prompts = yaml.safe_load(f)
+            with open(templates_dir / "facts.yaml", 'r', encoding='utf-8') as f:
+                self._facts = yaml.safe_load(f)
+            with open(templates_dir / "alignment.yaml", 'r', encoding='utf-8') as f:
+                self._alignment = yaml.safe_load(f)
+        except Exception as e:
+            logging.error(f"Error loading configuration files: {e}")
+            raise
 
     def _load_prompts(self) -> None:
-        """Load prompts from YAML file."""
+        """Load prompts from YAML file. - Legacy, may be removed"""
         try:
             prompts_path = Path(__file__).parent / "templates" / "prompts.yaml"
             with open(prompts_path, 'r', encoding='utf-8') as file:
@@ -33,8 +51,19 @@ class PromptLoader:
             raise
 
     def get_system_prompt(self, key: str) -> str:
-        """Get a system prompt by key."""
-        return self._prompts.get('assistant', {}).get(key, '')
+        """Get a system prompt by key and enhance it with facts and alignment rules."""
+        base_prompt = self._prompts.get('assistant', {}).get(key, '')
+        facts = self._facts if self._facts else {}
+        alignment = self._alignment if self._alignment else {}
+
+        # Combine all parts into the enhanced prompt
+        enhanced_prompt = f"""
+            {base_prompt}
+
+            # Facts and Alignment Rules
+            {yaml.dump({'facts': facts, 'alignment': alignment}, default_flow_style=False)}
+            """
+        return enhanced_prompt
 
     def get_instructions(self, instruction_type: str) -> List[str]:
         """Get instructions by type."""
@@ -150,7 +179,8 @@ class PromptBuilder:
             if history_entries:
                 chat_context = self.loader.format_template(
                     'chat_history_format',
-                    history_entries="\n".join(history_entries)
+                    history_entries="\n".join(history_entries),
+                    query_text=query_text
                 )
 
         # Process image information with current context priority

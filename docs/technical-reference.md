@@ -2,7 +2,7 @@
 
 ## System Architecture
 
-The Atlantium LLM system combines document processing, vector embeddings, and language models to provide technical assistance for UV systems.
+The Atlantium LLM system combines document processing, vector embeddings, and language models to provide advanced technical assistance for UV systems.
 
 ### Core Components
 
@@ -16,8 +16,9 @@ graph TD
     B --> G[LLM Interface]
 ```
 
-### Project full structure:
-```
+### Project Structure
+
+```plaintext
 Atlantium_LLM/                        # Project root
 ├── docs/                             # Documentation files
 │   ├── docker.md                     # Docker configuration guide
@@ -39,7 +40,7 @@ Atlantium_LLM/                        # Project root
 │   ├── image_metadata.json           # Image metadata
 │   ├── stored_images/                # Processed images
 │   └── stored_text_chunks/           # Processed text
-├── Raw Documents/                    # Document storage (created by app)
+├── Raw Documents/                    # Document storage
 ├── scripts/                          # System scripts
 │   ├── update_service/               # Update system
 │   │   ├── atlantium-update.service  # Systemd service
@@ -74,7 +75,6 @@ Atlantium_LLM/                        # Project root
 ├── requirements_gpu.txt              # GPU dependencies
 ├── run.py                            # Server runner
 └── server.py                         # FastAPI server
-
 ```
 
 ## API Documentation
@@ -172,9 +172,9 @@ Body: {
 }
 ```
 
-### Core Classes
+## Core Classes
 
-#### RAGQueryServer
+### RAGQueryServer
 Main server class handling query processing and responses.
 ```python
 class RAGQueryServer:
@@ -185,7 +185,7 @@ class RAGQueryServer:
     def get_chat_history(self)
 ```
 
-#### ImageProcessor
+### ImageProcessor
 Base class for image processing operations.
 ```python
 class ImageProcessor:
@@ -197,32 +197,34 @@ class ImageProcessor:
     def compare_hashes(hash1: str, hash2: str, threshold: float) -> bool
 ```
 
-#### ImageStore
+### ImageStore
 Handles image storage, retrieval, and deduplication.
 ```python
 class ImageStore(ImageProcessor):
     def __init__(self)
-    def store_image(self, image: Image.Image, source_doc: str, page_num: int, 
+    def store_image(self, image: Image.Image, source_doc: str, page_num: int,
                    caption: Optional[str] = None, context: Optional[str] = None) -> str
     def get_image(self, image_id: str) -> Tuple[Optional[Image.Image], Optional[Dict]]
     def get_base64(self, image_id: str) -> Optional[str]
     def delete_image(self, image_id: str) -> bool
 ```
 
-#### PromptBuilder
+### PromptBuilder
 Handles prompt generation and management.
 ```python
 class PromptBuilder:
     def __init__(self)
-    def build_chat_prompt(self, query_text: str, contexts: List[str], 
-                         images: List[Dict], chat_history: List[Dict], 
+    def build_chat_prompt(self, query_text: str, contexts: List[str],
+                         images: List[Dict], chat_history: List[Dict],
                          is_technical: bool = False) -> str
     def build_messages(self, prompt: str) -> List[Dict[str, str]]
 ```
 
-### Key Functions
+## Key Functions
 
-#### FAISS Operations
+### FAISS Operations
 ```python
 def initialize_faiss_index(dimension: int, use_gpu: bool = False) -> faiss.Index
 def load_faiss_index(filepath: Union[str, Path]) -> faiss.Index
+```
+

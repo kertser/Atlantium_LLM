@@ -2,218 +2,161 @@
 
 ## Overview
 
-The system uses Docker Compose with dual profile configuration (CPU/GPU) and persistent volume management. The deployment process automatically detects hardware capabilities and selects the appropriate profile.
+The system leverages Docker Compose with dual-profile configurations (CPU and GPU) and persistent volume management. The deployment process detects hardware capabilities and selects the appropriate profile automatically.
 
 ## Dockerfile Structure
 
 ### Base Image
-```dockerfile
-ARG BUILD_TYPE
+- **Base Image**: `python:3.10-slim`
+- **Working Directory**: `/app`
+- **Installed Dependencies**:
+  - `build-essential`
+  - `python3-dev`
+  - `netcat-traditional`
+  - `pciutils`
+  - `sudo`
+- **Environment Setup**:
+  - `PYTHONUNBUFFERED=1`
+  - `KMP_DUPLICATE_LIB_OK=TRUE`
+  - `PYTHONDONTWRITEBYTECODE=1`
+  - `PYTHONIOENCODING=utf-8`
 
-FROM python:3.10-slim AS base
-WORKDIR /app
-
-# System dependencies
-RUN apt-get install -y --no-install-recommends \
-    build-essential \
-    python3-dev \
-    netcat-traditional \
-    pciutils \
-    sudo
-
-# Environment setup
-ENV PYTHONUNBUFFERED=1 \
-    KMP_DUPLICATE_LIB_OK=TRUE \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONIOENCODING=utf-8
-```
-
-### Stage Selection
-```dockerfile
-# GPU stage
-FROM base AS gpu
-ENV USE_CPU=0
-RUN ./install_requirements.sh
-
-# CPU stage
-FROM base AS cpu
-ENV USE_CPU=1
-RUN ./install_requirements.sh
-
-# Final stage
-FROM ${BUILD_TYPE:-cpu}
-```
+### Build Stages
+- **GPU Stage**:
+  - Sets `USE_CPU=0`.
+  - Runs `install_requirements.sh`.
+- **CPU Stage**:
+  - Sets `USE_CPU=1`.
+  - Runs `install_requirements.sh`.
+- **Final Stage**:
+  - Determined by `BUILD_TYPE` (defaults to `cpu`).
 
 ### Security Configuration
-```dockerfile
-# Create non-root user
-RUN useradd -m -u 1000 appuser && \
-    echo "appuser ALL=(ALL) NOPASSWD: /usr/bin/chown" >> /etc/sudoers
-
-# Set permissions
-RUN mkdir -p "/app/RAG_Data/stored_images" \
-             "/app/RAG_Data/stored_text_chunks" \
-             "/app/Raw Documents" \
-             /app/logs && \
-    chown -R appuser:appuser /app && \
-    find /app -type d -exec chmod 775 {} \; && \
-    find /app -type f -exec chmod 664 {} \;
-```
+- Creates non-root user `appuser` with appropriate sudo permissions.
+- Configures directories and permissions:
+  - Creates required directories:
+    - `/app/RAG_Data/stored_images`
+    - `/app/RAG_Data/stored_text_chunks`
+    - `/app/Raw Documents`
+    - `/app/logs`
+  - Sets permissions for directories (`775`) and files (`664`).
 
 ## Docker Compose Configuration
 
-### GPU Profile
-```yaml
-web-app-gpu:
-    container_name: atlantium_llm-web-app-1
-    environment:
-        - PYTHONIOENCODING=utf-8
-        - USE_CPU=0
-    build:
-        context: .
-        dockerfile: Dockerfile
-        args:
-            - BUILD_TYPE=gpu
-    deploy:
-        resources:
-            reservations:
-                devices:
-                    - driver: nvidia
-                      count: all
-                      capabilities: [gpu]
-```
+### GPU Profile (`web-app-gpu`)
+- **Environment Variables**:
+  - `PYTHONIOENCODING=utf-8`
+  - `USE_CPU=0`
+- **Build Context**:
+  - `Dockerfile` with `BUILD_TYPE=gpu`.
+- **GPU Resources**:
+  - Driver: `nvidia`
+  - Count: `all`
+  - Capabilities: `[gpu]`
 
-### CPU Profile
-```yaml
-web-app-cpu:
-    container_name: atlantium_llm-web-app-1
-    environment:
-        - PYTHONIOENCODING=utf-8
-        - USE_CPU=1
-    build:
-        context: .
-        dockerfile: Dockerfile
-        args:
-            - BUILD_TYPE=cpu
-```
+### CPU Profile (`web-app-cpu`)
+- **Environment Variables**:
+  - `PYTHONIOENCODING=utf-8`
+  - `USE_CPU=1`
+- **Build Context**:
+  - `Dockerfile` with `BUILD_TYPE=cpu`.
 
 ### Volume Configuration
-```yaml
-volumes:
-    - type: bind
-      source: ./Raw Documents
-      target: /app/Raw Documents
-    - type: bind
-      source: ./RAG_Data
-      target: /app/RAG_Data
-    - type: bind
-      source: ./logs
-      target: /app/logs
-    - /var/run/docker.sock:/var/run/docker.sock
-    - ${HOME}/.docker/config.json:/root/.docker/config.json:ro
-```
+- **Bind Mounts**:
+  - `Raw Documents` directory.
+  - `RAG_Data` directory.
+  - `logs` directory.
+  - Docker socket access.
+  - Read-only Docker configuration.
 
-## Entry Point Script
+## Entry Point Script Functions
 
-### Main Functions
-```bash
-# Directory setup and permissions
-fix_directory_permissions() {
-    # Set correct permissions for directories
-}
+- **fix_directory_permissions**: Ensures correct directory permissions.
+- **initialize_rag**: Initializes the RAG database if `INITIALIZE_RAG=true`.
+- **setup_processed_files**: Configures `processed_files.json`.
 
-# Initialize RAG database
-initialize_rag() {
-    # Initialize if INITIALIZE_RAG=true
-}
+## Required Environment Variables
 
-# Handle processed_files.json
-setup_processed_files() {
-    # Create and configure processed_files.json
-}
-```
-
-## Environment Variables
-
-### Required Variables
-```bash
-# Container configuration
-CONTAINER_NAME=atlantium_llm-web-app-1
-PYTHONIOENCODING=utf-8
-USE_CPU=0/1
-INITIALIZE_RAG=false
-
-# Build configuration
-BUILD_TYPE=gpu/cpu
-DOCKER_BUILDKIT=1
-```
+- **General**:
+  - `CONTAINER_NAME=atlantium_llm-web-app-1`
+  - `PYTHONIOENCODING=utf-8`
+  - `USE_CPU=0/1`
+  - `INITIALIZE_RAG=false`
+- **Build**:
+  - `BUILD_TYPE=gpu/cpu`
+  - `DOCKER_BUILDKIT=1`
 
 ## Common Operations
 
 ### Container Management
-```bash
-# View container logs
-docker logs atlantium_llm-web-app-1 -f --tail=100
-
-# Remove all containers
-docker rm -f $(docker ps -a -q)
-
-# System cleanup
-docker system prune --all --volumes --force
-```
+- **View Logs**:
+  ```bash
+  docker logs atlantium_llm-web-app-1 -f --tail=100
+  ```
+- **Remove All Containers**:
+  ```bash
+  docker rm -f $(docker ps -a -q)
+  ```
+- **System Cleanup**:
+  ```bash
+  docker system prune --all --volumes --force
+  ```
 
 ### Volume Management
-```bash
-# List volumes
-docker volume ls
-
-# Inspect volumes
-docker volume inspect raw_docs
-docker volume inspect rag_data
-```
+- **List Volumes**:
+  ```bash
+  docker volume ls
+  ```
+- **Inspect Volumes**:
+  ```bash
+  docker volume inspect [volume_name]
+  ```
 
 ### Resource Monitoring
-```bash
-# Monitor container resources
-docker stats atlantium_llm-web-app-1
-
-# Check GPU status (GPU profile)
-docker exec atlantium_llm-web-app-1 nvidia-smi
-```
+- **Container Stats**:
+  ```bash
+  docker stats atlantium_llm-web-app-1
+  ```
+- **GPU Status**:
+  ```bash
+  docker exec atlantium_llm-web-app-1 nvidia-smi
+  ```
 
 ## Troubleshooting
 
-### Common Issues
+### GPU Detection Issues
+- **Verify NVIDIA Drivers**:
+  ```bash
+  nvidia-smi
+  ```
+- **Check Container Toolkit**:
+  ```bash
+  nvidia-container-cli info
+  ```
 
-1. GPU Detection Failures
-```bash
-# Verify NVIDIA drivers
-nvidia-smi
+### Volume Issues
+- **Check Permissions**:
+  ```bash
+  ls -la /var/lib/docker/volumes/
+  ```
+- **Verify Mount Points**:
+  ```bash
+  docker inspect atlantium_llm-web-app-1
+  ```
 
-# Check container toolkit
-nvidia-container-cli info
-```
-
-2. Volume Persistence
-```bash
-# Check volume permissions
-ls -la /var/lib/docker/volumes/
-
-# Verify mount points
-docker inspect atlantium_llm-web-app-1
-```
-
-3. Build Failures
-```bash
-# Clean build cache
-docker builder prune
-
-# Force CPU profile
-export BUILD_TYPE=cpu && ./deploy.sh
-```
+### Build Issues
+- **Clean Cache**:
+  ```bash
+  docker builder prune
+  ```
+- **Force CPU Build**:
+  ```bash
+  export BUILD_TYPE=cpu && ./deploy.sh
+  ```
 
 ## Related Documentation
 
 - [Installation Guide](../docs/installation.md)
 - [Technical Reference](../docs/technical-reference.md)
 - [Update Service](../docs/update-service.md)
+

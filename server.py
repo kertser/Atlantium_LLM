@@ -59,7 +59,6 @@ from pydantic import BaseModel
 
 from config import CONFIG
 from models.prompt_manager import PromptLoader, PromptBuilder
-from models.image_processor import ImageProcessor, ImageClassifier
 from utils.FAISS_utils import load_faiss_index, load_metadata, query_with_context
 from utils.LLM_utils import CLIP_init, openai_post_request
 from utils.document_utils import (
@@ -71,6 +70,7 @@ from utils.document_utils import (
     rescan_documents,
 )
 from utils.img_utils import ImageProcessor as ImageUtils
+from utils.img_utils import ImageQuery, ImageClassifier
 from models.agents.agent_manager import AgentManager
 from models.agents.websearch_agent import WebSearchAgent
 from RAG_processor import document_processing_sequence
@@ -521,7 +521,7 @@ class RAGQueryServer:
         self.agent_manager = AgentManager(api_key=self.openai_api_key)
 
         # Initialize components
-        self.image_processor = ImageProcessor(
+        self.image_query = ImageQuery(
             openai_client=self.client,
             model=self.model,
             device=self.device,
@@ -584,7 +584,7 @@ class RAGQueryServer:
                 return []
 
             # Get base64 image directly
-            base64_image = self.image_processor.image_store.get_base64(image_id)
+            base64_image = self.image_query.image_store.get_base64(image_id)
             if not base64_image:
                 return []
 
@@ -650,7 +650,7 @@ class RAGQueryServer:
 
                 if any(filename.upper().startswith(f"{ref}-".upper()) for ref in referenced_docs):
                     try:
-                        base64_image = self.image_processor.image_store.get_base64(image_id)
+                        base64_image = self.image_query.image_store.get_base64(image_id)
                         if base64_image:
                             context = img_data.get('context', '')
                             contexts.append(context)
@@ -816,7 +816,7 @@ class RAGQueryServer:
 
             # Deduplicate if we have any images
             if all_images:
-                all_images = self.image_processor.image_classifier.deduplicate(
+                all_images = self.image_query.image_classifier.deduplicate(
                     all_images,
                     CONFIG.DEDUPLICATION_THRESHOLD
                 )
@@ -840,7 +840,7 @@ class RAGQueryServer:
     async def process_image_query(self, image_data: bytes, query_text: Optional[str] = None) -> Dict:
         """Process image query using ImageProcessor."""
         try:
-            result = await self.image_processor.process_image_query(image_data, query_text)
+            result = await self.image_query.process_image_query(image_data, query_text)
             if result.get('is_technical', False):
                 self.update_chat_history(
                     f"[Image Query] {query_text or 'Analyze image'}",

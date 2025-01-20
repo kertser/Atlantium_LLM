@@ -1,0 +1,274 @@
+version: "1.0.2"
+last_updated: "2025-01-20 09:39:26"
+maintained_by: "Atlantium"
+
+# Core Company Information
+company:
+  name: "Atlantium Technologies Ltd."
+  founding_year: 2003
+  headquarters: "Beit Shemesh, Israel"
+  mission: "To provide sustainable water treatment solutions using advanced UV technology"
+  website: "https://www.atlantium.com"
+
+# Leadership & Structure
+leadership:
+  current:
+    ceo: "Yariv Abramovich"  # Current CEO
+    cto: "Ytzhak Rozenberg"  # Current CTO
+    coo: "Roy Shemer"  # Current COO
+    cfo: "Gil Segal"  # Current CFO
+    board_chairman: "Arnon Goldfarb"  # Current Chairman
+    founder: "Benjamin Kahn"  # Founder and Visionary
+    evp_growth_m_and_a: "Shimon Constante"  # EVP Growth and M&A
+    evp_north_america_special_projects: "Shai Goren"  # EVP North America & Special Projects
+    svp_emea_global_aquaculture: "Aran Lavi"  # SVP EMEA & Global Aquaculture
+    svp_sales_marketing_latin_america: "Daniel Waitman"  # SVP Sales & Marketing Latin America
+    svp_sales_marketing_asia_pacific: "Michael Argaman"  # SVP Sales & Marketing Asia Pacific
+    svp_sales_marketing_greater_china: "Itai Bransky"  # SVP Sales & Marketing Greater China
+    vp_global_post_sales_operations: "Iris Mor"  # VP Global Post Sales Operations
+    vp_marketing: "Tammy Richard"  # VP Marketing
+    vp_process_innovation: "Amichai Felder"  # VP Process & Innovation
+    vp_hr: "Ziva Levitanus"  # VP HR
+    vp_business_development_mea: "Avihay Druckmann"  # VP Business Development Middle East & Africa
+    director_sales_east_europe_cis: "Max Lurie"  # Director Sales East Europe & CIS
+    sbu_senior_director_bwms: "Ofer Cohen"  # SBU Senior Director, BWMS
+
+# Core Technologies
+technologies:
+  uv_systems:
+    core_technology: "Hydro-Optic™ (HOD) UV Technology"
+    key_features:
+      - "Medium Pressure UV technology"
+      - "Total Internal Reflection"
+      - "Real-time monitoring and control"
+      - "Dose assurance"
+      - "Automatic Deposit Prevention Mechanism (DPM)"
+
+    applications:
+      - "Municipal water treatment"
+      - "Food & Beverage industry"
+      - "Aquaculture"
+      - "Industrial processes"
+      - "Wastewater treatment"
+      - "Ballast water treatment"
+      - "Bio pharma"
+      - "Power industry"
+
+# Product Lines
+products:
+  current_systems:
+    - name: "RS Series"
+      models: ["RS104"]
+      applications:
+        - "Industrial water treatment"
+        - "Aquaculture"
+        - "Food & Beverage industry"
+
+    - name: "RZ Series"
+      models: ["RZ104-11", "RZ104-12", "RZ163-11", "RZ163-12", "RZ163-13", "RZ163-14", "RZ300-11", "RZ300-12", "RZ300-13", "RZ300-14"]
+      applications:
+        - "Municipal water disinfection"
+        - "Industrial water treatment"
+        - "Aquaculture"
+        - "Food & Beverage industry"
+
+    - name: "RZB Series"
+      models: ["RZB300-11", "RZB300-12", "RZB300-13", "RZB300-14"]
+      applications:
+        - "Beverage water disinfection"
+        - "Food & Beverage industry"
+        - "Aquaculture water disinfection"
+
+    - name: "RZM Series"
+      models: ["RZM200-2", "RZM200-3", "RZM200-5", "RZM350-5", "RZM350-8", "RZMW350-7", "RZMW350-11"]
+      applications:
+        - "Municipal water disinfection"
+        - "Ballast water disinfection"
+        - "Industrial water treatment"
+
+    - name: "OC Series"
+      models: ["OC750-6", "OC750-11", "OC1550-22", "OC2350-33"]
+      remarks:
+        - "Open Channel"
+      applications:
+        - "Wastewater disinfection"
+        - "Municipal water disinfection"
+
+    - name: "EP Series"
+      models: ["EP600-2", "EP600-4", "EP900-4"]
+      applications:
+        - "Industrial water treatment"
+        - "Municipal water disinfection"
+
+# Technical Specifications (Public)
+technical_specs:
+  treatment_capabilities:
+    log_reduction: "Up to 6-log"
+    flow_rates:
+      min: "1 m³/h"
+      max: "10000 m³/h"
+    uv_wavelength: "200-415nm"
+
+  monitoring:
+    parameters:
+      - "Flow rate"
+      - "UVT (UV Transmittance)"
+      - "Lamp status"
+      - "UV Dose"
+      - "Water temperature"
+
+# Certifications & Validations
+certifications:
+  regulatory:
+    - authority: "U.S. Environmental Protection Agency (EPA)"
+      standard: "UV Disinfection Guidance Manual (UVDGM)"
+      year: 2020
+
+    - authority: "National Sanitation Foundation (NSF)"
+      standard: "NSF/ANSI 55"
+      year: 2021
+
+    - authority: "International Maritime Organization (IMO)"
+      standard: "Ballast Water Management Convention"
+      year: 2024
+
+    - authority: "U.S. Coast Guard (USCG)"
+      standard: "Ballast Water Management System Type Approval"
+      year: 2024
+
+# Public Performance Data
+performance:
+  validated_applications:
+    - pathogen: "Cryptosporidium"
+      log_reduction: "4-log"
+      conditions: "Standard testing conditions"
+
+    - pathogen: "Giardia"
+      log_reduction: "4-log"
+      conditions: "Standard testing conditions"
+
+# Service & Support
+service:
+  global_presence:
+    regions: ["Americas", "Europe", "Asia Pacific", "Middle East", "Africa"]
+
+  support_channels:
+    - type: "Technical Support"
+      contact: "support@atlantium.com"
+    - type: "Sales Inquiries"
+      contact: "sales@atlantium.com"
+    - type: "Customer Service"
+      contact: "info@atlantium.com"
+
+# Public Case Studies
+case_studies:
+  - industry: "Municipal"
+    location: "Lunenburg, Massachusetts, USA"
+    challenge: "Cryptosporidium inactivation and chlorine taste/odor issues"
+    solution: "Installation of RZ300-11 HOD UV system"
+    results: "Achieved 4-log reduction of Cryptosporidium and improved water taste and odor"
+
+  - industry: "Industrial"
+    location: "California, USA"
+    challenge: "NDMA contamination in water supply"
+    solution: "Implementation of HOD UV system"
+    results: "Significant reduction in NDMA concentrations"
+
+  - industry: "Aquaculture"
+    location: "Palma, Spain"
+    challenge: "Preventing disease outbreaks in marine ecosystems"
+    solution: "Deployment of HOD UV technology"
+    results: "Enhanced water biosecurity at Palma Aquarium"
+
+  - industry: "Power Generation"
+    location: "Pinghu, China"
+    challenge: "Non-chemical boiler-feed make-up water disinfection"
+    solution: "Installation of HOD UV system"
+    results: "Effective RO membrane protection and reduced biofouling"
+
+  - industry: "Food & Beverage"
+    location: "Taiwan"
+    challenge: "Microbial contamination in simple syrup"
+    solution: "Integration of HOD UV system"
+    results: "Significant reduction in microbial levels"
+
+# Innovation & Research
+public_research:
+  publications:
+    - title: "UV Technology in Water Treatment"
+      year: 2022
+      type: "White Paper"
+    - title: "HOD™ UV Technology: Advancements and Applications"
+      year: 2023
+      type: "Research Article"
+
+  patents:
+    - number: "6468433"
+      title: "Method and device for disinfecting and purifying liquids and gasses"
+      year: 2002
+    - number: "6555011"
+      title: "Method for disinfecting and purifying liquids and gasses"
+      year: 2003
+    - number: "7560704"
+      title: "Method, device and system of illumination-based disinfection"
+      year: 2009
+    - number: "7628926"
+      title: "System and method for monitoring water transmission of UV light in disinfection systems"
+      year: 2009
+    - number: "7683344"
+      title: "In-line treatment of liquids and gases by light irradiation"
+      year: 2010
+    - number: "7763177"
+      title: "System and method for ultrasonic cleaning of ultraviolet disinfection system"
+      year: 2010
+    - number: "8088289"
+      title: "Method and device for affecting a chemical or mechanical property of a target site"
+      year: 2012
+    - number: "8475714"
+      title: "Method and system for selective ultraviolet disinfection"
+      year: 2013
+    - number: "8872131"
+      title: "Method and system for treating liquids by ultraviolet illumination"
+      year: 2014
+    - number: "9809467"
+      title: "System and method for inactivation of infectious pancreatic necrosis virus (IPNV) using medium pressure ultraviolet (UV) light"
+      year: 2017
+    - number: "10029926"
+      title: "System and method for inactivation of infectious pancreatic necrosis virus (IPNV) using medium pressure ultraviolet (UV) light"
+      year: 2018
+    - number: "10155671"
+      title: "System and method for controlling ultraviolet liquid disinfection"
+      year: 2018
+    - number: "10294124"
+      title: "Method and apparatus for liquid disinfection by light emitted from light emitting diodes"
+      year: 2019
+    - number: "10427954"
+      title: "Method and apparatus for liquid disinfection using light transparent conduit"
+      year: 2019
+    - number: "10494273"
+      title: "Method and apparatus for liquid disinfection using light transparent conduit"
+      year: 2019
+    - number: "11997991"
+      title: "Immune-enhanced aquaculture"
+      year: 2024
+    - number: "20240050606"
+      title: "Ultraviolet disinfection with augmented reality monitoring"
+      year: 2024
+
+# Environmental Impact
+sustainability:
+  benefits:
+    - "Chemical-free water treatment"
+    - "Energy-efficient operation"
+    - "Reduced environmental impact"
+    - "Sustainable water management"
+    - "Minimized use of hazardous materials"
+
+# Industry Standards Compliance
+standards_compliance:
+  - standard: "ISO 9001"
+    scope: "Quality Management"
+  - standard: "ISO 14001"
+    scope: "Environmental Management"
+  - standard: "ISO 45001"
+    scope: "Occupational Health and Safety Management"

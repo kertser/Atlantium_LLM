@@ -1,26 +1,54 @@
 # Atlantium AI RAG-Based Technical Assistant for UV Systems
 
-Atlantium's Retrieval-Augmented Generation (RAG) system is an advanced AI-driven technical assistant designed for UV system management. This platform combines FAISS indexing, CLIP embeddings, and Large Language Models to process technical documentation and images, providing intelligent responses to queries about UV systems.
+Atlantium's Retrieval-Augmented Generation (RAG) system is a cutting-edge AI platform designed for advanced UV system management. This system integrates FAISS indexing, CLIP embeddings, and Large Language Models to deliver intelligent, context-aware technical assistance for managing UV systems, documents, and images.
 
-## Core Features
+---
 
-- Document Processing: PDF, DOCX, and XLSX support
-- Image Analysis: Technical image classification and context extraction
-- Vector Search: FAISS-powered similarity matching
-- Multimodal Understanding: CLIP-based embeddings
-- Context-Aware Responses: LLM with RAG enhancement
-- Web Interface: Real-time interaction and document management
+## 🚀 Key Features
 
-## Quick Installation
+### 🗂️ Document Management
+- **Supported Formats**: PDF, DOCX, XLSX
+- **Hierarchical File Organization**
+- **Bulk Operations & Context Menus**
 
-### Prerequisites
-- Ubuntu 22.04 LTS or later
-- Docker 24.0+ and Docker Compose V2
-- 16GB RAM (8GB minimum)
-- 20GB available storage
-- OpenAI API key
+### 📸 Image Analysis
+- **Image Classification**: Zero-shot capabilities for technical images
+- **Context Extraction**: Associates images with text-based context
+- **Deduplication**: Intelligent removal of duplicate images
 
-### Basic Setup
+### 🔍 Vector Search
+- **Powered by FAISS**: Fast and efficient similarity matching
+- **Multimodal Embeddings**: CLIP/BLIP integration for comprehensive insights
+
+### 🤖 Context-Aware Responses
+- **Integrated LLM**: Advanced language models with RAG enhancements
+- **Query Support**: Processes text and image queries
+
+### 🌐 Web Interface
+- **Real-Time Interaction**: Query responses and document management
+- **Chat History**: Persistent, resettable conversation tracking
+
+---
+
+## 📋 System Requirements
+
+### Hardware
+- **CPU**: 4+ cores recommended
+- **RAM**: 16GB recommended
+- **Storage**: 20GB+ (SSD preferred)
+- **GPU**: NVIDIA GPU with 8GB+ VRAM (optional for GPU acceleration)
+
+### Software
+- **Operating System**: Ubuntu 22.04 LTS or later
+- **Tools**: Docker 24.0+ and Docker Compose V2, Git
+- **API Access**: OpenAI API key
+
+---
+
+## 🛠️ Installation Guide
+
+### Standard Setup
+
 ```bash
 # Create project directory
 mkdir -p ~/Projects && cd ~/Projects
@@ -38,70 +66,94 @@ sudo chmod +x deploy.sh
 
 # Deploy application
 sudo ./deploy.sh --init
-(or sudo ./deploy.sh for subsequent runs)
 ```
-# Access local web interface
 
-The web interface will be available at `http://localhost:9000`
+### Access Web Interface
+Visit: `http://localhost:9000`
 
-## Project Basic Structure
+For detailed installation, refer to the [Installation Guide](docs/installation.md).
 
-```
+---
+
+## 🗂️ Project Structure
+
+```plaintext
 Atlantium_LLM/
-├── config.py                 # System configuration
-├── server.py                 # FastAPI server
-├── RAG_processor.py          # Document processor
-├── run.py                    # Server runner
-├── models/                   # AI components
+├── docs/                     # Documentation files
+├── models/                   # AI models and integrations
 ├── utils/                    # Utility modules
+├── logs/                     # Log files
+├── RAG_Data/                 # RAG-generated data
+├── Raw Documents/            # Document storage
 ├── static/                   # Frontend assets
-└── docs/                     # Documentation
+├── scripts/                  # Management scripts
+├── config.py                 # System configuration
+├── deploy.sh                 # Deployment script
+└── server.py                 # FastAPI server
 ```
-For full details, see the [Technical Reference](docs/technical-reference.md#project-full-structure)
 
-## Key Components
+For full structure details, visit the [Technical Reference](docs/technical-reference.md).
 
-### Server
-- FastAPI-based REST API
-- Real-time query processing
-- Document management
-- Chat interface with history
+---
 
-### RAG System
-- Document ingestion and processing
-- Vector indexing with FAISS
-- Multimodal embeddings using CLIP
-- Context-aware response generation
+## 🌟 Core Modules
 
-### Document Processing
-- Text extraction from multiple formats
-- Image extraction and analysis
-- Technical content classification
-- Context preservation
+### 📡 Server
+- **Backend**: FastAPI-based REST API
+- **Capabilities**: Real-time processing, document handling, chat interface
 
-### API Endpoints
+### 📚 RAG System
+- **Document Ingestion**: Processes PDFs, DOCX, XLSX
+- **FAISS Indexing**: Vector-based search and retrieval
+- **CLIP/BLIP Embeddings**: Multimodal data integration
 
-#### Document Management
-- POST `/upload/document`: Upload new document
-- POST `/process/documents`: Process uploaded files
-- GET `/get/documents`: List available documents
-- DELETE `/delete/document`: Remove document
+### 🛠️ Utilities
+- **Image Processing**: Hashing, classification, deduplication
+- **Document Processing**: Text extraction, chunking, metadata handling
+- **Query Management**: Text and image queries
 
-#### Query Processing
-- POST `/query/text`: Process text queries
-- POST `/query/image`: Process image queries
-- POST `/chat/reset`: Reset chat history
-- GET `/chat/history`: Retrieve chat history
+---
 
-## Documentation
+## 🔗 API Overview
 
-- [Installation Guide](docs/installation.md)
-- [Technical Reference](docs/technical-reference.md)
-- [Frontend Guide](docs/frontend.md)
-- [Models Documentation](docs/models.md)
-- [Utils Reference](docs/utils.md)
-- [Update Service](docs/update-service.md)
+### Document Management
+- **Upload**: `POST /upload/document`
+- **Process**: `POST /process/documents`
+- **List**: `GET /get/documents`
+- **Delete**: `DELETE /delete/document`
 
-## Support
+### Query Processing
+- **Text**: `POST /query/text`
+- **Image**: `POST /query/image`
+- **Reset Chat**: `POST /chat/reset`
+- **Chat History**: `GET /chat/history`
 
-For technical assistance, contact [Mike Kertser](mailto:mikek@atlantium.com)
+For detailed endpoints, consult the [Technical Reference](docs/technical-reference.md#api-documentation).
+
+---
+
+## 🔄 Update Service
+
+### Features
+- **Automated Updates**: Monitors GitHub for new releases
+- **Backup System**: Ensures data persistence during updates
+- **Service Control**: `systemctl` integration
+
+For update procedures, refer to the [Update Service Guide](docs/update-service.md).
+
+---
+
+## 📘 Documentation
+
+1. [Installation Guide](docs/installation.md)
+2. [Technical Reference](docs/technical-reference.md)
+3. [Frontend Guide](docs/frontend.md)
+4. [Models Documentation](docs/models.md)
+5. [Utils Reference](docs/utils.md)
+6. [Update Service](docs/update-service.md)
+
+---
+
+## 💡 Support
+For technical assistance, contact [Mike Kertser](mailto:mikek@atlantium.com).
+
