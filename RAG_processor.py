@@ -564,7 +564,7 @@ def check_stored_images():
 
 def update_processed_files(doc_paths: List[Union[str, Path]]) -> None:
     """Update the local record of successfully processed files."""
-    processed_files_path = CONFIG.BASE_DIR / "processed_files.json"  # Changed to base dir
+    processed_files_path = CONFIG.PROCESSED_FILES_PATH
     try:
         if processed_files_path.exists():
             with open(processed_files_path, 'r', encoding='utf-8') as f:
@@ -611,7 +611,7 @@ def get_unprocessed_documents():
 
 def get_processed_files():
     """Load the list of documents that have already been processed."""
-    processed_files_path = CONFIG.BASE_DIR / "processed_files.json"  # Changed to base dir
+    processed_files_path = CONFIG.PROCESSED_FILES_PATH
     try:
         if processed_files_path.exists():
             with open(processed_files_path, 'r', encoding='utf-8') as f:

@@ -89,7 +89,7 @@ def initialize_rag_database(
                 CONFIG.FAISS_INDEX_PATH,
                 CONFIG.METADATA_PATH,
                 CONFIG.IMAGE_METADATA_PATH,
-                CONFIG.BASE_DIR / "processed_files.json",
+                CONFIG.PROCESSED_FILES_PATH,
             ]
 
         if directories_to_clean is None:
@@ -144,13 +144,13 @@ def initialize_rag_database(
         logging.info("Creating required directory structure...")
         dir_status = create_required_directories()
 
-        # Create empty processed_files.json
+        # Create empty processed_files
         try:
-            processed_files_path = CONFIG.BASE_DIR / "processed_files.json"
+            processed_files_path = CONFIG.PROCESSED_FILES_PATH
             processed_files_path.write_text("[]", encoding="utf-8")
-            logging.info("Created empty processed_files.json")
+            logging.info("Created empty processed_files")
         except Exception as e:
-            logging.error(f"Error creating processed_files.json: {e}")
+            logging.error(f"Error creating processed_files: {e}")
 
         # Log final status
         logging.info("\nInitialization Summary:")
