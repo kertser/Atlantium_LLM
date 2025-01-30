@@ -56,7 +56,7 @@ if [ "$INITIALIZE_RAG" = "true" ]; then
 fi
 
 # Handle processed_files.json
-PROCESSED_FILE="/app/RAG_DATA/processed_files.json"
+PROCESSED_FILE="/app/RAG_Data/processed_files.json"
 if [ ! -f "$PROCESSED_FILE" ]; then
     echo "Creating $PROCESSED_FILE"
     echo "{}" > "$PROCESSED_FILE" || {
@@ -73,6 +73,8 @@ if [ ! -f "$PROCESSED_FILE" ]; then
         echo "Failed to set permissions on $PROCESSED_FILE"
         exit 1
     }
+else
+    echo "$PROCESSED_FILE already exists, skipping creation."
 fi
 
 echo "Final directory structure:"
