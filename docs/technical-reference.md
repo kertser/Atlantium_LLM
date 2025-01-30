@@ -38,6 +38,7 @@ Atlantium_LLM/                        # Project root
 │   ├── faiss_index.bin               # Vector database
 │   ├── faiss_metadata.json           # Index metadata
 │   ├── image_metadata.json           # Image metadata
+│   ├── processed_files.json          # Processing tracking
 │   ├── stored_images/                # Processed images
 │   └── stored_text_chunks/           # Processed text
 ├── Raw Documents/                    # Document storage
@@ -68,7 +69,6 @@ Atlantium_LLM/                        # Project root
 ├── deploy.sh                         # Deployment script
 ├── docker-compose.yaml               # Container orchestration
 ├── Dockerfile                        # Container definition
-├── processed_files.json              # Processing tracking
 ├── RAG_processor.py                  # Document processor
 ├── README.md                         # Project documentation
 ├── requirements_cpu.txt              # CPU dependencies

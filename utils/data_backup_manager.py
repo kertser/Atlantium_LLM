@@ -51,17 +51,15 @@ class DataBackupManager:
     def __init__(self):
         self.base_dir = CONFIG.BASE_DIR
         self.rag_data_path = CONFIG.RAG_DATA
-        self.processed_files_path = CONFIG.PROCESSED_FILES_PATH
         self.backup_dir = os.path.join(self.base_dir, 'backups')
 
         print("Initializing DataBackupManager...")
         print(f"Base directory: {self.base_dir}")
         print(f"RAG_Data path: {self.rag_data_path}")
-        print(f"Processed files path: {self.processed_files_path}")
         print(f"Backup directory: {self.backup_dir}")
 
     def create_backup(self):
-        """Create a backup of RAG_Data and processed_files.json"""
+        """Create a backup of RAG_Data"""
         if not os.path.exists(self.backup_dir):
             os.makedirs(self.backup_dir)
 
@@ -82,13 +80,6 @@ class DataBackupManager:
                     else:
                         print("\nWarning: RAG_Data directory not found")
 
-                    # Backup processed_files.json if it exists
-                    if os.path.exists(self.processed_files_path):
-                        zipf.write(self.processed_files_path,
-                                   os.path.basename(self.processed_files_path))
-                    else:
-                        print("\nWarning: processed_files.json not found")
-
             backup_size = os.path.getsize(backup_path) / (1024 * 1024)  # Size in MB
             print(f"\nBackup created successfully: {backup_filename} ({backup_size:.2f} MB)")
             return backup_path
@@ -106,7 +97,6 @@ class DataBackupManager:
         # Add warning and confirmation
         print("\n⚠️  WARNING: This will overwrite your current files:")
         print("   - All contents in RAG_Data directory will be deleted and replaced")
-        print("   - processed_files.json will be overwritten")
 
         confirmation = input("\nAre you sure you want to proceed? (yes/no): ").lower().strip()
         if confirmation != 'yes':
@@ -134,15 +124,6 @@ class DataBackupManager:
                     print("RAG_Data restored successfully")
                 else:
                     print("\nWarning: No RAG_Data found in backup")
-
-                # Restore processed_files.json
-                processed_files_backup = os.path.join(temp_dir, 'processed_files.json')
-                if os.path.exists(processed_files_backup):
-                    print("Overwriting processed_files.json...")
-                    shutil.copy2(processed_files_backup, self.processed_files_path)
-                    print("processed_files.json restored successfully")
-                else:
-                    print("\nWarning: No processed_files.json found in backup")
 
             print(f"\nBackup restored successfully from: {backup_path}")
 

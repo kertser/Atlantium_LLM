@@ -56,7 +56,7 @@ if [ "$INITIALIZE_RAG" = "true" ]; then
 fi
 
 # Handle processed_files.json
-PROCESSED_FILE="/app/processed_files.json"
+PROCESSED_FILE="/app/RAG_DATA/processed_files.json"
 if [ ! -f "$PROCESSED_FILE" ]; then
     echo "Creating $PROCESSED_FILE"
     echo "{}" > "$PROCESSED_FILE" || {

@@ -111,7 +111,7 @@ def rescan_documents() -> tuple[bool, str]:
         logger.info("Starting document rescan process")
 
         # Load processed files list
-        processed_files_path = Path("processed_files.json")
+        processed_files_path = CONFIG.PROCESSED_FILES_PATH
         if processed_files_path.exists():
             with open(processed_files_path, 'r', encoding='utf-8') as f:
                 processed_files = set(json.load(f))
@@ -356,7 +356,7 @@ def remove_document_from_rag(doc_path: Path) -> Tuple[bool, str]:
 
         # Update processed files list
         try:
-            processed_files_path = Path("processed_files.json")
+            processed_files_path = CONFIG.PROCESSED_FILES_PATH
             if processed_files_path.exists():
                 with open(processed_files_path, 'r', encoding='utf-8') as f:
                     processed_files = set(json.load(f))
@@ -463,9 +463,9 @@ def cleanup_orphaned_chunks() -> Tuple[bool, str]:
 
 
 def update_processed_files_list(file_path: Path, remove: bool = False) -> None:
-    """Updates the processed_files.json list."""
+    """Updates the processed_files list."""
     try:
-        processed_files_path = Path("processed_files.json")
+        processed_files_path = CONFIG.PROCESSED_FILES_PATH
         if processed_files_path.exists():
             with open(processed_files_path, 'r') as f:
                 processed_files = set(json.load(f))
@@ -539,7 +539,7 @@ def rename_folder_in_rag(old_path: Path, new_path: Path) -> tuple[bool, str]:
         # Load all metadata files
         faiss_metadata_path = CONFIG.METADATA_PATH
         image_metadata_path = CONFIG.IMAGE_METADATA_PATH
-        processed_files_path = Path("processed_files.json")
+        processed_files_path = CONFIG.PROCESSED_FILES_PATH
 
         # Get the old and new folder names for replacement
         old_folder_name = old_path.name
@@ -617,7 +617,7 @@ def rename_folder_in_rag(old_path: Path, new_path: Path) -> tuple[bool, str]:
             logger.error(f"Error updating image metadata: {e}")
             return False, f"Failed to update image metadata: {e}"
 
-        # Update processed_files.json
+        # Update processed_files
         try:
             if processed_files_path.exists():
                 with open(processed_files_path, 'r', encoding='utf-8') as f:
@@ -628,10 +628,10 @@ def rename_folder_in_rag(old_path: Path, new_path: Path) -> tuple[bool, str]:
 
                 with open(processed_files_path, 'w', encoding='utf-8') as f:
                     json.dump(updated_processed_files, f, indent=2)
-                logger.info("Updated processed_files.json")
+                logger.info("Updated processed_files")
 
         except Exception as e:
-            logger.error(f"Error updating processed_files.json: {e}")
+            logger.error(f"Error updating processed_files: {e}")
             return False, f"Failed to update processed files list: {e}"
 
         # Rename the actual folder

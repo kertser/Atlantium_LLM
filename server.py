@@ -549,15 +549,15 @@ class RAGQueryServer:
     def _load_processed_files() -> List[str]:
         """Load the list of processed files from metadata."""
         try:
-            metadata_path = CONFIG.PROCESSED_FILES_PATH  # Make sure this is defined in your config
-            if os.path.exists(metadata_path):
-                with open(metadata_path, 'r', encoding='utf-8') as f:
+            processed_files_path = CONFIG.PROCESSED_FILES_PATH  # Make sure this is defined in your config
+            if os.path.exists(processed_files_path):
+                with open(processed_files_path, 'r', encoding='utf-8') as f:
                     return json.load(f)
             else:
-                logging.warning(f"No processed files metadata found at {metadata_path}")
+                logging.warning(f"No processed files metadata found at {processed_files_path}")
                 return []
         except Exception as e:
-            logging.error(f"Error loading processed files metadata: {e}")
+            logging.error(f"Error loading processed files: {e}")
             return []
 
     def _initialize_index(self):

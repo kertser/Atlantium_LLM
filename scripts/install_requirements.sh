@@ -16,6 +16,7 @@ if [ ! -f "$REQ_FILE" ]; then
     exit 1
 fi
 
+python -m pip install --upgrade pip
 pip cache purge
 echo "Installing from: $REQ_FILE"
 pip install --no-cache-dir -r "$REQ_FILE" || {

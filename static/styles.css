@@ -441,11 +441,55 @@ button:hover {
     margin-top: 1rem;
     width: 100%;
     background: var(--primary-color);
+    position: relative;
+    overflow: hidden;
 }
 
 .process-btn:disabled {
     background: #ccc;
     cursor: not-allowed;
+}
+
+.process-btn.processing {
+    padding-right: 2.5rem;
+}
+
+.progress-container {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.2);
+    display: block;
+}
+
+.progress-bar {
+    width: 0;
+    height: 100%;
+    background: #28a745;
+    transition: width 0.2s ease;
+    display: block;
+}
+
+.button-text {
+    position: relative;
+    z-index: 1;
+    display: inline-block;
+}
+
+.process-btn.processing::after {
+    content: "";
+    position: absolute;
+    right: 1rem;
+    top: 30%;
+    width: 1rem;
+    height: 1rem;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    border-top-color: transparent;
+    animation: spin 1s linear infinite;
+    transform-origin: center;
 }
 
 table, th, td {
@@ -938,25 +982,6 @@ td .select-checkbox {
     100% {
         content: '';
     }
-}
-
-.process-btn.processing {
-    position: relative;
-    padding-right: 2.5rem;
-}
-
-.process-btn.processing::after {
-    content: "";
-    position: absolute;
-    right: 1rem;
-    top: 30%;
-    width: 1rem;
-    height: 1rem;
-    border: 2px solid #fff;
-    border-radius: 50%;
-    border-top-color: transparent;
-    animation: spin 1s linear infinite;
-    transform-origin: center;
 }
 
 .developer-credits {

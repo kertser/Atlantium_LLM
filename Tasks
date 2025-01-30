@@ -1,7 +1,5 @@
 # Ongoing Tasks / Errors:
 ------------------------------------------------------------------------------------------------------------
-* Visualize the document processing with progress bar - over the "processing" button (processing batches)
-May-be trigger endpoint with percentage?
 * Replace "\\" with "/" - add .as_posix() to the path to convert it to string object with "/"
 (May be replace absolute paths with relative, for compatibility with Linux)
 
